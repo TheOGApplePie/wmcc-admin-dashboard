@@ -1,4 +1,20 @@
 @import "tailwindcss";
 @plugin "daisyui" {
-  themes: pastel --default;
+    themes: pastel --default;
+}
+
+h1 {
+    font-size: var(--text-3xl) /* 1.875rem = 30px */;
+    line-height: var(
+        --tw-leading,
+        var(--text-3xl--line-height) /* calc(2.25 / 1.875) ≈ 1.2 */
+    );
+}
+
+h3 {
+    font-size: var(--text-xl) /* 1.875rem = 30px */;
+    line-height: var(
+        --tw-leading,
+        var(--text-xl--line-height) /* calc(2.25 / 1.875) ≈ 1.2 */
+    );
 }
