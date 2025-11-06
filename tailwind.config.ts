@@ -7,5 +7,5 @@ module.exports = {
   theme: {
     extend: {},
   },
-  plugins: [require("daisyui")], // Add daisyUI here
+  plugins: [require("daisyui"), require("@tailwindcss/container-queries")], // Add daisyUI here
 };

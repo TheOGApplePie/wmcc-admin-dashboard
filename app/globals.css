@@ -1,20 +1,30 @@
 @import "tailwindcss";
 @plugin "daisyui" {
-    themes: pastel --default;
+  themes: pastel --default;
 }
-
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+  --main-colour-blue: #1e3a5f;
+  --secondary-colour-green: #026c54;
+  --secondary-colour-green-light: #1b9679;
+  --secondary-colour-green-light-filter: invert(44%) sepia(99%) saturate(362%)
+    hue-rotate(116deg) brightness(88%) contrast(86%);
+  --accent-colour-white: #f5f0f6;
+  --warning-colour: #fbbf24;
+}
 h1 {
-    font-size: var(--text-3xl) /* 1.875rem = 30px */;
-    line-height: var(
-        --tw-leading,
-        var(--text-3xl--line-height) /* calc(2.25 / 1.875) ≈ 1.2 */
-    );
+  font-size: var(--text-3xl) /* 1.875rem = 30px */;
+  line-height: var(
+    --tw-leading,
+    var(--text-3xl--line-height) /* calc(2.25 / 1.875) ≈ 1.2 */
+  );
 }
 
 h3 {
-    font-size: var(--text-xl) /* 1.875rem = 30px */;
-    line-height: var(
-        --tw-leading,
-        var(--text-xl--line-height) /* calc(2.25 / 1.875) ≈ 1.2 */
-    );
+  font-size: var(--text-xl) /* 1.875rem = 30px */;
+  line-height: var(
+    --tw-leading,
+    var(--text-xl--line-height) /* calc(2.25 / 1.875) ≈ 1.2 */
+  );
 }

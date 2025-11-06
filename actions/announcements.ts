@@ -1,15 +1,16 @@
 "use server";
-import { AnnouncementZod } from "@/app/schemas/announcement";
+import { Announcement, AnnouncementZod } from "@/app/schemas/announcement";
 import { ResponseCodes } from "@/app/enums/responseCodes";
 import { createSafeActionClient } from "next-safe-action";
 import { createClient } from "../utils/supabase/server";
+import z from "zod";
 
 const actionClient = createSafeActionClient();
 function sanitizeFilename(filename: string): string {
   return filename
     .normalize("NFD") // Decompose accented characters
-    .replace(/[\u0300-\u036f]/g, "") // Remove accents
-    .replace(/[^a-zA-Z0-9._-]/g, "_"); // Replace special chars with underscore
+    .replaceAll(/[\u0300-\u036f]/g, "") // Remove accents
+    .replaceAll(/[^a-zA-Z0-9._-]/g, "_"); // Replace special chars with underscore
 }
 export const createAnnouncement = actionClient
   .inputSchema(AnnouncementZod)
@@ -17,32 +18,16 @@ export const createAnnouncement = actionClient
     try {
       const supabase = await createClient();
       let storageUrl = parsedInput.poster_url || "";
-      console.log("URL: ", parsedInput.poster_url);
+
       if (parsedInput.poster_file.length) {
-        const fileUploaded = await supabase.storage
-          .from("event-posters")
-          .upload(
-            `public/${sanitizeFilename(parsedInput.poster_file[0].name)}`,
-            parsedInput.poster_file[0],
-          );
+        const fileUploaded = await uploadFile(
+          new Date().toDateString() +
+            "_" +
+            sanitizeFilename(parsedInput.poster_file[0].name),
+          parsedInput.poster_file[0]
+        );
 
         if (fileUploaded.error) {
-          const deletedFile = await supabase.storage
-            .from("event-posters")
-            .remove([
-              `public/${sanitizeFilename(parsedInput.poster_file[0].name)}`,
-            ]);
-
-          if (deletedFile.error) {
-            console.error(
-              "Error deleting file after upload error: ",
-              deletedFile.error.message,
-            );
-          } else if (deletedFile.data) {
-            console.info(
-              `File with name ${deletedFile.data.length} successfully deleted after upload error`,
-            );
-          }
           throw new Error("ERROR UPLOADING " + fileUploaded.error.message);
         }
 
@@ -54,7 +39,7 @@ export const createAnnouncement = actionClient
         }
       }
       if (parsedInput.id) {
-        const { data, error, count, statusText } = await supabase
+        const { data, error, count } = await supabase
           .from("announcements")
           .update({
             title: parsedInput.title,
@@ -71,10 +56,10 @@ export const createAnnouncement = actionClient
           data,
           count: count,
           status: ResponseCodes.SUCCESS,
-          statusText: statusText,
+          statusText: "Announcement updated successfully!",
         };
       } else {
-        const { data, error, count, statusText } = await supabase
+        const { data, error, count } = await supabase
           .from("announcements")
           .insert({
             title: parsedInput.title,
@@ -90,7 +75,7 @@ export const createAnnouncement = actionClient
           data,
           count: count,
           status: ResponseCodes.SUCCESS,
-          statusText: statusText,
+          statusText: "Announcement created successfully!",
         };
       }
     } catch (error) {
@@ -105,3 +90,68 @@ export const createAnnouncement = actionClient
       };
     }
   });
+
+export const deleteAnnouncement = actionClient
+  .inputSchema(z.object({ id: z.coerce.number() }))
+  .action(async ({ parsedInput }) => {
+    try {
+      const supabase = await createClient();
+      const announcementDeleted = await supabase
+        .from("announcements")
+        .delete()
+        .eq("id", parsedInput.id);
+      return {
+        error: announcementDeleted.error?.message ?? "",
+        data: announcementDeleted.data,
+        count: announcementDeleted.count,
+        status: ResponseCodes.SUCCESS,
+        statusText: announcementDeleted.statusText,
+      };
+    } catch (error) {
+      console.error(error);
+      return {
+        error: error instanceof Error ? error.message : String(error),
+        data: null,
+        count: null,
+        status: ResponseCodes.SERVER_ERROR,
+        statusText: "Internal Server Error",
+      };
+    }
+  });
+
+export const fetchAnnouncements = actionClient.action(async () => {
+  try {
+    const supabase = await createClient();
+
+    const { data: announcements } = await supabase
+      .from("announcements")
+      .select()
+      .order("id", { ascending: true })
+      .overrideTypes<Announcement[]>();
+    return {
+      error: null,
+      data: announcements,
+      count: announcements?.length,
+      status: ResponseCodes.SUCCESS,
+      statusText: "Announcements found successfully",
+    };
+  } catch (error) {
+    console.error(error);
+    return {
+      error: error instanceof Error ? error.message : String(error),
+      data: [],
+      count: 0,
+      status: ResponseCodes.SERVER_ERROR,
+      statusText: "Internal Server Error",
+    };
+  }
+});
+
+const uploadFile = async (name: string, file: z.core.File) => {
+  const supabase = await createClient();
+
+  const fileUploaded = await supabase.storage
+    .from("event-posters")
+    .upload(`public/${name}`, file);
+  return fileUploaded;
+};

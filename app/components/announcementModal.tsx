@@ -2,47 +2,89 @@
 import { Announcement } from "../schemas/announcement";
 import { useForm } from "react-hook-form";
 import Image from "next/image";
-import { ChangeEvent, useState } from "react";
+import { ChangeEvent, useEffect, useState } from "react";
 import { createAnnouncement } from "@/actions/announcements";
 import { FIVE_MB, URL_REGEX } from "../constants/general";
 import toast from "react-hot-toast";
 
 interface AnnouncementModalProps {
   announcement?: Announcement;
-  closeModal: () => void;
+  closeModal: (reloadAnnouncements: boolean) => void;
 }
+function formatDateTimeLocal(date: string | Date | null): string {
+  if (!date) return "";
 
+  const dateObj = typeof date === "string" ? new Date(date) : date;
+
+  // Get local date/time components
+  const year = dateObj.getFullYear();
+  const month = String(dateObj.getMonth() + 1).padStart(2, "0");
+  const day = String(dateObj.getDate()).padStart(2, "0");
+  const hours = String(dateObj.getHours()).padStart(2, "0");
+  const minutes = String(dateObj.getMinutes()).padStart(2, "0");
+
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
 export function AnnouncementModal({
   announcement,
   closeModal,
-}: AnnouncementModalProps) {
+}: Readonly<AnnouncementModalProps>) {
   const {
     register,
     handleSubmit,
     formState: { errors },
+    setError,
+    clearErrors,
     reset,
   } = useForm<Announcement>({
-    mode: "onBlur",
-    defaultValues: announcement,
+    mode: "onChange",
   });
 
   const [imageUrl, setImageUrl] = useState<string | null>(
-    announcement?.poster_url ?? null,
+    announcement?.poster_url ?? null
   );
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [useFile, setUseFile] = useState<boolean>(
+    !announcement?.poster_url?.length
+  );
 
+  useEffect(() => {
+    if (announcement) {
+      reset({
+        ...announcement,
+        expires_at: formatDateTimeLocal(announcement.expires_at),
+      });
+      setImageUrl(announcement.poster_url ?? null);
+      setUseFile(!announcement.poster_url?.length);
+    } else {
+      reset({
+        id: undefined,
+        title: "",
+        description: "",
+        poster_url: null,
+        poster_alt: "",
+        poster_file: [],
+        call_to_action_link: "",
+        call_to_action_caption: "",
+        expires_at: new Date(),
+      });
+      setImageUrl(null);
+      setUseFile(true);
+    }
+    setImageFile(null);
+  }, [announcement, reset]);
   const handleImageChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       if (file.size > FIVE_MB) {
-        useForm().setError("poster_file", {
+        setError("poster_file", {
           message:
             "This file is too big. Please select an image file less than 5MB.",
         });
       } else if (
         !["image/png", "image/jpeg", "image/jpg"].includes(file.type)
       ) {
-        useForm().setError("poster_file", {
+        setError("poster_file", {
           message:
             "This is an unsupported file type. Please upload a JPG/JPEG or PNG image.",
         });
@@ -51,21 +93,41 @@ export function AnnouncementModal({
         setImageUrl(URL.createObjectURL(file));
       }
     } else {
-      setImageFile(null);
-      setImageUrl(null);
-      useForm().clearErrors(["poster_file", "poster_url"]);
+      const url = event.target.value;
+      if (url.length) {
+        setImageUrl(url);
+      } else {
+        setImageFile(null);
+        setImageUrl(null);
+      }
+      clearErrors(["poster_file", "poster_url"]);
     }
   };
-  async function onSubmit(data) {
+  async function onSubmit(data: Announcement) {
     console.log(data);
-    const response = await createAnnouncement(data);
+    const response = await createAnnouncement({
+      id: data.id,
+      call_to_action_caption: data.call_to_action_caption,
+      title: data.title,
+      description: data.description,
+      poster_url: data.poster_url?.length ? data.poster_url : null,
+      poster_alt: data.poster_alt ?? null,
+      poster_file: data.poster_file ?? [],
+      call_to_action_link: data.call_to_action_link ?? null,
+      expires_at: new Date(data.expires_at).toISOString(),
+    });
     if (response.data?.error) {
       toast.error(response.data?.error);
     } else if (response.validationErrors) {
       console.log(response.validationErrors);
     } else {
-      toast.success(response.data?.statusText!);
-      closeModal();
+      toast.success(
+        response.data?.statusText ?? "Announcement created successfully!"
+      );
+      reset();
+      setImageUrl(null);
+      setImageFile(null);
+      closeModal(true);
     }
   }
   return (
@@ -75,18 +137,18 @@ export function AnnouncementModal({
           {announcement ? "Edit Announcement" : "Add new announcement"}
         </h3>
         <button
-          className="btn btn-ghost btn-error text-black"
+          className="btn btn-outline btn-error text-black"
           onClick={() => {
             reset();
             setImageUrl(null);
             setImageFile(null);
-            closeModal();
+            closeModal(false);
           }}
         >
-          X
+          Close Modal
         </button>
       </div>
-      <div className="divider"></div>
+      <div className="divider my-0"></div>
       <div className="modal-action my-0">
         <form
           className="grid grid-cols-3 w-full gap-2 text-lg "
@@ -95,9 +157,11 @@ export function AnnouncementModal({
           <div className="col-span-2 grid gap-2">
             <input type="number" hidden {...register("id")} />
             <fieldset className="fieldset">
-              <legend className="fieldset-legend">Title</legend>
+              <legend className="fieldset-legend mb-0 text-xl pb-0">
+                Title
+              </legend>
               <input
-                className="input input-lg w-full"
+                className="input input-lg w-full rounded-2xl"
                 maxLength={50}
                 {...register("title", {
                   required: {
@@ -123,9 +187,11 @@ export function AnnouncementModal({
               </span>
             )}
             <fieldset className="fieldset">
-              <legend className="fieldset-legend">Description</legend>
+              <legend className="fieldset-legend mb-0 text-xl pb-0">
+                Description
+              </legend>
               <input
-                className="input input-lg w-full"
+                className="input input-lg w-full rounded-2xl"
                 maxLength={100}
                 {...register("description", {
                   required: {
@@ -150,50 +216,54 @@ export function AnnouncementModal({
                 {errors.description.message}
               </span>
             )}
-            <div
-              className={`w-full flex ${imageUrl && !imageUrl.includes("blob") ? "flex-col" : ""} gap-2`}
-            >
-              {imageUrl && !imageUrl.includes("blob") ? (
-                <fieldset className="fieldset relative">
-                  <legend className="fieldset-legend">Poster</legend>
-                  <input
-                    {...register("poster_url")}
-                    type="url"
-                    className="input input-lg w-full hover:cursor-pointer"
-                    onChange={handleImageChange}
-                  />
-                  <span
-                    onClick={() => {
-                      reset({
-                        poster_file: [],
-                        poster_url: null,
-                        poster_alt: "",
-                      });
-                      setImageFile(null);
-                      setImageUrl(null);
-                    }}
-                    className="absolute btn btn-xs btn-soft btn-error top-0 right-1"
-                  >
-                    X
-                  </span>
-                </fieldset>
-              ) : (
-                <fieldset className="fieldset">
-                  <legend className="fieldset-legend">Poster</legend>
+            <div className={`w-full gap-2`}>
+              <fieldset className="fieldset relative">
+                <legend className="fieldset-legend mb-0 text-xl pb-0 w-full">
+                  <div className="flex justify-between w-full items-baseline">
+                    <span>Poster</span>
+                    <span className="text-sm text-error-content pb-0">
+                      In the event that an image file and a url are presented,
+                      the image file will take precedence.
+                    </span>
+                    <label className="toggle toggle-lg text-base-content p-0">
+                      <input
+                        type="checkbox"
+                        checked={useFile}
+                        onChange={() => setUseFile(!useFile)}
+                      />
+                      <span className="text-xs" aria-label="enabled">
+                        URL
+                      </span>
+                      <span className="text-xs" aria-label="disabled">
+                        FILE
+                      </span>
+                    </label>
+                  </div>
+                </legend>
+                {useFile ? (
                   <input
                     {...register("poster_file")}
                     type="file"
                     accept="image/png, image/jpeg, image/jpg"
-                    className="input input-lg hover:cursor-pointer"
+                    className="input input-lg hover:cursor-pointer rounded-2xl w-full"
                     onChange={handleImageChange}
                   />
-                </fieldset>
-              )}
+                ) : (
+                  <input
+                    {...register("poster_url")}
+                    type="url"
+                    className="input input-lg w-full rounded-2xl"
+                    onChange={handleImageChange}
+                  />
+                )}
+              </fieldset>
 
-              <fieldset className="fieldset">
-                <legend className="fieldset-legend">Poster Alt Text</legend>
+              <fieldset className="fieldset grow">
+                <legend className="fieldset-legend mb-0 text-xl pb-0">
+                  Poster Alt Text
+                </legend>
                 <input
-                  className="w-full input input-lg"
+                  className="w-full input input-lg rounded-2xl"
                   maxLength={100}
                   {...register("poster_alt", {
                     maxLength: {
@@ -209,7 +279,7 @@ export function AnnouncementModal({
                         }: {
                           poster_url: string | null;
                           poster_file: File[] | null;
-                        },
+                        }
                       ) => {
                         if (!poster_url && !poster_file && poster_alt)
                           return "Please select an image to add as a poster.";
@@ -228,11 +298,11 @@ export function AnnouncementModal({
               </span>
             )}
             <fieldset className="fieldset">
-              <legend className="fieldset-legend">
+              <legend className="fieldset-legend mb-0 text-xl pb-0">
                 Call To Action Button Link
               </legend>
               <input
-                className="w-full input input-lg"
+                className="w-full input input-lg rounded-2xl"
                 {...register("call_to_action_link", {
                   pattern: {
                     value: URL_REGEX,
@@ -246,7 +316,7 @@ export function AnnouncementModal({
                         call_to_action_caption,
                       }: {
                         call_to_action_caption: string | null;
-                      },
+                      }
                     ) => {
                       if (!call_to_action_link && call_to_action_caption) {
                         return "Please add a link for the call to action button, or remove the caption.";
@@ -263,11 +333,11 @@ export function AnnouncementModal({
               </span>
             )}
             <fieldset className="fieldset">
-              <legend className="fieldset-legend">
+              <legend className="fieldset-legend mb-0 text-xl pb-0">
                 Call To Action Caption
               </legend>
               <input
-                className="w-full input input-lg"
+                className="w-full input input-lg rounded-2xl"
                 maxLength={20}
                 {...register("call_to_action_caption", {
                   maxLength: {
@@ -281,7 +351,7 @@ export function AnnouncementModal({
                         call_to_action_link,
                       }: {
                         call_to_action_link: string | null;
-                      },
+                      }
                     ) => {
                       if (call_to_action_link && !call_to_action_caption) {
                         return "Please add a caption for the call to action button, or remove the link.";
@@ -298,15 +368,28 @@ export function AnnouncementModal({
               </legend>
             )}
             <fieldset className="fieldset">
-              <legend className="fieldset-legend">Expires At</legend>
+              <legend className="fieldset-legend mb-0 text-xl pb-0">
+                Expires At
+              </legend>
               <input
                 className="w-full input input-lg"
                 type="datetime-local"
+                min={formatDateTimeLocal(new Date())}
                 {...register("expires_at", {
                   required: {
                     value: true,
                     message:
                       "Please specify an end date and time for this announcement.",
+                  },
+                  validate: {
+                    validateExpiresTime: (expires_at: string | Date) => {
+                      const parsedDate = new Date(expires_at);
+                      const now = new Date();
+                      if (parsedDate < now) {
+                        return "You cannot set the datetime of expiry to be a datetime in the past.";
+                      }
+                      return true;
+                    },
                   },
                 })}
               />
@@ -320,18 +403,20 @@ export function AnnouncementModal({
               Submit
             </button>
           </div>
-          <div className="relative flex justify-center items-center col-span-1">
+          <div className="relative flex flex-1 justify-center items-center col-span-1">
             <Image
               src={
-                imageUrl ||
-                "https://gkpctbvyswcfccogoepl.supabase.co/storage/v1/object/public/event-posters/public/NO%20IMAGE.png"
+                imageUrl?.length
+                  ? imageUrl
+                  : "https://gkpctbvyswcfccogoepl.supabase.co/storage/v1/object/public/event-posters/public/NO%20IMAGE.png"
               }
               alt=""
-              height={300}
-              width={300}
+              height="500"
+              width="500"
+              loading="eager"
             />
             {(imageUrl || imageFile) && (
-              <span
+              <button
                 onClick={() => {
                   reset({
                     poster_file: [],
@@ -341,10 +426,10 @@ export function AnnouncementModal({
                   setImageFile(null);
                   setImageUrl(null);
                 }}
-                className="absolute btn btn-xs btn-soft btn-error top-0 right-1"
+                className="absolute btn btn-xs btn-soft btn-error top-2 right-2"
               >
-                X
-              </span>
+                Clear Image
+              </button>
             )}
           </div>
         </form>
