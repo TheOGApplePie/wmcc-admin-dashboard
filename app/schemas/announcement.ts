@@ -9,7 +9,7 @@ export interface Announcement {
   poster_file: File[] | null;
   call_to_action_link: string;
   call_to_action_caption: string;
-  expires_at: Date;
+  expires_at: Date | string;
   created_at: Date;
 }
 
