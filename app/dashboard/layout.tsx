@@ -147,7 +147,7 @@ export default function DashboardLayout({
               </li>
               {/* list item */}
               <li>
-                <Link href="events">
+                <Link href="/dashboard/events">
                   <button
                     className="is-drawer-close:tooltip is-drawer-close:tooltip-right hover:cursor-pointer"
                     data-tip="Events"

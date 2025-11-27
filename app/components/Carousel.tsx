@@ -52,8 +52,8 @@ export default function Carousel({ announcements }: Readonly<CarouselProps>) {
       setUpdatedAnnouncements(announcements ?? null);
     }
   }
-  async function confirmDeleteAnnouncement(confirmAction: boolean) {
-    if (confirmAction) {
+  async function confirmDeleteAnnouncement(confirmAction?: string) {
+    if (confirmAction === "yes") {
       const deletedAnnouncement = await deleteAnnouncement({
         id: updatedAnnouncements?.[index].id,
       });
@@ -83,8 +83,8 @@ export default function Carousel({ announcements }: Readonly<CarouselProps>) {
                 index === announcementIndex
                   ? "opacity-100 translate-x-0"
                   : index < announcementIndex
-                  ? "translate-x-full opacity-0"
-                  : "-translate-x-full opacity-0"
+                    ? "translate-x-full opacity-0"
+                    : "-translate-x-full opacity-0"
               }`}
             >
               <div
@@ -193,7 +193,16 @@ export default function Carousel({ announcements }: Readonly<CarouselProps>) {
         />
       </dialog>
       <dialog id="delete-modal" className="modal">
-        <ConfirmationModal closeModal={confirmDeleteAnnouncement} />
+        <ConfirmationModal
+          message={
+            "Are you sure you want to delete this announcement? This action cannot be undone"
+          }
+          buttons={[
+            { value: "yes", label: "Yes" },
+            { value: "no", label: "No" },
+          ]}
+          closeModal={confirmDeleteAnnouncement}
+        />
       </dialog>
     </>
   );

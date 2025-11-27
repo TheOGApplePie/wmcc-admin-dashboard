@@ -41,11 +41,11 @@ export function AnnouncementModal({
   });
 
   const [imageUrl, setImageUrl] = useState<string | null>(
-    announcement?.poster_url ?? null
+    announcement?.poster_url ?? null,
   );
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [useFile, setUseFile] = useState<boolean>(
-    !announcement?.poster_url?.length
+    !announcement?.poster_url?.length,
   );
 
   useEffect(() => {
@@ -54,8 +54,6 @@ export function AnnouncementModal({
         ...announcement,
         expires_at: formatDateTimeLocal(announcement.expires_at),
       });
-      setImageUrl(announcement.poster_url ?? null);
-      setUseFile(!announcement.poster_url?.length);
     } else {
       reset({
         id: undefined,
@@ -68,10 +66,7 @@ export function AnnouncementModal({
         call_to_action_caption: "",
         expires_at: new Date(),
       });
-      setImageUrl(null);
-      setUseFile(true);
     }
-    setImageFile(null);
   }, [announcement, reset]);
   const handleImageChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -104,7 +99,6 @@ export function AnnouncementModal({
     }
   };
   async function onSubmit(data: Announcement) {
-    console.log(data);
     const response = await createAnnouncement({
       id: data.id,
       call_to_action_caption: data.call_to_action_caption,
@@ -119,10 +113,10 @@ export function AnnouncementModal({
     if (response.data?.error) {
       toast.error(response.data?.error);
     } else if (response.validationErrors) {
-      console.log(response.validationErrors);
+      console.error(response.validationErrors);
     } else {
       toast.success(
-        response.data?.statusText ?? "Announcement created successfully!"
+        response.data?.statusText ?? "Announcement created successfully!",
       );
       reset();
       setImageUrl(null);
@@ -279,7 +273,7 @@ export function AnnouncementModal({
                         }: {
                           poster_url: string | null;
                           poster_file: File[] | null;
-                        }
+                        },
                       ) => {
                         if (!poster_url && !poster_file && poster_alt)
                           return "Please select an image to add as a poster.";
@@ -316,7 +310,7 @@ export function AnnouncementModal({
                         call_to_action_caption,
                       }: {
                         call_to_action_caption: string | null;
-                      }
+                      },
                     ) => {
                       if (!call_to_action_link && call_to_action_caption) {
                         return "Please add a link for the call to action button, or remove the caption.";
@@ -351,7 +345,7 @@ export function AnnouncementModal({
                         call_to_action_link,
                       }: {
                         call_to_action_link: string | null;
-                      }
+                      },
                     ) => {
                       if (call_to_action_link && !call_to_action_caption) {
                         return "Please add a caption for the call to action button, or remove the link.";
