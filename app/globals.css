@@ -21,10 +21,18 @@ h1 {
   );
 }
 
-h3 {
-  font-size: var(--text-xl) /* 1.875rem = 30px */;
+h2 {
+  font-size: var(--text-2xl) /* 24px */;
   line-height: var(
     --tw-leading,
-    var(--text-xl--line-height) /* calc(2.25 / 1.875) ≈ 1.2 */
+    var(--text-2xl--line-height) /* calc(2 / 1.5) ≈ 1.333 */
+  );
+}
+
+h3 {
+  font-size: var(--text-xl) /* 20px */;
+  line-height: var(
+    --tw-leading,
+    var(--text-xl--line-height) /* calc(1.75 / 1.25) ≈ 1.4 */
   );
 }

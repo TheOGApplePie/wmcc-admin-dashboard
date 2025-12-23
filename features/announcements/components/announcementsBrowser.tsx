@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Announcement } from "../schemas/announcement";
+import { Announcement } from "../../../app/schemas/announcement";
 import Carousel from "./Carousel";
 
 interface AnnouncementBrowserProps {
