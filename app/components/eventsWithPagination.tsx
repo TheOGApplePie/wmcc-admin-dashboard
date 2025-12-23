@@ -7,7 +7,7 @@ import Pagination from "./pagination";
 import { deleteEvent, filterEvents } from "@/actions/events";
 import { useForm, useWatch } from "react-hook-form";
 import EventModal from "./eventModal";
-import ConfirmationModal from "./confirmationModal";
+import ConfirmationModal from "../../features/announcements/modals/ConfirmationModal";
 import { ResponseCodes } from "../enums/responseCodes";
 
 interface EventsWithPaginationProps {
@@ -45,7 +45,7 @@ export default function EventsWithPagination({
   const [totalCount, setTotalCount] = useState(count);
   const [filteredEvents, setFilteredEvents] = useState(events);
   const [selectedEvent, setSelectedEvent] = useState<Event | undefined>(
-    undefined,
+    undefined
   );
 
   const startDate = useWatch({ control, name: "startDate" });
@@ -102,7 +102,7 @@ export default function EventsWithPagination({
       handleSubmit((data) =>
         onSubmit({
           ...data,
-        }),
+        })
       )();
     }
   }
@@ -120,7 +120,7 @@ export default function EventsWithPagination({
       handleSubmit((data) =>
         onSubmit({
           ...data,
-        }),
+        })
       )();
     }
     deleteModalRef.current?.close();
@@ -185,14 +185,14 @@ export default function EventsWithPagination({
                           endDate,
                         }: {
                           endDate: string | null;
-                        },
+                        }
                       ) => {
                         if (
                           startDate &&
                           endDate &&
                           new Date(startDate) > new Date(endDate)
                         )
-                          return "Please make sure the \'from\' date is less than the \'to\' date";
+                          return "Please make sure the 'from' date is less than the 'to' date";
                         return true;
                       },
                     },
@@ -223,14 +223,14 @@ export default function EventsWithPagination({
                           startDate,
                         }: {
                           startDate: string | null;
-                        },
+                        }
                       ) => {
                         if (
                           startDate &&
                           endDate &&
                           new Date(startDate) > new Date(endDate)
                         )
-                          return "Please make sure the \'from\' date is less than the \'to\' date";
+                          return "Please make sure the 'from' date is less than the 'to' date";
                         return true;
                       },
                     },
@@ -316,7 +316,7 @@ export default function EventsWithPagination({
                     ...data,
                     pageSize: newPageSize ?? pageSize,
                     currentPage: page,
-                  }),
+                  })
                 )();
               }}
             />

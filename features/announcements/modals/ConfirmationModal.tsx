@@ -2,7 +2,7 @@
 interface ConfirmationModalProps {
   buttons: { value: string; label: string }[];
   message: string;
-  closeModal: (confirmedAction?: string) => void;
+  closeModal: (confirmedAction: string) => void;
 }
 export default function ConfirmationModal({
   buttons,

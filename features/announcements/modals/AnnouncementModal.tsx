@@ -1,15 +1,18 @@
 "use client";
-import { Announcement } from "../schemas/announcement";
+import { Announcement } from "../../../app/schemas/announcement";
 import { useForm } from "react-hook-form";
 import Image from "next/image";
 import { ChangeEvent, useEffect, useState } from "react";
-import { createAnnouncement } from "@/actions/announcements";
-import { FIVE_MB, URL_REGEX } from "../constants/general";
+import {
+  createAnnouncement,
+  editAnnouncement,
+} from "@/features/announcements/actions";
+import { FIVE_MB, URL_REGEX } from "../../../app/constants/general";
 import toast from "react-hot-toast";
 
 interface AnnouncementModalProps {
-  announcement?: Announcement;
-  closeModal: (reloadAnnouncements: boolean) => void;
+  announcement: Announcement | null;
+  closeModal: () => void;
 }
 function formatDateTimeLocal(date: string | Date | null): string {
   if (!date) return "";
@@ -41,11 +44,11 @@ export function AnnouncementModal({
   });
 
   const [imageUrl, setImageUrl] = useState<string | null>(
-    announcement?.poster_url ?? null,
+    announcement?.poster_url ?? null
   );
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [useFile, setUseFile] = useState<boolean>(
-    !announcement?.poster_url?.length,
+    !announcement?.poster_url?.length
   );
 
   useEffect(() => {
@@ -99,29 +102,37 @@ export function AnnouncementModal({
     }
   };
   async function onSubmit(data: Announcement) {
-    const response = await createAnnouncement({
-      id: data.id,
-      call_to_action_caption: data.call_to_action_caption,
-      title: data.title,
-      description: data.description,
-      poster_url: data.poster_url?.length ? data.poster_url : null,
-      poster_alt: data.poster_alt ?? null,
-      poster_file: data.poster_file ?? [],
-      call_to_action_link: data.call_to_action_link ?? null,
-      expires_at: new Date(data.expires_at).toISOString(),
-    });
+    const response = data.id
+      ? await editAnnouncement({
+          ...data,
+          poster_url: data.poster_url?.length ? data.poster_url : null,
+          poster_alt: data.poster_alt ?? null,
+          poster_file: data.poster_file ?? [],
+          call_to_action_link: data.call_to_action_link ?? null,
+          expires_at: new Date(data.expires_at).toISOString(),
+        })
+      : await createAnnouncement({
+          ...data,
+          poster_url: data.poster_url?.length ? data.poster_url : null,
+          poster_alt: data.poster_alt ?? null,
+          poster_file: data.poster_file ?? [],
+          call_to_action_link: data.call_to_action_link ?? null,
+          expires_at: new Date(data.expires_at).toISOString(),
+        });
     if (response.data?.error) {
-      toast.error(response.data?.error);
+      toast.error(response.data?.error as string);
     } else if (response.validationErrors) {
       console.error(response.validationErrors);
     } else {
       toast.success(
-        response.data?.statusText ?? "Announcement created successfully!",
+        data.id
+          ? "Announcement updated successfully!"
+          : "Announcement created successfully!"
       );
       reset();
       setImageUrl(null);
       setImageFile(null);
-      closeModal(true);
+      closeModal();
     }
   }
   return (
@@ -136,7 +147,7 @@ export function AnnouncementModal({
             reset();
             setImageUrl(null);
             setImageFile(null);
-            closeModal(false);
+            closeModal();
           }}
         >
           Close Modal
@@ -273,7 +284,7 @@ export function AnnouncementModal({
                         }: {
                           poster_url: string | null;
                           poster_file: File[] | null;
-                        },
+                        }
                       ) => {
                         if (!poster_url && !poster_file && poster_alt)
                           return "Please select an image to add as a poster.";
@@ -310,7 +321,7 @@ export function AnnouncementModal({
                         call_to_action_caption,
                       }: {
                         call_to_action_caption: string | null;
-                      },
+                      }
                     ) => {
                       if (!call_to_action_link && call_to_action_caption) {
                         return "Please add a link for the call to action button, or remove the caption.";
@@ -345,7 +356,7 @@ export function AnnouncementModal({
                         call_to_action_link,
                       }: {
                         call_to_action_link: string | null;
-                      },
+                      }
                     ) => {
                       if (call_to_action_link && !call_to_action_caption) {
                         return "Please add a caption for the call to action button, or remove the link.";
