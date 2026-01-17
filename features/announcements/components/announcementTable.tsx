@@ -46,7 +46,16 @@ export default function AnnouncementTable({
               </td>
               <td>{announcement.title}</td>
               <td>{announcement.description}</td>
-              <td>{announcement.expires_at.toString()}</td>
+              <td>
+                {new Date(announcement.expires_at).toLocaleTimeString("en-GB", {
+                  year: "numeric",
+                  month: "2-digit",
+                  day: "2-digit",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  hourCycle: "h12",
+                })}
+              </td>
               <td>
                 <div className="flex gap-3">
                   <EditButton announcement={announcement} />

@@ -143,7 +143,7 @@ export default function DashboardLayout({
               </li>
               {/* list item */}
               <li>
-                <Link href="community-feedback">
+                <Link href="/dashboard/community-feedback">
                   <button
                     className="is-drawer-close:tooltip is-drawer-close:tooltip-right hover:cursor-pointer"
                     data-tip="Community Feedback"
@@ -163,7 +163,7 @@ export default function DashboardLayout({
                 </Link>
               </li>
               <li>
-                <Link href="user-management">
+                <Link href="/dashboard/users-management">
                   <button
                     className="is-drawer-close:tooltip is-drawer-close:tooltip-right hover:cursor-pointer"
                     data-tip="User Management"
