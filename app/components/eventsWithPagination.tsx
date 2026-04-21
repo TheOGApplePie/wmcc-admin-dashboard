@@ -282,7 +282,6 @@ export default function EventsWithPagination({
         {!filteredEvents.length && (
           <div className="flex justify-center items-center flex-col gap-3">
             <div>
-              <p className="text-4xl"></p>
               <h1>
                 🤔 Hmmm... there don&apos;t seem to be any events... Let&apos;s
                 create some! 😃

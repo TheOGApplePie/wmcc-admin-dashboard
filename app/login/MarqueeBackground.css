@@ -1,0 +1,12 @@
+.marquee-track {
+  animation: marquee-scroll linear infinite;
+}
+
+.marquee-rtl {
+  animation-direction: reverse;
+}
+
+@keyframes marquee-scroll {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}

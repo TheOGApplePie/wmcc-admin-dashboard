@@ -7,23 +7,11 @@ import { createEvent, editEvent } from "@/actions/events";
 import { FIVE_MB, URL_REGEX } from "../constants/general";
 import toast from "react-hot-toast";
 import ConfirmationModal from "../../features/announcements/modals/ConfirmationModal";
+import { formatDateTimeLocal } from "../utils/date";
 
 interface EventModalProps {
   event?: Event;
   closeModal: (reloadEvents: boolean) => void;
-}
-function formatDateTimeLocal(date: string | Date | null): string {
-  if (!date) return "";
-
-  const dateObj = typeof date === "string" ? new Date(date) : date;
-  // Get local date/time components
-  const year = dateObj.getFullYear();
-  const month = String(dateObj.getMonth() + 1).padStart(2, "0");
-  const day = String(dateObj.getDate()).padStart(2, "0");
-  const hours = String(dateObj.getHours()).padStart(2, "0");
-  const minutes = String(dateObj.getMinutes()).padStart(2, "0");
-
-  return `${year}-${month}-${day}T${hours}:${minutes}`;
 }
 export default function EventModal({
   event,
@@ -59,14 +47,14 @@ export default function EventModal({
   ];
 
   const [imageUrl, setImageUrl] = useState<string | null>(
-    event?.poster_url ?? null
+    event?.poster_url ?? null,
   );
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [frequencyKind, setFrequencyKind] = useState<string>("day");
   const [recurrenceType, setRecurrenceType] = useState<string>("date");
   const [message, setMessage] = useState("");
   const [buttons, setButtons] = useState<{ label: string; value: string }[]>(
-    []
+    [],
   );
   const [useFile, setUseFile] = useState<boolean>(!event?.poster_url?.length);
   const [updatedEvent, setUpdatedEvent] = useState<Event | null>(null);
@@ -161,6 +149,9 @@ export default function EventModal({
         call_to_action_link: updatedEvent.call_to_action_link?.length
           ? updatedEvent.call_to_action_link
           : null,
+        gallery_url: updatedEvent.gallery_url?.length
+          ? updatedEvent.gallery_url
+          : null,
         start_date: new Date(updatedEvent.start_date),
         end_date: new Date(updatedEvent.end_date),
         recurrence_rule: updatedEvent.is_recurring
@@ -172,12 +163,12 @@ export default function EventModal({
         toast.error(response.data?.error);
       } else if (response.validationErrors) {
         toast.error(
-          "There seems to be something wrong with the form. Please double check your inputs."
+          "There seems to be something wrong with the form. Please double check your inputs.",
         );
         console.error(response.validationErrors);
       } else {
         toast.success(
-          response.data?.statusText ?? "Event updated successfully!"
+          response.data?.statusText ?? "Event updated successfully!",
         );
         reset();
         setImageUrl(null);
@@ -208,7 +199,7 @@ export default function EventModal({
     if (data.id) {
       if (data.is_recurring && wasRecurring) {
         setMessage(
-          "This is a recurring event. Do you want to apply the changes to all instances, just this one, or this one and future instances?"
+          "This is a recurring event. Do you want to apply the changes to all instances, just this one, or this one and future instances?",
         );
         setButtons([
           { value: "all", label: "All" },
@@ -218,7 +209,7 @@ export default function EventModal({
         showConfirmationModal();
       } else if (!data.is_recurring && wasRecurring) {
         setMessage(
-          "You have removed the recurrence rule. In effect, all other instances of this event will be removed. Do you want to continue?"
+          "You have removed the recurrence rule. In effect, all other instances of this event will be removed. Do you want to continue?",
         );
         setButtons([
           { value: "yes", label: "Yes" },
@@ -234,6 +225,7 @@ export default function EventModal({
           call_to_action_link: data.call_to_action_link?.length
             ? data.call_to_action_link
             : null,
+          gallery_url: data.gallery_url?.length ? data.gallery_url : null,
           start_date: new Date(data.start_date),
           end_date: new Date(data.end_date),
           recurrence_rule: data.is_recurring ? data.recurrence_rule : undefined,
@@ -243,12 +235,12 @@ export default function EventModal({
           toast.error(response.data?.error);
         } else if (response.validationErrors) {
           toast.error(
-            "There seems to be something wrong with the form. Please double check your inputs."
+            "There seems to be something wrong with the form. Please double check your inputs.",
           );
           console.error(response.validationErrors, response);
         } else {
           toast.success(
-            response.data?.statusText ?? "Event updated successfully!"
+            response.data?.statusText ?? "Event updated successfully!",
           );
           reset();
           setImageUrl(null);
@@ -265,6 +257,7 @@ export default function EventModal({
         call_to_action_link: data.call_to_action_link?.length
           ? data.call_to_action_link
           : null,
+        gallery_url: data.gallery_url?.length ? data.gallery_url : null,
         start_date: new Date(data.start_date),
         end_date: new Date(data.end_date),
         recurrence_rule: data.is_recurring ? data.recurrence_rule : undefined,
@@ -273,12 +266,12 @@ export default function EventModal({
         toast.error(response.data?.error);
       } else if (response.validationErrors) {
         toast.error(
-          "There seems to be something wrong with the form. Please double check your inputs."
+          "There seems to be something wrong with the form. Please double check your inputs.",
         );
         console.error(response.validationErrors);
       } else {
         toast.success(
-          response.data?.statusText ?? "Event created successfully!"
+          response.data?.statusText ?? "Event created successfully!",
         );
         reset();
         setImageUrl(null);
@@ -337,7 +330,7 @@ export default function EventModal({
                     minLength: {
                       value: 3,
                       message:
-                        "Please make sure your title is at least 5 characters long.",
+                        "Please make sure your title is at least 3 characters long.",
                     },
                   })}
                 />
@@ -446,7 +439,7 @@ export default function EventModal({
                           }: {
                             poster_url: string | null;
                             poster_file: File[] | null;
-                          }
+                          },
                         ) => {
                           if (!poster_url && !poster_file && poster_alt)
                             return "Please select an image to add as a poster.";
@@ -486,7 +479,7 @@ export default function EventModal({
                           call_to_action_caption,
                         }: {
                           call_to_action_caption: string;
-                        }
+                        },
                       ) => {
                         if (!call_to_action_link && call_to_action_caption) {
                           return "Please add a link for the call to action button, or remove the caption.";
@@ -521,7 +514,7 @@ export default function EventModal({
                           call_to_action_link,
                         }: {
                           call_to_action_link: string | null;
-                        }
+                        },
                       ) => {
                         if (call_to_action_link && !call_to_action_caption) {
                           return "Please add a caption for the call to action button, or remove the link.";
@@ -533,9 +526,9 @@ export default function EventModal({
                 />
               </fieldset>
               {errors.call_to_action_caption && (
-                <legend className="text-red-600" role="alert">
+                <span className="text-red-600" role="alert">
                   {errors.call_to_action_caption.message}
-                </legend>
+                </span>
               )}
               <div className="flex">
                 <fieldset className="fieldset grow">
@@ -558,7 +551,7 @@ export default function EventModal({
                             end_date,
                           }: {
                             end_date: string | Date;
-                          }
+                          },
                         ) => {
                           if (end_date && start_date > end_date) {
                             return "You cannot set the start datetime to be after the end datetime.";
@@ -589,7 +582,7 @@ export default function EventModal({
                             start_date,
                           }: {
                             start_date: string | Date;
-                          }
+                          },
                         ) => {
                           if (start_date && start_date > end_date) {
                             return "You cannot set the end datetime to be before the start datetime.";
@@ -614,6 +607,49 @@ export default function EventModal({
                 )}
               </div>
               <div>
+                <fieldset className="fieldset grow">
+                  <legend className="fieldset-legend mb-0 text-xl pb-0">
+                    Location
+                  </legend>
+                  <input
+                    className="w-full input input-lg rounded-2xl"
+                    type="text"
+                    {...register("location", {
+                      required: {
+                        value: true,
+                        message: "Please specify a location for this event",
+                      },
+                    })}
+                  />
+                </fieldset>
+              </div>
+              <div>
+                {errors.location && (
+                  <span className="text-red-600" role="alert">
+                    {errors.location.message}
+                  </span>
+                )}
+              </div>
+              <div>
+                <fieldset className="fieldset grow">
+                  <legend className="fieldset-legend mb-0 text-xl pb-0">
+                    Gallery URL
+                  </legend>
+                  <input
+                    className="w-full input input-lg rounded-2xl"
+                    type="text"
+                    {...register("gallery_url")}
+                  />
+                </fieldset>
+              </div>
+              <div>
+                {errors.gallery_url && (
+                  <span className="text-red-600" role="alert">
+                    {errors.gallery_url.message}
+                  </span>
+                )}
+              </div>
+              <div>
                 <fieldset className="fieldset">
                   <legend className="fieldset-legend mb-0 text-xl pb-0">
                     Recurrence
@@ -631,10 +667,10 @@ export default function EventModal({
                     ? (frequency === "day"
                         ? "h-60"
                         : frequency === "week"
-                        ? "h-80"
-                        : frequencyKind === "date"
-                        ? "h-100"
-                        : "h-120") + " opacity-100"
+                          ? "h-80"
+                          : frequencyKind === "date"
+                            ? "h-100"
+                            : "h-120") + " opacity-100"
                     : "h-0 opacity-0"
                 } transform duration-300 gap-3 w-full`}
               >
@@ -733,7 +769,7 @@ export default function EventModal({
                                       message:
                                         "Please select the week(s) you want this event to occur on.",
                                     },
-                                  }
+                                  },
                                 )}
                                 key={kind.label}
                                 className="btn btn-lg border-gray-100 rounded-2xl checked:btn-success checked:border-0"
@@ -871,14 +907,11 @@ export default function EventModal({
                                     end_date,
                                   }: {
                                     end_date: string | Date;
-                                  }
+                                  },
                                 ) => {
                                   const parsedDate = new Date(until ?? "");
                                   const eventEndDate = new Date(end_date ?? "");
-                                  if (
-                                    parsedDate.toLocaleDateString() <
-                                    eventEndDate.toLocaleDateString()
-                                  ) {
+                                  if (parsedDate < eventEndDate) {
                                     return "The recurrence end date must be later than the event's end date.";
                                   }
                                   return true;
@@ -942,6 +975,7 @@ export default function EventModal({
               />
               {(imageUrl || imageFile) && (
                 <button
+                  type="button"
                   onClick={() => {
                     reset({
                       poster_file: [],

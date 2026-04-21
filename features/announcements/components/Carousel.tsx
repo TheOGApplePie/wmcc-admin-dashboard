@@ -44,8 +44,8 @@ export default function Carousel({ announcements }: Readonly<CarouselProps>) {
                 index === announcementIndex
                   ? "opacity-100 translate-x-0"
                   : index < announcementIndex
-                  ? "translate-x-full opacity-0"
-                  : "-translate-x-full opacity-0"
+                    ? "translate-x-full opacity-0"
+                    : "-translate-x-full opacity-0"
               }`}
             >
               <div
@@ -74,20 +74,22 @@ export default function Carousel({ announcements }: Readonly<CarouselProps>) {
                     height="400"
                     width="400"
                   />
-                  <button
-                    className={`${
-                      announcement.call_to_action_link
-                        ? "block @lg:hidden"
-                        : "hidden"
-                    } bg-(--main-colour-blue) hover:bg-(--secondary-colour-green) text-white font-semibold my-6 py-3 px-6 rounded-lg transition-colors duration-300 shadow-lg`}
-                  >
-                    <Link
-                      href={announcement.call_to_action_link}
-                      target="_blank"
+                  {announcement.call_to_action_link && (
+                    <button
+                      className={`${
+                        announcement.call_to_action_link
+                          ? "block @lg:hidden"
+                          : "hidden"
+                      } bg-(--main-colour-blue) hover:bg-(--secondary-colour-green) text-white font-semibold my-6 py-3 px-6 rounded-lg transition-colors duration-300 shadow-lg`}
                     >
-                      {announcement.call_to_action_caption}
-                    </Link>
-                  </button>
+                      <Link
+                        href={announcement.call_to_action_link}
+                        target="_blank"
+                      >
+                        {announcement.call_to_action_caption}
+                      </Link>
+                    </button>
+                  )}
                 </div>
               )}
             </div>

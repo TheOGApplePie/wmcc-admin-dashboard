@@ -18,19 +18,12 @@ async function confirmDeleteAnnouncement(
 }
 
 export function AnnouncementPage({
-  announcements,
+  currentAnnouncements,
+  expiredAnnouncements,
 }: Readonly<{
-  announcements: Announcement[];
+  currentAnnouncements: Announcement[];
+  expiredAnnouncements: Announcement[];
 }>) {
-  const currentAnnouncements =
-    announcements?.filter(
-      (announcement) => new Date(announcement.expires_at) >= new Date()
-    ) ?? [];
-  const expiredAnnouncements =
-    announcements?.filter(
-      (announcement) => new Date(announcement.expires_at) < new Date()
-    ) ?? [];
-
   return (
     <div className="flex flex-col justify-center mx-16 mt-8 gap-8">
       <div>

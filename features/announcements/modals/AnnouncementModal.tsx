@@ -9,24 +9,11 @@ import {
 } from "@/features/announcements/actions";
 import { FIVE_MB, URL_REGEX } from "../../../app/constants/general";
 import toast from "react-hot-toast";
+import { formatDateTimeLocal } from "@/app/utils/date";
 
 interface AnnouncementModalProps {
   announcement: Announcement | null;
   closeModal: () => void;
-}
-function formatDateTimeLocal(date: string | Date | null): string {
-  if (!date) return "";
-
-  const dateObj = typeof date === "string" ? new Date(date) : date;
-
-  // Get local date/time components
-  const year = dateObj.getFullYear();
-  const month = String(dateObj.getMonth() + 1).padStart(2, "0");
-  const day = String(dateObj.getDate()).padStart(2, "0");
-  const hours = String(dateObj.getHours()).padStart(2, "0");
-  const minutes = String(dateObj.getMinutes()).padStart(2, "0");
-
-  return `${year}-${month}-${day}T${hours}:${minutes}`;
 }
 export function AnnouncementModal({
   announcement,
@@ -380,6 +367,7 @@ export function AnnouncementModal({
                 className="w-full input input-lg"
                 type="datetime-local"
                 min={formatDateTimeLocal(new Date())}
+                suppressHydrationWarning
                 {...register("expires_at", {
                   required: {
                     value: true,

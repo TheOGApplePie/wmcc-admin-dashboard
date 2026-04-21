@@ -102,20 +102,21 @@ export const createEvent = actionClient
             recurrence_rule_id: recurringRuleID,
           });
         });
+      } else {
+        events.push({
+          title: parsedInput.title,
+          description: parsedInput.description,
+          location: parsedInput.location,
+          start_date: parsedInput.start_date,
+          end_date: parsedInput.end_date,
+          poster_url: storageUrl,
+          poster_alt: parsedInput.poster_alt,
+          call_to_action_link: parsedInput.call_to_action_link,
+          call_to_action_caption: parsedInput.call_to_action_caption,
+          is_recurring: parsedInput.is_recurring,
+          recurrence_rule_id: recurringRuleID,
+        });
       }
-      events.unshift({
-        title: parsedInput.title,
-        description: parsedInput.description,
-        location: parsedInput.location,
-        start_date: parsedInput.start_date,
-        end_date: parsedInput.end_date,
-        poster_url: storageUrl,
-        poster_alt: parsedInput.poster_alt,
-        call_to_action_link: parsedInput.call_to_action_link,
-        call_to_action_caption: parsedInput.call_to_action_caption,
-        is_recurring: parsedInput.is_recurring,
-        recurrence_rule_id: recurringRuleID,
-      });
       const { data, error, count } = await supabase
         .from("events")
         .insert(events);
@@ -147,6 +148,8 @@ export const editEvent = actionClient
       let storageUrl = parsedInput.poster_url || "";
       let recurringRuleID: number | undefined = parsedInput.recurrence_rule_id;
       const events = [];
+      let ruleChanged = false;
+      let datesChanged = false;
 
       if (parsedInput.poster_file.length) {
         const fileUploaded = await uploadFile(
@@ -183,7 +186,7 @@ export const editEvent = actionClient
         // remove the recurrence_rule
         await supabase
           .from("events")
-          .update({ recurrence_rule_id: undefined })
+          .update({ recurrence_rule_id: null })
           .eq("id", parsedInput.id);
         await supabase
           .from("recurrence_rule")
@@ -193,48 +196,102 @@ export const editEvent = actionClient
         // set the recurrenceRuleID to undefined
         recurringRuleID = undefined;
       } else if (parsedInput.is_recurring && parsedInput.recurrence_rule) {
-        // if this is an existing rule and we are updating all instances, update the rule
+        // Fetch the existing rule and a sample event in parallel so we can
+        // detect what actually changed and avoid unnecessary DB writes.
+        let existingRuleData: {
+          frequency: string;
+          interval: number | null;
+          by_weekdays: string[];
+          by_month_day: number | null;
+          by_set_position: number[];
+          until: string | null;
+          count: number | null;
+        } | null = null;
+        let existingEventData: {
+          start_date: string;
+          end_date: string;
+        } | null = null;
+
+        if (recurringRuleID) {
+          const [ruleResult, eventResult] = await Promise.all([
+            supabase
+              .from("recurrence_rule")
+              .select(
+                "frequency, interval, by_weekdays, by_month_day, by_set_position, until, count",
+              )
+              .eq("id", recurringRuleID)
+              .single(),
+            supabase
+              .from("events")
+              .select("start_date, end_date")
+              .eq("recurrence_rule_id", recurringRuleID)
+              .limit(1)
+              .single(),
+          ]);
+          existingRuleData = ruleResult.data ?? null;
+          existingEventData = eventResult.data ?? null;
+        }
+
+        ruleChanged =
+          !existingRuleData ||
+          ruleHasChanged(parsedInput.recurrence_rule, existingRuleData);
+
+        datesChanged =
+          !existingEventData ||
+          new Date(existingEventData.start_date).getTime() !==
+            parsedInput.start_date.getTime() ||
+          new Date(existingEventData.end_date).getTime() !==
+            parsedInput.end_date.getTime();
+
         if (recurringRuleID && parsedInput.action === "all") {
-          const recurringRule = await supabase
-            .from("recurrence_rule")
-            .update({
-              frequency: parsedInput.recurrence_rule?.frequency,
-              interval: parsedInput.recurrence_rule?.interval,
-              by_weekdays: parsedInput.recurrence_rule?.by_weekdays,
-              by_month_day: parsedInput.recurrence_rule?.by_month_day,
-              by_set_position: parsedInput.recurrence_rule?.by_set_position,
-              until: parsedInput.recurrence_rule?.until,
-              count: parsedInput.recurrence_rule?.count,
-            })
-            .eq("id", recurringRuleID)
-            .select("id");
-          if (recurringRule.error) {
-            throw new Error(
-              "ERROR UPDATING RECURRENCE " + recurringRule.error.message,
-            );
+          // Only update the rule record if something actually changed
+          if (ruleChanged) {
+            const recurringRule = await supabase
+              .from("recurrence_rule")
+              .update({
+                frequency: parsedInput.recurrence_rule?.frequency,
+                interval: parsedInput.recurrence_rule?.interval,
+                by_weekdays: parsedInput.recurrence_rule?.by_weekdays,
+                by_month_day: parsedInput.recurrence_rule?.by_month_day,
+                by_set_position: parsedInput.recurrence_rule?.by_set_position,
+                until: parsedInput.recurrence_rule?.until,
+                count: parsedInput.recurrence_rule?.count,
+              })
+              .eq("id", recurringRuleID)
+              .select("id");
+            if (recurringRule.error) {
+              throw new Error(
+                "ERROR UPDATING RECURRENCE " + recurringRule.error.message,
+              );
+            }
           }
         } else if (!recurringRuleID || parsedInput.action === "future") {
-          // This is a new recurrence, or we are editing only future events, so generate a new rule
-          const recurringRule = await supabase
-            .from("recurrence_rule")
-            .insert({
-              frequency: parsedInput.recurrence_rule?.frequency,
-              interval: parsedInput.recurrence_rule?.interval,
-              by_weekdays: parsedInput.recurrence_rule?.by_weekdays,
-              by_month_day: parsedInput.recurrence_rule?.by_month_day,
-              by_set_position: parsedInput.recurrence_rule?.by_set_position,
-              until: parsedInput.recurrence_rule?.until,
-              count: parsedInput.recurrence_rule?.count,
-            })
-            .select("id");
-          if (recurringRule.error) {
-            throw new Error(
-              "ERROR UPDATING RECURRENCE " + recurringRule.error.message,
-            );
+          // Only create a new rule record if there is no existing rule, or the rule changed
+          if (ruleChanged) {
+            const recurringRule = await supabase
+              .from("recurrence_rule")
+              .insert({
+                frequency: parsedInput.recurrence_rule?.frequency,
+                interval: parsedInput.recurrence_rule?.interval,
+                by_weekdays: parsedInput.recurrence_rule?.by_weekdays,
+                by_month_day: parsedInput.recurrence_rule?.by_month_day,
+                by_set_position: parsedInput.recurrence_rule?.by_set_position,
+                until: parsedInput.recurrence_rule?.until,
+                count: parsedInput.recurrence_rule?.count,
+              })
+              .select("id");
+            if (recurringRule.error) {
+              throw new Error(
+                "ERROR UPDATING RECURRENCE " + recurringRule.error.message,
+              );
+            }
+            recurringRuleID = recurringRule.data[0].id;
           }
-          recurringRuleID = recurringRule.data[0].id;
+          // else: rule unchanged — reuse the existing recurringRuleID
         }
-        if (parsedInput.action !== "single") {
+
+        // Only regenerate event rows when the dates actually need to change
+        if (parsedInput.action !== "single" && (ruleChanged || datesChanged)) {
           const dtStart = toUTCWallClock(parsedInput.start_date);
           const rule = new RRule({
             freq: getFrequency(parsedInput.recurrence_rule.frequency!),
@@ -270,21 +327,46 @@ export const editEvent = actionClient
           });
         }
       }
-      events.unshift({
-        title: parsedInput.title,
-        description: parsedInput.description,
-        location: parsedInput.location,
-        start_date: parsedInput.start_date,
-        end_date: parsedInput.end_date,
-        poster_url: storageUrl,
-        poster_alt: parsedInput.poster_alt,
-        call_to_action_link: parsedInput.call_to_action_link,
-        call_to_action_caption: parsedInput.call_to_action_caption,
-        is_recurring: parsedInput.is_recurring,
-        recurrence_rule_id: recurringRuleID,
-      });
 
       if (parsedInput.recurrence_rule_id && parsedInput.action !== "single") {
+        if (!ruleChanged && !datesChanged) {
+          // Only metadata changed (title, location, poster, etc.) — bulk UPDATE
+          // existing event rows without touching their dates.
+          const metadataFields = {
+            title: parsedInput.title,
+            description: parsedInput.description,
+            location: parsedInput.location,
+            poster_url: storageUrl,
+            poster_alt: parsedInput.poster_alt,
+            call_to_action_link: parsedInput.call_to_action_link,
+            call_to_action_caption: parsedInput.call_to_action_caption,
+          };
+          let updateQuery = supabase
+            .from("events")
+            .update(metadataFields)
+            .eq("recurrence_rule_id", parsedInput.recurrence_rule_id);
+          if (parsedInput.action === "future") {
+            updateQuery = updateQuery.gte(
+              "start_date",
+              new Date(parsedInput.start_date).toISOString(),
+            );
+          }
+          const updatedEvents = await updateQuery;
+          if (updatedEvents.error) {
+            throw new Error(
+              "ERROR UPDATING RECURRING EVENTS " + updatedEvents.error.message,
+            );
+          }
+          return {
+            error: "",
+            data: updatedEvents.data,
+            count: updatedEvents.count,
+            status: ResponseCodes.SUCCESS,
+            statusText: "Event updated successfully!",
+          };
+        }
+
+        // Dates or rule changed — delete old rows and reinsert regenerated ones
         let deleteQuery = supabase
           .from("events")
           .delete()
@@ -306,19 +388,32 @@ export const editEvent = actionClient
           data: addedEvents.data,
           count: addedEvents.count,
           status: ResponseCodes.SUCCESS,
-          statusText: "Event created successfully!",
+          statusText: "Event updated successfully!",
         };
       } else {
+        // Single event update — use parsedInput directly
         const { data, error, count } = await supabase
           .from("events")
-          .update(events[0])
+          .update({
+            title: parsedInput.title,
+            description: parsedInput.description,
+            location: parsedInput.location,
+            start_date: parsedInput.start_date,
+            end_date: parsedInput.end_date,
+            poster_url: storageUrl,
+            poster_alt: parsedInput.poster_alt,
+            call_to_action_link: parsedInput.call_to_action_link,
+            call_to_action_caption: parsedInput.call_to_action_caption,
+            is_recurring: parsedInput.is_recurring,
+            recurrence_rule_id: recurringRuleID,
+          })
           .eq("id", parsedInput.id);
         return {
           error: error?.message ?? "",
           data,
           count,
           status: ResponseCodes.SUCCESS,
-          statusText: "Event created successfully!",
+          statusText: "Event updated successfully!",
         };
       }
     } catch (error) {
@@ -372,7 +467,7 @@ export const deleteEvent = actionClient
       const supabase = await createClient();
       let query = supabase.from("events").delete();
       if (parsedInput.recurrence_rule_id && parsedInput.action === "future") {
-        const startDate = new Date(parsedInput.start_date).toDateString();
+        const startDate = new Date(parsedInput.start_date).toISOString();
         query = query
           .gte("start_date", startDate)
           .eq("recurrence_rule_id", parsedInput.recurrence_rule_id);
@@ -454,12 +549,12 @@ export const filterEvents = actionClient
       if (parsedInput.search.length) {
         query = query.ilike("title", `%${parsedInput.search}%`);
       }
-      if (parsedInput.startDate?.toDateString().length) {
-        const startDate = new Date(parsedInput.startDate).toDateString();
+      if (parsedInput.startDate?.toISOString().length) {
+        const startDate = new Date(parsedInput.startDate).toISOString();
         query = query.gte("start_date", startDate);
       }
-      if (parsedInput.endDate?.toDateString().length) {
-        const endDate = new Date(parsedInput.endDate).toDateString();
+      if (parsedInput.endDate?.toISOString().length) {
+        const endDate = new Date(parsedInput.endDate).toISOString();
         query = query.lte("start_date", endDate);
       }
 
@@ -478,6 +573,46 @@ export const filterEvents = actionClient
       };
     }
   });
+
+function ruleHasChanged(
+  incoming: {
+    frequency: string;
+    interval: number | null;
+    by_weekdays: string[];
+    by_month_day: number | null;
+    by_set_position: number[];
+    until: Date | string | null;
+    count: number | null;
+  },
+  existing: {
+    frequency: string;
+    interval: number | null;
+    by_weekdays: string[];
+    by_month_day: number | null;
+    by_set_position: number[];
+    until: string | null;
+    count: number | null;
+  },
+): boolean {
+  if (incoming.frequency !== existing.frequency) return true;
+  if (incoming.interval !== existing.interval) return true;
+  if (incoming.by_month_day !== existing.by_month_day) return true;
+  if (incoming.count !== existing.count) return true;
+
+  const sortStr = (a: string[]) => [...(a ?? [])].sort().join(",");
+  if (sortStr(incoming.by_weekdays) !== sortStr(existing.by_weekdays)) return true;
+
+  const sortNum = (a: number[]) =>
+    [...(a ?? [])].sort((x, y) => x - y).join(",");
+  if (sortNum(incoming.by_set_position) !== sortNum(existing.by_set_position))
+    return true;
+
+  const toDateStr = (d: Date | string | null) =>
+    d ? new Date(d).toISOString().split("T")[0] : null;
+  if (toDateStr(incoming.until) !== toDateStr(existing.until)) return true;
+
+  return false;
+}
 
 const uploadFile = async (name: string, file: z.core.File) => {
   const supabase = await createClient();

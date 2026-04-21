@@ -6,6 +6,7 @@ import { EMAIL_REGEX } from "../constants/general";
 import { signUserIn } from "@/actions/authentication";
 import toast from "react-hot-toast";
 import { redirect } from "next/navigation";
+import MarqueeBackground from "./MarqueeBackground";
 
 export default function Login() {
   const {
@@ -44,10 +45,11 @@ export default function Login() {
     redirect("./dashboard");
   }
   return (
-    <div className="z-30 flex min-h-dvh items-center justify-center ">
+    <div className="z-30 flex min-h-dvh items-center justify-center relative">
+      <MarqueeBackground />
       <main className="flex flex-col items-center justify-between">
         <div className="rounded-2xl hero bg-base-200 py-32 px-16">
-          <div className="hero-content text-center ">
+          <div className="hero-content text-center shadow backdrop-blur-[5px] rounded-2xl">
             <div className="max-w-md">
               <h1 className="font-bold">Assalamualaikum!</h1>
               <h2>Sign in to get started!</h2>
