@@ -11,6 +11,20 @@ import {
 } from "@/app/schemas/events";
 import { ByWeekday, Frequency, RRule } from "rrule";
 
+type EventInsert = {
+  title: string;
+  description: string | null;
+  location: string;
+  start_date: Date;
+  end_date: Date;
+  poster_url: string;
+  poster_alt: string | null;
+  call_to_action_link: string | null;
+  call_to_action_caption: string | null;
+  is_recurring: boolean;
+  recurrence_rule_id: number | undefined;
+};
+
 const actionClient = createSafeActionClient();
 
 function sanitizeFilename(filename: string): string {
@@ -26,7 +40,7 @@ export const createEvent = actionClient
       const supabase = await createClient();
       let storageUrl = parsedInput.poster_url || "";
       let recurringRuleID: number | undefined = undefined;
-      const events = [];
+      const events: EventInsert[] = [];
 
       if (parsedInput.poster_file.length) {
         const fileUploaded = await uploadFile(
@@ -70,7 +84,7 @@ export const createEvent = actionClient
         const dtStart = toUTCWallClock(parsedInput.start_date);
         const rule = new RRule({
           freq: getFrequency(parsedInput.recurrence_rule.frequency!),
-          interval: parsedInput.recurrence_rule.interval,
+          interval: parsedInput.recurrence_rule.interval || undefined,
           byweekday: mapWeekdays(parsedInput.recurrence_rule.by_weekdays),
           bymonthday: parsedInput.recurrence_rule.by_month_day,
           bysetpos: parsedInput.recurrence_rule.by_set_position,
@@ -147,7 +161,7 @@ export const editEvent = actionClient
       const supabase = await createClient();
       let storageUrl = parsedInput.poster_url || "";
       let recurringRuleID: number | undefined = parsedInput.recurrence_rule_id;
-      const events = [];
+      const events: EventInsert[] = [];
       let ruleChanged = false;
       let datesChanged = false;
 
@@ -578,9 +592,9 @@ function ruleHasChanged(
   incoming: {
     frequency: string;
     interval: number | null;
-    by_weekdays: string[];
+    by_weekdays?: string[];
     by_month_day: number | null;
-    by_set_position: number[];
+    by_set_position?: number[];
     until: Date | string | null;
     count: number | null;
   },
@@ -599,10 +613,10 @@ function ruleHasChanged(
   if (incoming.by_month_day !== existing.by_month_day) return true;
   if (incoming.count !== existing.count) return true;
 
-  const sortStr = (a: string[]) => [...(a ?? [])].sort().join(",");
+  const sortStr = (a: string[] | undefined) => [...(a ?? [])].sort().join(",");
   if (sortStr(incoming.by_weekdays) !== sortStr(existing.by_weekdays)) return true;
 
-  const sortNum = (a: number[]) =>
+  const sortNum = (a: number[] | undefined) =>
     [...(a ?? [])].sort((x, y) => x - y).join(",");
   if (sortNum(incoming.by_set_position) !== sortNum(existing.by_set_position))
     return true;
