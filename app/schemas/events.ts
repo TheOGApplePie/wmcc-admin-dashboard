@@ -26,6 +26,7 @@ export interface Event {
     by_set_position?: number[]; // e.g. 1 for "1st", -1 for "last"
     until: Date | string | null; // Date limit
     count: number | null; // Occurrences limit
+    exdates?: string[]; // ISO date strings of excluded occurrences
   };
 }
 
@@ -41,6 +42,7 @@ const recurrenceRuleShape = {
   by_set_position: z.array(z.coerce.number().min(-2).max(2)).optional(),
   until: z.coerce.date().nullable(),
   count: z.coerce.number().min(2).max(20).nullable(),
+  exdates: z.array(z.string()).optional(),
 };
 
 // ─── Shared validation helpers ────────────────────────────────────────────────
@@ -125,7 +127,7 @@ function validateFrequencyRule(
   },
   ctx: z.RefinementCtx,
 ) {
-  if (rule.frequency === "day") {
+  if (rule.frequency === "daily") {
     if (!rule.interval || rule.interval < 1 || rule.interval > 20) {
       ctx.addIssue({
         code: "custom",
@@ -134,7 +136,7 @@ function validateFrequencyRule(
         path: ["recurrence_rule.interval"],
       });
     }
-  } else if (rule.frequency === "week") {
+  } else if (rule.frequency === "weekly") {
     if (!rule.by_weekdays?.length) {
       ctx.addIssue({
         code: "custom",
@@ -143,7 +145,7 @@ function validateFrequencyRule(
         path: ["recurrence_rule.by_weekdays"],
       });
     }
-  } else if (rule.frequency === "month") {
+  } else if (rule.frequency === "monthly") {
     if (
       !rule.by_month_day &&
       !rule.by_weekdays?.length &&
@@ -188,7 +190,7 @@ function validateRecurrenceRule(
 
   const rule = data.recurrence_rule;
 
-  if (!rule.frequency || !["day", "week", "month"].includes(rule.frequency)) {
+  if (!rule.frequency || !["daily", "weekly", "monthly"].includes(rule.frequency)) {
     ctx.addIssue({
       code: "custom",
       message:
@@ -235,7 +237,7 @@ export const CreateEventZod = z
   .object({
     id: z.coerce.number().optional(),
     title: z.string().trim().max(50),
-    description: z.nullable(z.string().trim().max(100)),
+    description: z.nullable(z.string().trim().max(300)),
     location: z.string().trim().max(100),
     poster_url: z.nullable(z.url()),
     poster_file: z.array(z.file()),
@@ -269,7 +271,7 @@ export const EditEventZod = z
   .object({
     id: z.coerce.number().optional(),
     title: z.string().trim().max(50),
-    description: z.nullable(z.string().trim().max(100)),
+    description: z.nullable(z.string().trim().max(300)),
     location: z.string().trim().max(100),
     poster_url: z.nullable(z.url()),
     poster_file: z.array(z.file()),
@@ -279,6 +281,7 @@ export const EditEventZod = z
     start_date: z.coerce.date(),
     end_date: z.coerce.date(),
     action: z.string(),
+    occurrence_date: z.coerce.date().optional(),
     is_recurring: z.boolean(),
     recurrence_rule_id: z.coerce.number().optional(),
     gallery_url: z.preprocess(
