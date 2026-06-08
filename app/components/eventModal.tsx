@@ -2,11 +2,14 @@
 import { Event } from "../schemas/events";
 import { useForm, useWatch, Controller } from "react-hook-form";
 import Image from "next/image";
-import { ChangeEvent, useEffect, useState } from "react";
+import Link from "next/link";
+import { ChangeEvent, useEffect, useRef, useState } from "react";
 import { createEvent, editEvent, deleteEvent } from "@/actions/events";
+import { fetchCampaignForEvent } from "@/actions/postScheduling";
 import { FIVE_MB, URL_REGEX } from "../constants/general";
 import toast from "react-hot-toast";
 import ConfirmationModal from "../../features/announcements/modals/ConfirmationModal";
+import RegeneratePrompt from "@/features/postScheduling/components/RegeneratePrompt";
 import { formatDateTimeLocal } from "../utils/date";
 
 function WMCCLoader() {
@@ -38,7 +41,7 @@ export default function EventModal({
   const {
     register,
     handleSubmit,
-    formState: { errors },
+    formState: { errors, isDirty },
     setError,
     clearErrors,
     reset,
@@ -84,7 +87,10 @@ export default function EventModal({
   const [updatedEvent, setUpdatedEvent] = useState<Event | null>(null);
   const [getConfirmation, setGetConfirmation] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [pendingRegenerate, setPendingRegenerate] = useState<{ eventId: number; campaignId: number } | null>(null);
   const wasRecurring = event?.is_recurring ?? false;
+  const originalDatesRef = useRef<{ start: string; end: string } | null>(null);
+  const fileChangedRef = useRef(false);
 
   useEffect(() => {
     if (event) {
@@ -101,6 +107,10 @@ export default function EventModal({
 
       setImageUrl(event.poster_url ?? null);
       setUseFile(!event.poster_url?.length);
+      originalDatesRef.current = {
+        start: new Date(event.start_date).toISOString(),
+        end: new Date(event.end_date).toISOString(),
+      };
 
       if (event.is_recurring && event.recurrence_rule) {
         const rule = event.recurrence_rule;
@@ -164,6 +174,7 @@ export default function EventModal({
   const handleImageChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
+      fileChangedRef.current = true;
       if (file.size > FIVE_MB) {
         setError("poster_file", {
           message:
@@ -183,6 +194,7 @@ export default function EventModal({
     } else {
       const url = event.target.value;
       if (url.length) {
+        fileChangedRef.current = true;
         setImageUrl(url);
       } else {
         setImageFile(null);
@@ -229,12 +241,40 @@ export default function EventModal({
         toast.success(
           response.data?.statusText ?? "Event updated successfully!",
         );
-        reset();
-        setImageUrl(null);
-        setImageFile(null);
-        closeModal(true);
+        const showed = await checkAndPromptRegenerate(
+          updatedEvent!.id,
+          new Date(updatedEvent!.start_date),
+          new Date(updatedEvent!.end_date),
+        );
+        if (!showed) {
+          reset(); setImageUrl(null); setImageFile(null); fileChangedRef.current = false;
+          closeModal(true);
+        }
       }
     }
+  }
+
+  const handleRegenerateDone = () => {
+    setPendingRegenerate(null);
+    reset();
+    setImageUrl(null);
+    setImageFile(null);
+    fileChangedRef.current = false;
+    closeModal(true);
+  };
+
+  async function checkAndPromptRegenerate(eventId: number, newStartDate: Date, newEndDate: Date): Promise<boolean> {
+    const datesTouched =
+      newStartDate.toISOString() !== originalDatesRef.current?.start ||
+      newEndDate.toISOString() !== originalDatesRef.current?.end;
+    if (!datesTouched) return false;
+    const result = await fetchCampaignForEvent({ event_id: eventId });
+    const campaign = result?.data?.data;
+    if (campaign) {
+      setPendingRegenerate({ eventId, campaignId: (campaign as { id: number }).id });
+      return true;
+    }
+    return false;
   }
 
   const onSubmit = async (data: Event) => {
@@ -301,10 +341,15 @@ export default function EventModal({
           toast.success(
             response.data?.statusText ?? "Event updated successfully!",
           );
-          reset();
-          setImageUrl(null);
-          setImageFile(null);
-          closeModal(true);
+          const showed = await checkAndPromptRegenerate(
+            data.id!,
+            new Date(data.start_date),
+            new Date(data.end_date),
+          );
+          if (!showed) {
+            reset(); setImageUrl(null); setImageFile(null); fileChangedRef.current = false;
+            closeModal(true);
+          }
         }
       }
     } else {
@@ -373,9 +418,11 @@ export default function EventModal({
           <button
             className="btn btn-outline btn-error text-black"
             onClick={() => {
+              if ((isDirty || fileChangedRef.current) && !window.confirm("Unsaved changes will be lost. Close anyway?")) return;
               reset();
               setImageUrl(null);
               setImageFile(null);
+              fileChangedRef.current = false;
               closeModal(false);
             }}
           >
@@ -425,7 +472,7 @@ export default function EventModal({
               </legend>
               <textarea
                 className="textarea textarea-lg w-full rounded-2xl resize-none"
-                maxLength={300}
+                maxLength={1000}
                 rows={4}
                 {...register("description", {
                   required: {
@@ -433,9 +480,9 @@ export default function EventModal({
                     message: "Please enter a description for the event.",
                   },
                   maxLength: {
-                    value: 300,
+                    value: 1000,
                     message:
-                      "Please limit your description to less than 300 characters long.",
+                      "Please limit your description to less than 1000 characters long.",
                   },
                   minLength: {
                     value: 20,
@@ -714,7 +761,7 @@ export default function EventModal({
                 </legend>
                 <input
                   className="w-full input input-lg rounded-2xl"
-                  type="text"
+                  type="url"
                   {...register("gallery_url")}
                 />
               </fieldset>
@@ -1042,6 +1089,21 @@ export default function EventModal({
                 Save
               </button>
               {event && (
+                <Link
+                  href={`/dashboard/events/${event.id}/posts`}
+                  className="btn btn-outline flex-1 z-10"
+                  onClick={(e) => {
+                    if ((isDirty || fileChangedRef.current) && !window.confirm("Unsaved changes will be lost. Continue?")) {
+                      e.preventDefault();
+                      return;
+                    }
+                    closeModal(false);
+                  }}
+                >
+                  Manage Posts
+                </Link>
+              )}
+              {event && (
                 <button
                   type="button"
                   className="btn btn-error flex-1 z-10"
@@ -1121,6 +1183,13 @@ export default function EventModal({
                 ]
           }
           closeModal={handleDeleteConfirm}
+        />
+      )}
+      {pendingRegenerate && (
+        <RegeneratePrompt
+          eventId={pendingRegenerate.eventId}
+          campaignId={pendingRegenerate.campaignId}
+          onDone={handleRegenerateDone}
         />
       )}
     </>

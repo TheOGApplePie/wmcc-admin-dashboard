@@ -9,6 +9,7 @@ import {
   EditEventZod,
   DeleteEventZod,
 } from "@/app/schemas/events";
+import { logAudit } from "@/utils/audit";
 
 const actionClient = createSafeActionClient();
 
@@ -92,7 +93,7 @@ export const createEvent = actionClient
         recurringRuleID = ruleResult.data[0].id;
       }
 
-      const { data, error, count } = await supabase.from("events").insert({
+      const { data, error } = await supabase.from("events").insert({
         title: parsedInput.title,
         description: parsedInput.description,
         location: parsedInput.location,
@@ -104,12 +105,14 @@ export const createEvent = actionClient
         call_to_action_caption: parsedInput.call_to_action_caption,
         is_recurring: parsedInput.is_recurring,
         recurrence_rule_id: recurringRuleID,
-      });
+      }).select("id").single();
+
+      if (!error && data) await logAudit(supabase, "event", data.id, "create", parsedInput.title);
 
       return {
         error: error?.message ?? "",
         data,
-        count,
+        count: null,
         status: ResponseCodes.SUCCESS,
         statusText: "Event created successfully!",
       };
@@ -168,6 +171,7 @@ export const editEvent = actionClient
           .from("recurrence_rule")
           .delete()
           .eq("id", parsedInput.recurrence_rule_id);
+        if (parsedInput.id) await logAudit(supabase, "event", parsedInput.id, "update", "removed recurrence");
         return {
           error: "",
           data: null,
@@ -298,6 +302,8 @@ export const editEvent = actionClient
         if (error) throw new Error(error.message);
       }
 
+      if (parsedInput.id) await logAudit(supabase, "event", parsedInput.id, "update", parsedInput.action ?? "single");
+
       return {
         error: "",
         data: null,
@@ -351,6 +357,8 @@ export const deleteEvent = actionClient
       } else {
         await supabase.from("events").delete().eq("id", parsedInput.id);
       }
+
+      await logAudit(supabase, "event", parsedInput.id, "delete", parsedInput.action);
 
       return {
         error: "",
