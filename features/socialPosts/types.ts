@@ -53,3 +53,9 @@ export interface StatCardProps {
   label:  string;
   iconBg: string;
 }
+
+export interface SocialPostsClientProps {
+  initialPosts: SocialPost[];
+  events:       EventOption[];
+  adminUsers:   AdminUserOption[];
+}

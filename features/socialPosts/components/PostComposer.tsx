@@ -21,10 +21,10 @@ const TIME_SLOTS: TimeSlot[]          = ["morning", "afternoon", "evening"];
 const POST_TYPES: SocialPostType[]    = ["ANNOUNCEMENT", "GENERAL", "REMINDER"];
 const MAX_CAPTION                     = 1000;
 
-const POST_TYPE_ICONS: Record<SocialPostType, React.ReactNode> = {
-  ANNOUNCEMENT: <AnnouncementIcon />,
-  GENERAL:      <GeneralIcon />,
-  REMINDER:     <ReminderIcon />,
+const POST_TYPE_ICONS: Record<SocialPostType, React.ComponentType> = {
+  ANNOUNCEMENT: AnnouncementIcon,
+  GENERAL:      GeneralIcon,
+  REMINDER:     ReminderIcon,
 };
 
 const POST_TYPE_HINTS: Record<SocialPostType, string> = {
@@ -200,6 +200,7 @@ export default function PostComposer({
             {POST_TYPES.map((value) => {
               const active  = watchedPostType === value;
               const colour  = POST_TYPE_COLOURS[value];
+              const Icon    = POST_TYPE_ICONS[value];
               return (
                 <button
                   key={value}
@@ -213,7 +214,7 @@ export default function PostComposer({
                   }
                 >
                   <div className="flex items-center gap-1.5">
-                    {POST_TYPE_ICONS[value]}
+                    <Icon />
                     <span className="text-[12px] font-semibold">{POST_TYPE_LABELS[value]}</span>
                   </div>
                   <span className="text-[10px]" style={{ color: active ? colour : "var(--sp-muted)", opacity: 0.75 }}>

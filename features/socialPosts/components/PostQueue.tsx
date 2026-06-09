@@ -85,8 +85,7 @@ function QueueItem({
 }>) {
   const [marking, setMarking] = useState(false);
 
-  const handleMarkSent = async (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleMarkSent = async () => {
     setMarking(true);
     const result = await publishSocialPost({ id: post.id });
     setMarking(false);
@@ -96,119 +95,126 @@ function QueueItem({
 
   return (
     <div
-      onClick={onSelect}
-      className="w-full text-left flex gap-3 p-3 rounded-xl transition-all duration-150 cursor-pointer"
-      style={{
-        backgroundColor: selected ? "var(--sp-teal-soft)" : "transparent",
-        border:          selected ? "1.5px solid var(--sp-teal)" : "1.5px solid transparent",
-      }}
-      onMouseEnter={(e) => { if (!selected) e.currentTarget.style.backgroundColor = "var(--sp-canvas)"; }}
-      onMouseLeave={(e) => { if (!selected) e.currentTarget.style.backgroundColor = "transparent"; }}
+      className={`w-full rounded-xl border-[1.5px] transition-colors duration-150 ${
+        selected
+          ? "bg-(--sp-teal-soft) border-(--sp-teal)"
+          : "bg-transparent border-transparent hover:bg-(--sp-canvas)"
+      }`}
     >
-      {/* Thumbnail */}
-      <div
-        className="rounded-xl shrink-0 overflow-hidden"
-        style={{ width: 52, height: 52, backgroundColor: "var(--sp-hairline)" }}
+      {/* Clickable card area — semantic button for keyboard + screen-reader access */}
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-pressed={selected}
+        aria-label={`Select post: ${post.title}`}
+        className="w-full text-left flex gap-3 p-3"
       >
-        {post.media_url ? (
-          <img src={post.media_url} alt="" className="w-full h-full object-cover" />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--sp-muted)" strokeWidth="1.5">
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <circle cx="8.5" cy="8.5" r="1.5" />
-              <polyline points="21 15 16 10 5 21" />
-            </svg>
-          </div>
-        )}
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-start justify-between gap-2 mb-1">
-          <span className="text-[13px] font-semibold truncate" style={{ color: "var(--sp-ink)" }}>
-            {post.title}
-          </span>
-          <div className="flex items-center gap-1.5 shrink-0">
-            {post.post_type && post.post_type !== "GENERAL" && (
-              <span
-                className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full"
-                style={{
-                  backgroundColor: POST_TYPE_COLOURS[post.post_type] + "18",
-                  color:           POST_TYPE_COLOURS[post.post_type],
-                }}
-              >
-                {POST_TYPE_LABELS[post.post_type]}
-              </span>
-            )}
-            <SocialPostStatusBadge status={post.status} />
-          </div>
-        </div>
-
-        {post.caption && (
-          <p className="text-[12px] line-clamp-1 mb-1.5" style={{ color: "var(--sp-muted)" }}>
-            {post.caption}
-          </p>
-        )}
-
-        <div className="flex items-center gap-2 flex-wrap">
-          {post.channels.map((ch) => (
-            <span
-              key={ch}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold"
-              style={{
-                backgroundColor: CHANNEL_COLOURS_HEX[ch] + "18",
-                color:           CHANNEL_COLOURS_HEX[ch],
-              }}
-            >
-              {CHANNEL_LABELS[ch]}
-            </span>
-          ))}
-          {post.scheduled_at && (
-            <span className="text-[11px] ml-auto" style={{ color: "var(--sp-muted)" }}>
-              {formatDateTime(post.scheduled_at)}
-            </span>
+        {/* Thumbnail */}
+        <div
+          className="rounded-xl shrink-0 overflow-hidden"
+          style={{ width: 52, height: 52, backgroundColor: "var(--sp-hairline)" }}
+        >
+          {post.media_url ? (
+            <img src={post.media_url} alt="" className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--sp-muted)" strokeWidth="1.5">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <polyline points="21 15 16 10 5 21" />
+              </svg>
+            </div>
           )}
         </div>
 
-        {post.event_title && (
-          <div className="mt-1.5">
-            <span
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px]"
-              style={{ backgroundColor: "#EDE9FE", color: "var(--sp-violet)" }}
-            >
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="3" y="4" width="18" height="18" rx="2" />
-                <line x1="16" y1="2" x2="16" y2="6" />
-                <line x1="8"  y1="2" x2="8"  y2="6" />
-                <line x1="3"  y1="10" x2="21" y2="10" />
-              </svg>
-              {post.event_title}
+        {/* Content */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between gap-2 mb-1">
+            <span className="text-[13px] font-semibold truncate" style={{ color: "var(--sp-ink)" }}>
+              {post.title}
             </span>
-          </div>
-        )}
-
-        {post.status === "scheduled" && (
-          <div className="mt-2">
-            <button
-              type="button"
-              disabled={marking}
-              onClick={handleMarkSent}
-              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] font-semibold border transition-colours"
-              style={{ borderColor: "var(--sp-teal)", color: "var(--sp-teal)", backgroundColor: "transparent" }}
-            >
-              {marking ? (
-                <span className="loading loading-spinner loading-xs" />
-              ) : (
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {post.post_type && post.post_type !== "GENERAL" && (
+                <span
+                  className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full"
+                  style={{
+                    backgroundColor: POST_TYPE_COLOURS[post.post_type] + "18",
+                    color:           POST_TYPE_COLOURS[post.post_type],
+                  }}
+                >
+                  {POST_TYPE_LABELS[post.post_type]}
+                </span>
               )}
-              Mark as sent
-            </button>
+              <SocialPostStatusBadge status={post.status} />
+            </div>
           </div>
-        )}
-      </div>
+
+          {post.caption && (
+            <p className="text-[12px] line-clamp-1 mb-1.5" style={{ color: "var(--sp-muted)" }}>
+              {post.caption}
+            </p>
+          )}
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {post.channels.map((ch) => (
+              <span
+                key={ch}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold"
+                style={{
+                  backgroundColor: CHANNEL_COLOURS_HEX[ch] + "18",
+                  color:           CHANNEL_COLOURS_HEX[ch],
+                }}
+              >
+                {CHANNEL_LABELS[ch]}
+              </span>
+            ))}
+            {post.scheduled_at && (
+              <span className="text-[11px] ml-auto" style={{ color: "var(--sp-muted)" }}>
+                {formatDateTime(post.scheduled_at)}
+              </span>
+            )}
+          </div>
+
+          {post.event_title && (
+            <div className="mt-1.5">
+              <span
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px]"
+                style={{ backgroundColor: "#EDE9FE", color: "var(--sp-violet)" }}
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="3" y="4" width="18" height="18" rx="2" />
+                  <line x1="16" y1="2" x2="16" y2="6" />
+                  <line x1="8"  y1="2" x2="8"  y2="6" />
+                  <line x1="3"  y1="10" x2="21" y2="10" />
+                </svg>
+                {post.event_title}
+              </span>
+            </div>
+          )}
+        </div>
+      </button>
+
+      {/* Mark as sent — sibling of the card button, not nested inside it */}
+      {post.status === "scheduled" && (
+        <div className="px-3 pb-3">
+          <button
+            type="button"
+            disabled={marking}
+            onClick={handleMarkSent}
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] font-semibold border transition-colours"
+            style={{ borderColor: "var(--sp-teal)", color: "var(--sp-teal)", backgroundColor: "transparent" }}
+          >
+            {marking ? (
+              <span className="loading loading-spinner loading-xs" />
+            ) : (
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            )}
+            Mark as sent
+          </button>
+        </div>
+      )}
     </div>
   );
 }
