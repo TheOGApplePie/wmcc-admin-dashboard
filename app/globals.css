@@ -5,6 +5,44 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --font-plus-jakarta: 'Plus Jakarta Sans', sans-serif;
+
+  /* ── Social Posts design tokens ──────────────────────────────────────────── */
+  /* Text */
+  --sp-ink:    #15201C;   /* primary text */
+  --sp-muted:  #6B726E;   /* secondary text, labels */
+
+  /* Surfaces */
+  --sp-canvas:   #F6F4EF; /* page background */
+  --sp-surface:  #FFFFFF; /* card / panel background */
+  --sp-hairline: #E7E3DA; /* borders, dividers */
+
+  /* Brand — primary teal */
+  --sp-teal:      #0F8073;
+  --sp-teal-dark: #0B6359; /* hover state */
+  --sp-teal-soft: #E4F2EF; /* teal tint background */
+
+  /* Accents */
+  --sp-amber:  #E0A53C;   /* draft badge, IG Story channel */
+  --sp-violet: #7A6CD6;   /* event link chip */
+  --sp-coral:  #DC6B62;   /* danger, failed badge */
+
+  /* Channel brand colours */
+  --sp-ig:       #C13584; /* Instagram Feed */
+  --sp-ig-story: #E0A53C; /* Instagram Story (shares amber) */
+  --sp-whatsapp: #25A565; /* WhatsApp */
+
+  /* Status badge palettes  (bg / text) */
+  --sp-status-idea-bg:      #F3F4F6;
+  --sp-status-idea-text:    #6B7280;
+  --sp-status-draft-bg:     #FEF3C7;
+  --sp-status-draft-text:   #92400E;
+  --sp-status-sched-bg:     #E4F2EF;
+  --sp-status-sched-text:   #0B6359;
+  --sp-status-pub-bg:       #D1FAE5;
+  --sp-status-pub-text:     #065F46;
+  --sp-status-failed-bg:    #FEE2E2;
+  --sp-status-failed-text:  #991B1B;
   --main-colour-blue: #1e3a5f;
   --secondary-colour-green: #026c54;
   --secondary-colour-green-light: #1b9679;

@@ -6,6 +6,26 @@ import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { fetchFeedback } from "../actions";
 
+type FilterForm = {
+  search: string;
+  startDate: string;
+  endDate: string;
+  currentPage: number;
+  pageSize: number;
+};
+
+function formatDate(dateStr: string | Date) {
+  return new Date(dateStr).toLocaleString("en-CA", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: "America/Toronto",
+  });
+}
+
 export default function FeedbackTable({
   feedback,
   count,
@@ -13,322 +33,255 @@ export default function FeedbackTable({
   feedback: CommunityFeedback[];
   count: number;
 }>) {
-  const {
-    register,
-    handleSubmit,
-    formState: { errors },
-    resetField,
-    control,
-    setValue,
-  } = useForm<{
-    search: string;
-    startDate: string;
-    endDate: string;
-    currentPage: number;
-    pageSize: number;
-  }>({
-    defaultValues: {
-      search: "",
-      startDate: "",
-      endDate: "",
-      currentPage: 1,
-      pageSize: 10,
-    },
-    mode: "onChange",
-  });
-
-  const [totalCount, setTotalCount] = useState(count);
-  const [filteredFeedback, setFilteredFeedback] = useState(feedback);
+  const { register, handleSubmit, formState: { errors }, resetField, control, setValue } =
+    useForm<FilterForm>({
+      defaultValues: { search: "", startDate: "", endDate: "", currentPage: 1, pageSize: 10 },
+      mode: "onChange",
+    });
 
   const startDate = useWatch({ control, name: "startDate" });
   const endDate = useWatch({ control, name: "endDate" });
   const pageSize = useWatch({ control, name: "pageSize" });
   const currentPage = useWatch({ control, name: "currentPage" });
-  const search = useWatch({ control, name: "search" });
-  const [selectedFeedback, setSelectedFeedback] =
-    useState<null | CommunityFeedback>(null);
 
-  async function onSubmit(data: {
-    search: string;
-    startDate: string;
-    endDate: string;
-    currentPage: number;
-    pageSize: number;
-  }) {
-    let input: {
-      search: string;
-      startDate: string | undefined;
-      endDate: string | undefined;
-      currentPage: number;
-      pageSize: number;
-    } = {
+  const [totalCount, setTotalCount] = useState(count);
+  const [filteredFeedback, setFilteredFeedback] = useState(feedback);
+  const [selected, setSelected] = useState<CommunityFeedback | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function onSubmit(data: FilterForm) {
+    setLoading(true);
+    const result = await fetchFeedback({
       search: data.search,
-      startDate: undefined,
-      endDate: undefined,
+      startDate: data.startDate || undefined,
+      endDate: data.endDate || undefined,
       currentPage: data.currentPage,
       pageSize: data.pageSize,
-    };
-
-    if (data.startDate?.length) {
-      input = { ...input, startDate: data.startDate };
-    }
-    if (data.endDate?.length) {
-      input = { ...input, endDate: data.endDate };
-    }
-
-    const query = await fetchFeedback(input);
-
-    setFilteredFeedback(query.data?.feedback ?? []);
-    setTotalCount(query.data?.count ?? 0);
-    window.scrollTo({ top: 0 });
+    });
+    setFilteredFeedback(result.data?.feedback ?? []);
+    setTotalCount(result.data?.count ?? 0);
+    setLoading(false);
   }
 
   return (
-    <div className="flex justify-center">
-      <div>
-        <div className="flex px-6 pt-6 gap-3 items-center justify-between">
-          <div className="w-full">
-            <div className="flex w-full">
-              <label className="grow input relative">
-                <input
-                  type="search"
-                  className="border-gray-300 rounded-lg"
-                  placeholder="Search feedback by message contents"
-                  {...register("search")}
-                />
-                {search.length > 0 && (
-                  <button
-                    className="btn btn-error btn-sm"
-                    type="reset"
-                    onClick={() => {
-                      resetField("search");
-                    }}
-                  >
-                    X
-                  </button>
-                )}
-                <span className="label p-0">
-                  <button
-                    type="submit"
-                    className="btn rounded-l-lg btn-neutral"
-                  >
-                    Search
-                  </button>
-                </span>
-              </label>
-            </div>
-            <div className="flex gap-3 justify-start items-center py-3">
-              <div className="font-semibold">Filter By Date Range</div>
-              <label className="input">
-                <span className="label">From</span>
-                <input
-                  className="relative"
-                  type="date"
-                  {...register("startDate", {
-                    validate: {
-                      validateStartDate: (
-                        startDate: string,
-                        {
-                          endDate,
-                        }: {
-                          endDate: string | null;
-                        }
-                      ) => {
-                        if (
-                          startDate &&
-                          endDate &&
-                          new Date(startDate) > new Date(endDate)
-                        )
-                          return "Please make sure the 'from' date is less than the 'to' date";
-                        return true;
-                      },
-                    },
-                  })}
-                />
-                {startDate && (
-                  <button
-                    className="btn absolute btn-error btn-sm right-10 text-red-500"
-                    onClick={() => {
-                      resetField("startDate");
-                    }}
-                  >
-                    X
-                  </button>
-                )}
-              </label>
+    <div className="flex flex-col flex-1 overflow-hidden gap-4">
+      {/* ── Filters ────────────────────────────────────────────────────── */}
+      <form
+        onSubmit={handleSubmit(onSubmit)}
+        className="shrink-0 flex flex-wrap gap-3 items-end"
+      >
+        {/* Search */}
+        <div className="flex-1 min-w-48">
+          <label className="label text-xs font-medium mb-1" htmlFor="search">Search</label>
+          <div className="join w-full">
+            <input
+              id="search"
+              type="search"
+              className="input input-bordered join-item w-full"
+              placeholder="Search by message…"
+              {...register("search")}
+            />
+            <button type="submit" className="btn btn-neutral join-item">Search</button>
+          </div>
+        </div>
 
-              <label className="input">
-                <span className="label">To</span>
-                <input
-                  className="relative"
-                  type="date"
-                  {...register("endDate", {
-                    validate: {
-                      validateEndDate: (
-                        endDate: string,
-                        {
-                          startDate,
-                        }: {
-                          startDate: string | null;
-                        }
-                      ) => {
-                        if (
-                          startDate &&
-                          endDate &&
-                          new Date(startDate) > new Date(endDate)
-                        )
-                          return "Please make sure the 'from' date is less than the 'to' date";
-                        return true;
-                      },
-                    },
-                  })}
-                />
-                {endDate && (
-                  <button
-                    className="btn absolute btn-error btn-sm right-10 text-red-500"
-                    onClick={() => {
-                      resetField("endDate");
-                    }}
-                  >
-                    X
-                  </button>
-                )}
-              </label>
+        {/* From date */}
+        <div>
+          <label className="label text-xs font-medium mb-1" htmlFor="startDate">From</label>
+          <div className="join">
+            <input
+              id="startDate"
+              type="date"
+              className="input input-bordered join-item"
+              {...register("startDate", {
+                validate: {
+                  beforeEnd: (v, { endDate: e }) =>
+                    !v || !e || new Date(v) <= new Date(e) || "From must be before To",
+                },
+              })}
+            />
+            {startDate && (
               <button
-                className="btn btn-small btn-info"
-                onClick={() => {
-                  handleSubmit(onSubmit);
-                }}
+                type="button"
+                className="btn btn-error join-item"
+                onClick={() => resetField("startDate")}
               >
-                Apply Date Filters
+                ✕
               </button>
-            </div>
-            {errors.startDate && (
-              <span className="text-red-500">{errors.startDate.message}</span>
-            )}
-            {errors.endDate && (
-              <span className="text-red-500">{errors.endDate.message}</span>
             )}
           </div>
         </div>
-        <div className="mx-10 mb-10 border border-gray-200 shadow-lg rounded-3xl">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Sender Name</th>
-                <th>Sender Message</th>
-                <th>Sender Email</th>
-                <th>Sender Telephone</th>
-                <th>Date Sent</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredFeedback.map((message) => {
-                return (
-                  <tr
-                    className={`hover:cursor-pointer hover:bg-gray-200 transition ${
-                      selectedFeedback?.id === message.id ? "bg-gray-300" : ""
-                    }`}
-                    onClick={() => setSelectedFeedback(message)}
-                    key={message.id}
-                  >
-                    <td>{message.name}</td>
-                    <td className="overflow-hidden text-ellipsis max-w-28">
-                      {message.message}
-                    </td>
-                    <td>{message.email}</td>
-                    <td>{message.telephone}</td>
-                    <td>
-                      {new Date(message.created_at).toLocaleTimeString(
-                        "en-GB",
-                        {
-                          year: "numeric",
-                          month: "2-digit",
-                          day: "2-digit",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                          hourCycle: "h12",
-                        }
-                      )}
+
+        {/* To date */}
+        <div>
+          <label className="label text-xs font-medium mb-1" htmlFor="endDate">To</label>
+          <div className="join">
+            <input
+              id="endDate"
+              type="date"
+              className="input input-bordered join-item"
+              {...register("endDate", {
+                validate: {
+                  afterStart: (v, { startDate: s }) =>
+                    !v || !s || new Date(v) >= new Date(s) || "To must be after From",
+                },
+              })}
+            />
+            {endDate && (
+              <button
+                type="button"
+                className="btn btn-error join-item"
+                onClick={() => resetField("endDate")}
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        </div>
+
+        <button type="submit" className="btn btn-info self-end">
+          Apply Filters
+        </button>
+      </form>
+
+      {(errors.startDate || errors.endDate) && (
+        <p className="shrink-0 text-error text-sm -mt-2">
+          {errors.startDate?.message ?? errors.endDate?.message}
+        </p>
+      )}
+
+      {/* ── Two-column layout ───────────────────────────────────────────── */}
+      <div className="flex-1 overflow-hidden flex gap-6">
+
+        {/* Left column — scrollable table + pinned pagination */}
+        <div className="flex-1 flex flex-col overflow-hidden border border-base-200 rounded-2xl shadow-sm relative">
+          {loading && (
+            <div className="absolute inset-0 bg-base-100/60 flex items-center justify-center z-20 rounded-2xl">
+              <span className="loading loading-spinner loading-md" />
+            </div>
+          )}
+
+          {/* Scrollable table area */}
+          <div className="flex-1 overflow-y-auto">
+            <table className="table table-zebra w-full">
+              <thead className="sticky top-0 z-10">
+                <tr className="bg-base-200">
+                  <th className="w-36">Name</th>
+                  <th>Message</th>
+                  <th className="w-44 hidden md:table-cell">Email</th>
+                  <th className="w-32 hidden lg:table-cell">Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredFeedback.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="text-center py-10 opacity-50">
+                      No feedback found.
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {totalCount > 10 && (
-            <div className="p-3">
+                ) : (
+                  filteredFeedback.map((item) => (
+                    <tr
+                      key={item.id}
+                      className={`cursor-pointer hover transition-colors ${
+                        selected?.id === item.id ? "bg-primary/10" : ""
+                      }`}
+                      onClick={() => setSelected(item)}
+                    >
+                      <td className="font-medium">{item.name}</td>
+                      <td className="max-w-xs">
+                        <span className="line-clamp-2 text-sm">{item.message}</span>
+                      </td>
+                      <td className="text-sm opacity-70 hidden md:table-cell">{item.email}</td>
+                      <td className="text-xs opacity-50 hidden lg:table-cell whitespace-nowrap">
+                        {formatDate(item.created_at)}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination — pinned to bottom of left column, outside scroll */}
+          {totalCount > pageSize && (
+            <div className="shrink-0 p-3 border-t border-base-200">
               <Pagination
                 currentPage={currentPage}
                 total={totalCount}
                 limit={pageSize}
-                onPageChange={(page: number, newPageSize?: number) => {
+                onPageChange={(page, newPageSize) => {
                   setValue("currentPage", page);
-                  if (newPageSize) {
-                    setValue("pageSize", newPageSize);
-                  }
+                  if (newPageSize) setValue("pageSize", newPageSize);
                   handleSubmit((data) =>
-                    onSubmit({
-                      ...data,
-                      pageSize: newPageSize ?? pageSize,
-                      currentPage: page,
-                    })
+                    onSubmit({ ...data, pageSize: newPageSize ?? pageSize, currentPage: page }),
                   )();
                 }}
               />
             </div>
           )}
         </div>
-      </div>
 
-      <div
-        className={`${
-          selectedFeedback ? "w-96 h-[500px] opacity-100" : "w-0 opacity-0 h-0"
-        } transition-all ease-out duration-300 m-10 p-10 border border-gray-200 shadow-lg rounded-3xl`}
-      >
-        <div className="flex justify-between">
-          <h2>Message Details</h2>
-          <button
-            className="btn btn-error"
-            onClick={() => setSelectedFeedback(null)}
-          >
-            X
-          </button>
-        </div>
-        <div>
-          <div>
-            <h3>Name: </h3>
-            {selectedFeedback?.name}
-          </div>
-          <div>
-            <h3>Email: </h3>
-            {selectedFeedback?.email}
-          </div>
-          <div>
-            <h3>Phone Number: </h3>
-            {selectedFeedback?.telephone
-              ? selectedFeedback.telephone
-              : "None Provided"}
-          </div>
-          <div>
-            <h3>Message: </h3>
-            <textarea
-              readOnly={true}
-              className="bg-gray-200 resize-none w-full"
-              value={selectedFeedback?.message}
-            ></textarea>
-          </div>
-          <div className="my-3">
-            <button className="btn btn-neutral">
-              <Link
-                href={`mailto:${
-                  selectedFeedback?.email
-                }?subject=RE:${selectedFeedback?.message.substring(0, 20)}`}
-              >
-                Email Back
-              </Link>
-            </button>
-          </div>
+        {/* Detail panel — fills remaining height, scrolls internally */}
+        <div className="w-[360px] flex flex-col overflow-hidden border border-base-200 rounded-2xl shadow-sm bg-base-100">
+          {selected ? (
+            <>
+              <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-base-200 bg-base-200/40">
+                <h2 className="font-semibold text-base">Message Details</h2>
+                <button
+                  className="btn btn-xs btn-ghost"
+                  onClick={() => setSelected(null)}
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide opacity-50 mb-0.5">Name</p>
+                  <p className="text-sm font-medium">{selected.name}</p>
+                </div>
+
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide opacity-50 mb-0.5">Email</p>
+                  <p className="text-sm">{selected.email}</p>
+                </div>
+
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide opacity-50 mb-0.5">Phone</p>
+                  <p className="text-sm">
+                    {selected.telephone ? selected.telephone : <span className="opacity-40 italic">Not provided</span>}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide opacity-50 mb-0.5">Received</p>
+                  <p className="text-sm">{formatDate(selected.created_at)}</p>
+                </div>
+
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide opacity-50 mb-1">Message</p>
+                  <div className="bg-base-200 rounded-lg px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap max-h-60 overflow-y-auto">
+                    {selected.message}
+                  </div>
+                </div>
+
+                <Link
+                  href={`mailto:${selected.email}?subject=RE: ${encodeURIComponent(selected.message.substring(0, 40))}`}
+                  className="btn btn-neutral btn-sm w-full mt-1"
+                >
+                  Email Back
+                </Link>
+              </div>
+            </>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center opacity-40 gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+              </svg>
+              <p className="text-sm">Select a message to view details</p>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -9,13 +9,9 @@ export function CommunityFeedbackPage({
   count: number;
 }>) {
   return (
-    <div className="flex flex-col justify-center mx-16 mt-8 gap-8">
-      <div>
-        <h1 className="text-3xl font-bold">Community Feedback</h1>
-      </div>
-      <div className="grid justify-center">
-        <FeedbackTable feedback={feedback} count={count} />
-      </div>
+    <div className="h-[calc(100dvh-4rem)] overflow-hidden flex flex-col p-6 gap-4 max-w-6xl mx-auto">
+      <h1 className="text-3xl font-bold shrink-0">Community Feedback</h1>
+      <FeedbackTable feedback={feedback} count={count} />
     </div>
   );
 }

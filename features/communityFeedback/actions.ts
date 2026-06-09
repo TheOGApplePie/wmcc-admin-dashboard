@@ -27,7 +27,7 @@ export const fetchFeedback = actionClient
             parsedInput.pageSize -
             1
         )
-        .order("id", { ascending: true });
+        .order("created_at", { ascending: false });
 
       if (parsedInput.search.length) {
         query = query.ilike("message", `%${parsedInput.search}%`);

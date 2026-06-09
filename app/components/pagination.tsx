@@ -1,73 +1,37 @@
 "use client";
-
 import { useState } from "react";
 
-const range = (start: number, end: number) => {
-  return [...Array(end - start).keys()].map((el) => el + start);
-};
-
-interface PaginationItemProps {
-  page: string | number;
-  currentPage: number;
-  onPageChange: (arg0: number, arg1?: number) => void;
-  isDisabled: boolean;
-}
+const range = (start: number, end: number) =>
+  [...new Array(end - start).keys()].map((el) => el + start);
 
 interface PaginationProps {
   currentPage: number;
   total: number;
   limit: number;
-  onPageChange: (arg0: number, arg1?: number) => void;
+  onPageChange: (page: number, pageSize?: number) => void;
 }
-interface GetPagesCutProps {
-  pagesCount: number;
-  pagesCutCount: number;
-  currentPage: number;
-}
-const getPagesCut = ({
-  pagesCount,
-  pagesCutCount,
-  currentPage,
-}: GetPagesCutProps) => {
+
+function getPagesCut(pagesCount: number, pagesCutCount: number, currentPage: number) {
   const ceiling = Math.ceil(pagesCutCount / 2);
   const floor = Math.floor(pagesCutCount / 2);
 
   if (pagesCount < pagesCutCount) {
     return { start: 1, end: pagesCount + 1 };
-  } else if (currentPage >= 1 && currentPage <= ceiling) {
+  } else if (currentPage <= ceiling) {
     return { start: 1, end: pagesCutCount + 1 };
   } else if (currentPage + floor >= pagesCount) {
     return { start: pagesCount - pagesCutCount + 1, end: pagesCount + 1 };
   } else {
     return { start: currentPage - ceiling + 1, end: currentPage + floor + 1 };
   }
-};
+}
 
-const PaginationItem = ({
-  page,
-  currentPage,
-  onPageChange,
-  isDisabled,
-}: PaginationItemProps) => {
-  return (
-    <button
-      className={`btn join-item ${page === currentPage && "btn-active"} ${isDisabled && "btn-disabled"}`}
-      onClick={() => onPageChange(page as number)}
-    >
-      <span className="page-link">{page}</span>
-    </button>
-  );
-};
-
-const Pagination = ({
-  currentPage,
-  total,
-  limit,
-  onPageChange,
-}: PaginationProps) => {
+const Pagination = ({ currentPage, total, limit, onPageChange }: PaginationProps) => {
   const [selectedPageSize, setSelectedPageSize] = useState(limit);
-  const pagesCount = Math.ceil(total / limit);
-  const pagesCut = getPagesCut({ pagesCount, pagesCutCount: 3, currentPage });
+
+  // Use selectedPageSize (not the stale limit prop) for all calculations.
+  const pagesCount = Math.ceil(total / selectedPageSize);
+  const pagesCut = getPagesCut(pagesCount, 5, currentPage);
   const pages = range(pagesCut.start, pagesCut.end);
   const isFirstPage = currentPage === 1;
   const isLastPage = currentPage === pagesCount;
@@ -77,53 +41,64 @@ const Pagination = ({
     onPageChange(1, pageSize);
   }
 
-  return (
-    <div className="flex justify-between">
-      <select
-        className="select"
-        value={selectedPageSize}
-        onChange={(e) => handlePageSizeChange(parseInt(e.target.value, 10))}
+  function navBtn(
+    label: string,
+    targetPage: number,
+    disabled: boolean,
+  ) {
+    return (
+      <button
+        key={label}
+        className={`btn btn-sm join-item ${disabled ? "btn-disabled" : ""}`}
+        onClick={() => !disabled && onPageChange(targetPage, selectedPageSize)}
+        aria-disabled={disabled}
       >
-        <option value={10}>10</option>
-        <option value={20}>20</option>
-        <option value={30}>30</option>
-      </select>
-      <ul className="join">
-        <PaginationItem
-          page="First"
-          currentPage={currentPage}
-          onPageChange={() => onPageChange(1, selectedPageSize)}
-          isDisabled={isFirstPage}
-        />
-        <PaginationItem
-          page="Prev"
-          currentPage={currentPage}
-          onPageChange={() => onPageChange(currentPage - 1, selectedPageSize)}
-          isDisabled={isFirstPage}
-        />
+        {label}
+      </button>
+    );
+  }
+
+  if (pagesCount <= 1) return null;
+
+  return (
+    <div className="flex items-center justify-between gap-4 flex-wrap">
+      {/* Page size selector */}
+      <div className="flex items-center gap-2 text-sm opacity-70">
+        <span>Rows per page:</span>
+        <select
+          className="select select-sm select-bordered"
+          value={selectedPageSize}
+          onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+        >
+          {[10, 20, 30, 50].map((n) => (
+            <option key={n} value={n}>{n}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Page info */}
+      <span className="text-sm opacity-50">
+        Page {currentPage} of {pagesCount} &mdash; {total} total
+      </span>
+
+      {/* Page buttons */}
+      <div className="join">
+        {navBtn("«", 1, isFirstPage)}
+        {navBtn("‹", currentPage - 1, isFirstPage)}
         {pages.map((page) => (
-          <PaginationItem
-            page={page.toString()}
+          <button
             key={page}
-            currentPage={currentPage}
-            onPageChange={onPageChange}
-            isDisabled={currentPage === page}
-          />
+            className={`btn btn-sm join-item ${page === currentPage ? "btn-active" : ""}`}
+            onClick={() => onPageChange(page, selectedPageSize)}
+          >
+            {page}
+          </button>
         ))}
-        <PaginationItem
-          page="Next"
-          currentPage={currentPage}
-          onPageChange={() => onPageChange(currentPage + 1, selectedPageSize)}
-          isDisabled={isLastPage}
-        />
-        <PaginationItem
-          page="Last"
-          currentPage={currentPage}
-          onPageChange={() => onPageChange(pages.length, selectedPageSize)}
-          isDisabled={isLastPage}
-        />
-      </ul>
+        {navBtn("›", currentPage + 1, isLastPage)}
+        {navBtn("»", pagesCount, isLastPage)}  {/* fix: was pages.length */}
+      </div>
     </div>
   );
 };
+
 export default Pagination;

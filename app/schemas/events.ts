@@ -64,9 +64,7 @@ function validatePoster(
           "The file you are uploading is too large. Please upload an image less than 5MB.",
         path: ["poster_file"],
       });
-    } else if (
-      !["image/jpeg", "image/jpg", "image/png"].includes(image.type)
-    ) {
+    } else if (!["image/jpeg", "image/jpg", "image/png"].includes(image.type)) {
       ctx.addIssue({
         code: "custom",
         message:
@@ -190,7 +188,10 @@ function validateRecurrenceRule(
 
   const rule = data.recurrence_rule;
 
-  if (!rule.frequency || !["daily", "weekly", "monthly"].includes(rule.frequency)) {
+  if (
+    !rule.frequency ||
+    !["daily", "weekly", "monthly"].includes(rule.frequency)
+  ) {
     ctx.addIssue({
       code: "custom",
       message:
@@ -237,7 +238,7 @@ export const CreateEventZod = z
   .object({
     id: z.coerce.number().optional(),
     title: z.string().trim().max(50),
-    description: z.nullable(z.string().trim().max(300)),
+    description: z.nullable(z.string().trim().max(1000)),
     location: z.string().trim().max(100),
     poster_url: z.nullable(z.url()),
     poster_file: z.array(z.file()),
@@ -271,7 +272,7 @@ export const EditEventZod = z
   .object({
     id: z.coerce.number().optional(),
     title: z.string().trim().max(50),
-    description: z.nullable(z.string().trim().max(300)),
+    description: z.nullable(z.string().trim().max(1000)),
     location: z.string().trim().max(100),
     poster_url: z.nullable(z.url()),
     poster_file: z.array(z.file()),

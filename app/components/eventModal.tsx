@@ -2,7 +2,8 @@
 import { Event } from "../schemas/events";
 import { useForm, useWatch, Controller } from "react-hook-form";
 import Image from "next/image";
-import { ChangeEvent, useEffect, useState } from "react";
+import Link from "next/link";
+import { ChangeEvent, useEffect, useRef, useState } from "react";
 import { createEvent, editEvent, deleteEvent } from "@/actions/events";
 import { FIVE_MB, URL_REGEX } from "../constants/general";
 import toast from "react-hot-toast";
@@ -38,7 +39,7 @@ export default function EventModal({
   const {
     register,
     handleSubmit,
-    formState: { errors },
+    formState: { errors, isDirty },
     setError,
     clearErrors,
     reset,
@@ -85,6 +86,7 @@ export default function EventModal({
   const [getConfirmation, setGetConfirmation] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const wasRecurring = event?.is_recurring ?? false;
+  const fileChangedRef = useRef(false);
 
   useEffect(() => {
     if (event) {
@@ -164,6 +166,7 @@ export default function EventModal({
   const handleImageChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
+      fileChangedRef.current = true;
       if (file.size > FIVE_MB) {
         setError("poster_file", {
           message:
@@ -183,6 +186,7 @@ export default function EventModal({
     } else {
       const url = event.target.value;
       if (url.length) {
+        fileChangedRef.current = true;
         setImageUrl(url);
       } else {
         setImageFile(null);
@@ -229,9 +233,7 @@ export default function EventModal({
         toast.success(
           response.data?.statusText ?? "Event updated successfully!",
         );
-        reset();
-        setImageUrl(null);
-        setImageFile(null);
+        reset(); setImageUrl(null); setImageFile(null); fileChangedRef.current = false;
         closeModal(true);
       }
     }
@@ -301,9 +303,7 @@ export default function EventModal({
           toast.success(
             response.data?.statusText ?? "Event updated successfully!",
           );
-          reset();
-          setImageUrl(null);
-          setImageFile(null);
+          reset(); setImageUrl(null); setImageFile(null); fileChangedRef.current = false;
           closeModal(true);
         }
       }
@@ -373,9 +373,11 @@ export default function EventModal({
           <button
             className="btn btn-outline btn-error text-black"
             onClick={() => {
+              if ((isDirty || fileChangedRef.current) && !window.confirm("Unsaved changes will be lost. Close anyway?")) return;
               reset();
               setImageUrl(null);
               setImageFile(null);
+              fileChangedRef.current = false;
               closeModal(false);
             }}
           >
@@ -425,7 +427,7 @@ export default function EventModal({
               </legend>
               <textarea
                 className="textarea textarea-lg w-full rounded-2xl resize-none"
-                maxLength={300}
+                maxLength={1000}
                 rows={4}
                 {...register("description", {
                   required: {
@@ -433,9 +435,9 @@ export default function EventModal({
                     message: "Please enter a description for the event.",
                   },
                   maxLength: {
-                    value: 300,
+                    value: 1000,
                     message:
-                      "Please limit your description to less than 300 characters long.",
+                      "Please limit your description to less than 1000 characters long.",
                   },
                   minLength: {
                     value: 20,
@@ -714,7 +716,7 @@ export default function EventModal({
                 </legend>
                 <input
                   className="w-full input input-lg rounded-2xl"
-                  type="text"
+                  type="url"
                   {...register("gallery_url")}
                 />
               </fieldset>
@@ -1041,6 +1043,21 @@ export default function EventModal({
               <button className="btn btn-success flex-1 z-10" type="submit">
                 Save
               </button>
+              {event && (
+                <Link
+                  href={`/dashboard/events/${event.id}/posts`}
+                  className="btn btn-outline flex-1 z-10"
+                  onClick={(e) => {
+                    if ((isDirty || fileChangedRef.current) && !window.confirm("Unsaved changes will be lost. Continue?")) {
+                      e.preventDefault();
+                      return;
+                    }
+                    closeModal(false);
+                  }}
+                >
+                  Manage Posts
+                </Link>
+              )}
               {event && (
                 <button
                   type="button"
