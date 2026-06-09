@@ -6,7 +6,7 @@ Internal admin panel for managing the Waterdown Muslim Community Centre's public
 
 - **Events** — FullCalendar month/list view with full recurring-event support (daily, weekly, monthly). Create, edit (all / this + future / this occurrence), and delete (all / this + future / this occurrence) events. Supports poster image upload, call-to-action links, and gallery URLs.
 - **Announcements** — Create, edit, and expire announcements shown on the public site.
-- **Post Scheduling** — Plan and manage social media posts tied to events. Supports Instagram Feed, Instagram Story, and WhatsApp with optional Facebook cross-post. Posts flow through a `draft → scheduled → posted/failed` lifecycle. Phase 1 uses a fully manual workflow: admins schedule posts and confirm publication with "Mark Sent". In-app notifications alert assignees when a post is assigned to them.
+- **Social Posts** — Plan and schedule social media posts across Instagram Feed, Instagram Story, and WhatsApp. Posts flow through an `idea → draft → scheduled → published/failed` lifecycle. Phase 1 is a fully manual workflow: admins compose, schedule, and confirm publication. Phase 2 will integrate live publishing via Instagram Graph API and WhatsApp Business Cloud API.
 - **Community Feedback** — View and filter feedback submitted through the public site, with a fixed full-viewport layout and slide-in detail pane.
 - **Notifications** — In-app notification bell with 60-second polling badge and dropdown preview of recent notifications.
 - **Users Management** — Manage admin user accounts.
@@ -18,7 +18,7 @@ Internal admin panel for managing the Waterdown Muslim Community Centre's public
 | Framework | Next.js 16 (App Router, Server Actions) |
 | Language | TypeScript |
 | Database & Auth | Supabase (PostgreSQL + SSR auth) |
-| Storage | Supabase Storage (event posters) |
+| Storage | Supabase Storage (event posters, social post media) |
 | UI | Tailwind CSS v4 + DaisyUI v5 |
 | Calendar | FullCalendar v6 (daygrid, list, rrule, interaction) |
 | Forms | react-hook-form + Zod v4 |
@@ -92,32 +92,27 @@ npm start
 
 > **Note:** Routes that use Supabase auth are server-rendered on demand. Next.js will report them as dynamic during the build — this is expected behaviour.
 
-## Post Scheduling — Phase 1 Architecture
+## Social Posts — Phase 1 Architecture
 
 Phase 1 is a **fully manual workflow**. There is no automatic publishing to social media APIs.
 
 | Concept | Detail |
 |---|---|
-| **Platforms** | `instagram_feed`, `instagram_story`, `whatsapp` |
-| **Facebook cross-post** | `cross_post_facebook: boolean` flag on instagram posts |
-| **`requires_manual`** | `true` on every post in Phase 1 — cron does not auto-publish |
-| **Status lifecycle** | `draft → scheduled → posted / failed` |
-| **"Schedule" action** | Admin locks a date/slot; post becomes read-only |
-| **"Mark Sent" action** | Admin confirms manual publication; sets status to `posted` |
-| **Revert** | Scheduled posts can be reverted to `draft` if the slot is still in the future, or if the post is stuck (> 2 hours past scheduled time with no update) |
-| **Slot limits** | 2 feed posts per ISO week, 5 story posts per ISO week (REMINDER posts exempt from feed limits) |
-| **Time slots** | `morning`, `afternoon`, `evening` — one post per slot per day |
-| **Notifications** | `post_assigned` notification inserted via service role client when a post is assigned to another admin |
+| **Channels** | `ig_feed`, `ig_story`, `whatsapp` |
+| **Post types** | `ANNOUNCEMENT`, `GENERAL`, `REMINDER` |
+| **Status lifecycle** | `idea → draft → scheduled → published / failed` |
+| **Time slots** | `morning` (9 am), `afternoon` (1 pm), `evening` (6 pm) — one post per slot per day |
+| **"Schedule" action** | Admin locks a date/slot; post is marked `scheduled` |
+| **"Save & unschedule"** | Saves edits and reverts the post to `draft` |
+| **"Save changes"** | Saves edits to a `scheduled` post without changing its status |
+| **Media upload** | Required for `ig_feed` and `ig_story` posts; stored in the `social-media` Supabase Storage bucket |
+| **IG aspect ratio** | Feed: enforces standard ratios (1:1, 4:5, 1.91:1). Story: width/height ≤ 0.64 (9:16 target) |
+| **Event linking** | `ANNOUNCEMENT` and `REMINDER` posts must be linked to an event |
+| **Audit trail** | Every create/update/delete/schedule/publish action is logged to `audit_logs` |
 
-### Constraint Engine (`features/postScheduling/constraintEngine.ts`)
+### Phase 2 (planned)
 
-| Export | Purpose |
-|---|---|
-| `isRevertable(post)` | Whether a scheduled/failed post can be reverted to draft |
-| `checkWeeklyConstraints(posts, date)` | Feed/story counts and remaining capacity for the ISO week |
-| `getDayConstraintStates(posts, start, end)` | Day-level availability map for calendar colour-coding |
-| `getAvailableSlotsForDate(posts, date, excludeId?)` | Which time slots are free on a given date |
-| `resolveSlotCollision(posts, date, slot, eventId)` | Finds the next available slot within 3 days (used in bulk schedule generation) |
+Live publishing via Instagram Graph API and WhatsApp Business Cloud API. The `publishSocialPost` server action is a stub seam — Phase 2 replaces its body without touching the rest of the codebase.
 
 ## Database Schema
 
@@ -155,41 +150,28 @@ One row per recurring series.
 | `count` | `int4` | Max occurrences (2–20) |
 | `exdates` | `text[]` | ISO date strings of excluded occurrences |
 
-### `post_campaigns`
-
-One row per event's scheduling campaign.
+### `social_posts`
 
 | Column | Type | Notes |
 |---|---|---|
-| `id` | `int8` | Primary key |
-| `event_id` | `int8` | FK → `events.id` |
-| `is_recurring_anchor` | `bool` | Whether the event is recurring |
-
-### `scheduled_posts`
-
-| Column | Type | Notes |
-|---|---|---|
-| `id` | `int8` | Primary key |
-| `campaign_id` | `int8` | FK → `post_campaigns.id` |
-| `event_id` | `int8` | FK → `events.id` |
+| `id` | `uuid` | Primary key (`gen_random_uuid()`) |
+| `title` | `text` | Max 120 chars |
+| `caption` | `text` | Max 1,000 chars |
+| `hashtags` | `text[]` | Max 30 tags |
+| `channels` | `social_channel[]` | `ig_feed`, `ig_story`, `whatsapp` |
+| `status` | `social_post_status` | `idea` \| `draft` \| `scheduled` \| `published` \| `failed` |
 | `post_type` | `text` | `ANNOUNCEMENT` \| `GENERAL` \| `REMINDER` |
-| `platforms` | `text[]` | `instagram_feed`, `instagram_story`, `whatsapp` |
-| `cross_post_facebook` | `bool` | Also cross-post to Facebook |
-| `status` | `post_status` | `draft` \| `scheduled` \| `posted` \| `failed` |
-| `scheduled_date` | `date` | YYYY-MM-DD |
 | `time_slot` | `text` | `morning` \| `afternoon` \| `evening` |
-| `scheduled_at` | `timestamptz` | Resolved datetime for the slot |
-| `banner_image_url` | `text` | |
-| `caption` | `text` | Max 2,200 chars |
-| `hashtags` | `text[]` | |
-| `whatsapp_text` | `text` | Max 4,096 chars |
-| `assigned_to_email` | `text` | Admin assigned to publish this post |
-| `created_by_email` | `text` | Admin who created the post |
-| `requires_manual` | `bool` | `true` in Phase 1 |
-| `is_recurring_reminder` | `bool` | Auto-generated recurring reminder post |
-| `retry_count` | `int4` | Cron retry count |
-| `next_retry_at` | `timestamptz` | When cron will next retry |
-| `updated_at` | `timestamptz` | |
+| `scheduled_at` | `timestamptz` | Resolved slot datetime |
+| `media_url` | `text` | Supabase Storage public URL |
+| `event_id` | `int8` | FK → `events.id` ON DELETE SET NULL |
+| `assigned_to` | `uuid` | FK → `auth.users.id` |
+| `last_notified_at` | `timestamptz` | When the assignee was last notified |
+| `created_by` | `uuid` | FK → `auth.users.id` ON DELETE CASCADE |
+| `created_at` | `timestamptz` | |
+| `updated_at` | `timestamptz` | Auto-updated via trigger |
+
+RLS policies: authenticated users can SELECT/INSERT/UPDATE/DELETE all posts (team collaboration model). INSERT requires `created_by = auth.uid()`.
 
 ### `notifications`
 
@@ -200,12 +182,12 @@ One row per event's scheduling campaign.
 | `type` | `text` | e.g. `post_assigned` |
 | `title` | `text` | |
 | `body` | `text` | |
-| `entity_type` | `text` | e.g. `scheduled_post` |
-| `entity_id` | `int8` | ID of the related entity |
+| `entity_type` | `text` | e.g. `social_post` |
+| `entity_id` | `text` | ID of the related entity |
 | `read_at` | `timestamptz` | Null until the user opens the notification |
 | `created_at` | `timestamptz` | |
 
-RLS policies: authenticated users can SELECT and UPDATE their own rows. INSERT requires the service role client (used by the `assignPost` action to notify the assignee).
+RLS policies: authenticated users can SELECT and UPDATE their own rows. INSERT requires the service role client.
 
 ### `audit_logs`
 
@@ -214,9 +196,9 @@ RLS policies: authenticated users can SELECT and UPDATE their own rows. INSERT r
 | `id` | `int8` | Primary key |
 | `user_id` | `uuid` | FK → `auth.users.id` |
 | `user_email` | `text` | Denormalized for display |
-| `entity_type` | `text` | `event` \| `scheduled_post` |
-| `entity_id` | `int8` | |
-| `action` | `text` | `create` \| `update` \| `delete` \| `schedule` \| `revert` \| `mark_sent` |
+| `entity_type` | `text` | e.g. `social_post`, `event` |
+| `entity_id` | `text` | Supports both UUID and integer entity IDs |
+| `action` | `text` | `create` \| `update` \| `delete` \| `schedule` \| `publish` |
 | `detail` | `text` | Human-readable summary of the change |
 | `occurred_at` | `timestamptz` | |
 
@@ -224,19 +206,30 @@ RLS policies: authenticated users can SELECT and UPDATE their own rows. INSERT r
 
 ```
 app/
-  api/                # API routes (cron handler)
-  components/         # Shared UI components (NotificationBell, EventModal, …)
-  dashboard/          # Dashboard route pages
-  schemas/            # Zod schemas and TypeScript interfaces
-actions/              # Next.js Server Actions (events, postScheduling, notifications)
+  api/                    # API routes (cron handler)
+  components/             # Shared UI components (NotificationBell, EventModal, …)
+  dashboard/
+    posts/                # Social Posts page (/dashboard/posts)
+    events/               # Events page and calendar
+  enums/                  # Shared TypeScript enums (ResponseCodes, …)
+  schemas/                # Zod schemas and TypeScript interfaces
+actions/
+  socialPosts.ts          # CRUD, schedule, publish, upload actions for social posts
+  events.ts               # Event CRUD actions
+  notifications.ts        # Notification read/fetch actions
 features/
-  communityFeedback/  # Community feedback table with DVH layout and detail pane
-  postScheduling/     # Post scheduling calendar, modal, constraint engine
+  socialPosts/
+    components/           # PostComposer, PostQueue, PostPreview, StatsStrip, …
+    components/icons.tsx  # Named SVG icon components
+    hooks/                # usePostForm, useMediaUpload
+    types.ts              # Shared prop interfaces for all socialPosts components
+  communityFeedback/      # Community feedback table with DVH layout and detail pane
 supabase/
-  migrations/         # SQL migration files (run in order)
+  migrations/             # SQL migration files (run in order, 001 → 009)
 utils/
-  audit.ts            # logAudit() helper for audit_logs table
-  supabase/           # Supabase server/client/serviceRole helpers
+  actionResponse.ts       # ok() / fail() / clientFail() response envelope helpers
+  audit.ts                # logAudit() helper for the audit_logs table
+  supabase/               # Supabase server/client/serviceRole helpers
 ```
 
 ## Deployment

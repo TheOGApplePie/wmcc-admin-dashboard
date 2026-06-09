@@ -2,8 +2,10 @@
 
 import { createSafeActionClient } from "next-safe-action";
 import { createClient } from "../utils/supabase/server";
+import { createServiceClient } from "../utils/supabase/serviceRole";
 import { revalidatePath } from "next/cache";
-import { ResponseCodes } from "@/app/enums/responseCodes";
+import { ok, fail, clientFail } from "@/utils/actionResponse";
+import { logAudit } from "@/utils/audit";
 import {
   CreateSocialPostZod,
   UpdateSocialPostZod,
@@ -12,24 +14,25 @@ import {
   PublishSocialPostZod,
   GetSocialPostsZod,
   FetchEventsForSelectZod,
+  FetchAdminUsersZod,
   UploadSocialPostMediaZod,
   SocialPost,
+  SocialChannel,
   EventOption,
+  AdminUserOption,
 } from "@/app/schemas/socialPosts";
 
 const actionClient = createSafeActionClient();
 
-const REVALIDATE = "/dashboard/posts";
-const STORAGE_BUCKET = "social-media";
+const REVALIDATE     = "/dashboard/posts";
+const STORAGE_BUCKET = "event-posters";
 
-type DbRow = Record<string, unknown> & { events?: { title: string } | null };
+// Maps the DB row shape (with nested events join) to the SocialPost interface.
+type PostDbRow = Omit<SocialPost, "event_title"> & { events: { title: string } | null };
 
-function toPost(row: unknown): SocialPost {
-  const r = row as DbRow;
-  return {
-    ...(r as unknown as SocialPost),
-    event_title: r.events?.title ?? null,
-  };
+function toPost(row: PostDbRow): SocialPost {
+  const { events, ...rest } = row;
+  return { ...rest, event_title: events?.title ?? null };
 }
 
 // ─── Fetch all posts (with linked event title) ────────────────────────────────
@@ -48,25 +51,13 @@ export const getSocialPosts = actionClient
 
       if (error) throw new Error(error.message);
 
-      const posts: SocialPost[] = (data ?? []).map(toPost);
-
-      return {
-        error: "",
-        status: ResponseCodes.SUCCESS,
-        statusText: "OK",
-        data: posts,
-      };
+      return ok((data ?? []).map((r) => toPost(r as PostDbRow)));
     } catch (err) {
-      return {
-        error: err instanceof Error ? err.message : String(err),
-        status: ResponseCodes.SERVER_ERROR,
-        statusText: "Failed to load posts.",
-        data: null,
-      };
+      return fail(err instanceof Error ? err.message : String(err), "Failed to load posts.");
     }
   });
 
-// ─── Fetch upcoming events for the event link select ─────────────────────────
+// ─── Fetch recent events for the event link select ───────────────────────────
 
 export const fetchEventsForSelect = actionClient
   .inputSchema(FetchEventsForSelectZod)
@@ -74,28 +65,21 @@ export const fetchEventsForSelect = actionClient
     try {
       const supabase = await createClient();
 
+      const threeMonthsAgo = new Date();
+      threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+
       const { data, error } = await supabase
         .from("events")
         .select("id, title, start_date")
-        .gte("start_date", new Date().toISOString())
-        .order("start_date", { ascending: true })
+        .gte("start_date", threeMonthsAgo.toISOString())
+        .order("start_date", { ascending: false })
         .limit(100);
 
       if (error) throw new Error(error.message);
 
-      return {
-        error: "",
-        status: ResponseCodes.SUCCESS,
-        statusText: "OK",
-        data: (data ?? []) as EventOption[],
-      };
+      return ok((data ?? []) as EventOption[]);
     } catch (err) {
-      return {
-        error: err instanceof Error ? err.message : String(err),
-        status: ResponseCodes.SERVER_ERROR,
-        statusText: "Failed to load events.",
-        data: null,
-      };
+      return fail(err instanceof Error ? err.message : String(err), "Failed to load events.");
     }
   });
 
@@ -112,14 +96,18 @@ export const createSocialPost = actionClient
       const { data, error } = await supabase
         .from("social_posts")
         .insert({
-          title: parsedInput.title,
-          caption: parsedInput.caption,
-          channels: parsedInput.channels,
-          status: parsedInput.status ?? "draft",
+          title:        parsedInput.title,
+          caption:      parsedInput.caption,
+          hashtags:     parsedInput.hashtags ?? [],
+          channels:     parsedInput.channels,
+          post_type:    parsedInput.post_type ?? "GENERAL",
+          time_slot:    parsedInput.time_slot ?? null,
+          status:       parsedInput.status ?? "draft",
           scheduled_at: parsedInput.scheduled_at ?? null,
-          media_url: parsedInput.media_url ?? null,
-          event_id: parsedInput.event_id ?? null,
-          created_by: user.id,
+          media_url:    parsedInput.media_url ?? null,
+          event_id:     parsedInput.event_id ?? null,
+          assigned_to:  parsedInput.assigned_to ?? null,
+          created_by:   user.id,
         })
         .select("*, events(title)")
         .single();
@@ -128,21 +116,12 @@ export const createSocialPost = actionClient
 
       revalidatePath(REVALIDATE);
 
-      const post: SocialPost = toPost(data);
+      const post = toPost(data as PostDbRow);
+      await logAudit(supabase, "social_post", post.id, "create", post.title);
 
-      return {
-        error: "",
-        status: ResponseCodes.SUCCESS,
-        statusText: "Post created.",
-        data: post,
-      };
+      return ok(post, "Post created.");
     } catch (err) {
-      return {
-        error: err instanceof Error ? err.message : String(err),
-        status: ResponseCodes.SERVER_ERROR,
-        statusText: "Failed to create post.",
-        data: null,
-      };
+      return fail(err instanceof Error ? err.message : String(err), "Failed to create post.");
     }
   });
 
@@ -154,7 +133,6 @@ export const updateSocialPost = actionClient
     try {
       const supabase = await createClient();
 
-      // Block updates on published posts
       const { data: existing } = await supabase
         .from("social_posts")
         .select("status")
@@ -162,24 +140,23 @@ export const updateSocialPost = actionClient
         .single();
 
       if (existing?.status === "published") {
-        return {
-          error: "Cannot edit a published post.",
-          status: ResponseCodes.CLIENT_ERROR,
-          statusText: "Post is published.",
-          data: null,
-        };
+        return clientFail("Cannot edit a published post.", "Post is published.");
       }
 
       const { data, error } = await supabase
         .from("social_posts")
         .update({
-          title: parsedInput.title,
-          caption: parsedInput.caption,
-          channels: parsedInput.channels,
-          status: parsedInput.status,
+          title:        parsedInput.title,
+          caption:      parsedInput.caption,
+          hashtags:     parsedInput.hashtags ?? [],
+          channels:     parsedInput.channels,
+          post_type:    parsedInput.post_type,
+          time_slot:    parsedInput.time_slot ?? null,
+          status:       parsedInput.status,
           scheduled_at: parsedInput.scheduled_at ?? null,
-          media_url: parsedInput.media_url ?? null,
-          event_id: parsedInput.event_id ?? null,
+          media_url:    parsedInput.media_url ?? null,
+          event_id:     parsedInput.event_id ?? null,
+          assigned_to:  parsedInput.assigned_to ?? null,
         })
         .eq("id", parsedInput.id)
         .select("*, events(title)")
@@ -189,21 +166,12 @@ export const updateSocialPost = actionClient
 
       revalidatePath(REVALIDATE);
 
-      const post: SocialPost = toPost(data);
+      const post = toPost(data as PostDbRow);
+      await logAudit(supabase, "social_post", post.id, "update", `status:${post.status}`);
 
-      return {
-        error: "",
-        status: ResponseCodes.SUCCESS,
-        statusText: "Post updated.",
-        data: post,
-      };
+      return ok(post, "Post updated.");
     } catch (err) {
-      return {
-        error: err instanceof Error ? err.message : String(err),
-        status: ResponseCodes.SERVER_ERROR,
-        statusText: "Failed to update post.",
-        data: null,
-      };
+      return fail(err instanceof Error ? err.message : String(err), "Failed to update post.");
     }
   });
 
@@ -215,6 +183,8 @@ export const deleteSocialPost = actionClient
     try {
       const supabase = await createClient();
 
+      await logAudit(supabase, "social_post", parsedInput.id, "delete");
+
       const { error } = await supabase
         .from("social_posts")
         .delete()
@@ -224,19 +194,9 @@ export const deleteSocialPost = actionClient
 
       revalidatePath(REVALIDATE);
 
-      return {
-        error: "",
-        status: ResponseCodes.SUCCESS,
-        statusText: "Post deleted.",
-        data: null,
-      };
+      return ok(null, "Post deleted.");
     } catch (err) {
-      return {
-        error: err instanceof Error ? err.message : String(err),
-        status: ResponseCodes.SERVER_ERROR,
-        statusText: "Failed to delete post.",
-        data: null,
-      };
+      return fail(err instanceof Error ? err.message : String(err), "Failed to delete post.");
     }
   });
 
@@ -250,31 +210,23 @@ export const scheduleSocialPost = actionClient
 
       const scheduledAt = new Date(parsedInput.scheduled_at);
       if (scheduledAt <= new Date()) {
-        return {
-          error: "Scheduled time must be in the future.",
-          status: ResponseCodes.CLIENT_ERROR,
-          statusText: "Past date.",
-          data: null,
-        };
+        return clientFail("Scheduled time must be in the future.", "Past date.");
       }
 
-      // Validate required media for ig_feed / ig_story
       const { data: post } = await supabase
         .from("social_posts")
         .select("channels, media_url")
         .eq("id", parsedInput.id)
         .single();
 
-      const needsMedia = (post?.channels as string[] ?? []).some(
+      const needsMedia = ((post?.channels as SocialChannel[]) ?? []).some(
         (c) => c === "ig_feed" || c === "ig_story",
       );
       if (needsMedia && !post?.media_url) {
-        return {
-          error: "Instagram posts require media. Please upload an image first.",
-          status: ResponseCodes.CLIENT_ERROR,
-          statusText: "Media required.",
-          data: null,
-        };
+        return clientFail(
+          "Instagram posts require media. Please upload an image first.",
+          "Media required.",
+        );
       }
 
       const { data, error } = await supabase
@@ -289,27 +241,18 @@ export const scheduleSocialPost = actionClient
 
       revalidatePath(REVALIDATE);
 
-      const updated: SocialPost = toPost(data);
+      const updated = toPost(data as PostDbRow);
+      await logAudit(supabase, "social_post", updated.id, "schedule", parsedInput.scheduled_at);
 
-      return {
-        error: "",
-        status: ResponseCodes.SUCCESS,
-        statusText: "Post scheduled.",
-        data: updated,
-      };
+      return ok(updated, "Post scheduled.");
     } catch (err) {
-      return {
-        error: err instanceof Error ? err.message : String(err),
-        status: ResponseCodes.SERVER_ERROR,
-        statusText: "Failed to schedule post.",
-        data: null,
-      };
+      return fail(err instanceof Error ? err.message : String(err), "Failed to schedule post.");
     }
   });
 
-// ─── Publish post (Phase 2 seam) ──────────────────────────────────────────────
-// In Phase 2, replace the body of this action with real API calls.
-// See INTEGRATIONS.md for the Instagram Graph API and WhatsApp Cloud API details.
+// ─── Publish post (mark as sent — manual Phase 1 flow) ───────────────────────
+// TODO: Phase 2 — replace this action body with real Instagram Graph API and
+//       WhatsApp Cloud API calls. See INTEGRATIONS.md for endpoint details.
 
 export const publishSocialPost = actionClient
   .inputSchema(PublishSocialPostZod)
@@ -317,7 +260,6 @@ export const publishSocialPost = actionClient
     try {
       const supabase = await createClient();
 
-      // Phase 1: mark as published without calling any external API.
       const { data, error } = await supabase
         .from("social_posts")
         .update({ status: "published" })
@@ -330,21 +272,29 @@ export const publishSocialPost = actionClient
 
       revalidatePath(REVALIDATE);
 
-      const updated: SocialPost = toPost(data);
+      const updated = toPost(data as PostDbRow);
+      await logAudit(supabase, "social_post", updated.id, "publish");
 
-      return {
-        error: "",
-        status: ResponseCodes.SUCCESS,
-        statusText: "Post marked as published. (Publishing integration coming soon.)",
-        data: updated,
-      };
+      return ok(updated, "Post marked as sent.");
     } catch (err) {
-      return {
-        error: err instanceof Error ? err.message : String(err),
-        status: ResponseCodes.SERVER_ERROR,
-        statusText: "Failed.",
-        data: null,
-      };
+      return fail(err instanceof Error ? err.message : String(err), "Failed to mark post as sent.");
+    }
+  });
+
+// ─── Fetch admin users for the assigned_to dropdown ──────────────────────────
+
+export const fetchAdminUsers = actionClient
+  .inputSchema(FetchAdminUsersZod)
+  .action(async () => {
+    try {
+      const supabase = createServiceClient();
+      const { data: authData } = await supabase.auth.admin.listUsers();
+      const users: AdminUserOption[] = (authData?.users ?? [])
+        .filter((u): u is typeof u & { email: string } => !!u.email)
+        .map((u) => ({ id: u.id, email: u.email }));
+      return ok(users);
+    } catch (err) {
+      return fail(err instanceof Error ? err.message : String(err), "Failed to load users.");
     }
   });
 
@@ -356,8 +306,8 @@ export const uploadSocialPostMedia = actionClient
     try {
       const supabase = await createClient();
 
-      const file = parsedInput.file;
-      const ext = file.name.split(".").pop() ?? "jpg";
+      const file     = parsedInput.file;
+      const ext      = file.name.split(".").pop() ?? "jpg";
       const filename = `${crypto.randomUUID()}.${ext}`;
 
       const { data: uploaded, error: uploadError } = await supabase.storage
@@ -370,18 +320,8 @@ export const uploadSocialPostMedia = actionClient
         .from(STORAGE_BUCKET)
         .getPublicUrl(uploaded.path);
 
-      return {
-        error: "",
-        status: ResponseCodes.SUCCESS,
-        statusText: "Media uploaded.",
-        data: { media_url: publicUrl },
-      };
+      return ok({ media_url: publicUrl }, "Media uploaded.");
     } catch (err) {
-      return {
-        error: err instanceof Error ? err.message : String(err),
-        status: ResponseCodes.SERVER_ERROR,
-        statusText: "Upload failed.",
-        data: null,
-      };
+      return fail(err instanceof Error ? err.message : String(err), "Upload failed.");
     }
   });

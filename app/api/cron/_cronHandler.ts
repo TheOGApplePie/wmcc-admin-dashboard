@@ -1,32 +1,69 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/utils/supabase/serviceRole";
-import { TimeSlot } from "@/app/schemas/postScheduling";
+import { SupabaseClient } from "@supabase/supabase-js";
 
-// Phase 1: cron does not publish. It finds overdue scheduled posts and creates
-// in-app notifications for the assigned admin (or all admins if unassigned).
-// Follow-up notifications are rate-limited to once per 48 hours per post.
-// Posts older than 1 month are no longer followed up on.
+// Finds overdue social_posts and creates in-app notifications for the
+// assigned admin (or all admins if unassigned).
+// Rate-limited to once per 48 hours per post; ignores posts older than 1 month.
 
 function verifyVercelCron(req: NextRequest): boolean {
   const auth = req.headers.get("authorization");
   return auth === `Bearer ${process.env.CRON_SECRET}`;
 }
 
-type OverduePost = {
-  id: number;
-  event_id: number;
+type AdminUser = { id: string; email: string };
+
+type OverdueSocialPost = {
+  id: string;           // UUID
+  title: string;
   post_type: string;
-  scheduled_date: string;
-  time_slot: TimeSlot;
-  assigned_to_email: string | null;
+  time_slot: string | null;
+  scheduled_at: string;
+  assigned_to: string | null; // UUID FK → auth.users
 };
 
-type AdminUser = {
-  id: string;
-  email: string;
-};
+async function notifySocialPosts(
+  supabase: SupabaseClient,
+  now: string,
+  oneMonthAgo: string,
+  fortyEightHoursAgo: string,
+  allAdminIds: string[],
+): Promise<{ count: number; error?: string }> {
+  const { data, error } = await supabase
+    .from("social_posts")
+    .select("id, title, post_type, time_slot, scheduled_at, assigned_to")
+    .eq("status", "scheduled")
+    .lt("scheduled_at", now)
+    .gt("scheduled_at", oneMonthAgo)
+    .or(`last_notified_at.is.null,last_notified_at.lt.${fortyEightHoursAgo}`);
 
-export async function runCronSlot(req: NextRequest, slot: TimeSlot): Promise<NextResponse> {
+  if (error) return { count: 0, error: error.message };
+
+  let count = 0;
+  for (const sp of (data ?? []) as OverdueSocialPost[]) {
+    const recipientIds = sp.assigned_to ? [sp.assigned_to] : allAdminIds;
+    if (recipientIds.length === 0) continue;
+
+    const dateLabel = sp.scheduled_at.split("T")[0];
+    const slotLabel = sp.time_slot ?? "unspecified slot";
+    const body = `Social post "${sp.title}" scheduled for ${dateLabel} (${slotLabel}) has not been marked as sent.`;
+    await supabase.from("notifications").insert(
+      recipientIds.map((userId) => ({
+        user_id: userId,
+        type: "post_overdue",
+        title: "Social post overdue",
+        body,
+        entity_type: "social_post",
+        entity_id: sp.id,
+      })),
+    );
+    await supabase.from("social_posts").update({ last_notified_at: now }).eq("id", sp.id);
+    count++;
+  }
+  return { count };
+}
+
+export async function runCronSlot(req: NextRequest, slot: string): Promise<NextResponse> {
   if (!verifyVercelCron(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -36,72 +73,21 @@ export async function runCronSlot(req: NextRequest, slot: TimeSlot): Promise<Nex
   const oneMonthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
   const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
 
-  // Find all overdue scheduled posts within the 1-month window that haven't
-  // been notified in the last 48 hours.
-  const { data: overduePosts, error: fetchError } = await supabase
-    .from("scheduled_posts")
-    .select("id, event_id, post_type, scheduled_date, time_slot, assigned_to_email")
-    .eq("status", "scheduled")
-    .lt("scheduled_at", now)
-    .gt("scheduled_at", oneMonthAgo)
-    .or(`last_notified_at.is.null,last_notified_at.lt.${fortyEightHoursAgo}`);
-
-  if (fetchError) {
-    console.error(`[cron/${slot}] fetch error`, fetchError);
-    return NextResponse.json({ error: fetchError.message }, { status: 500 });
-  }
-
-  const posts = (overduePosts ?? []) as OverduePost[];
-  if (posts.length === 0) {
-    return NextResponse.json({ slot, notified: 0 });
-  }
-
-  // Fetch all admin users once to build an email → id map.
   const { data: authData } = await supabase.auth.admin.listUsers();
   const adminUsers: AdminUser[] = (authData?.users ?? [])
     .filter((u) => !!u.email)
     .map((u) => ({ id: u.id, email: u.email! }));
 
-  const emailToId = new Map(adminUsers.map((u) => [u.email, u.id]));
+  const allAdminIds = adminUsers.map((u) => u.id);
 
-  let notified = 0;
+  const { count, error } = await notifySocialPosts(
+    supabase, now, oneMonthAgo, fortyEightHoursAgo, allAdminIds,
+  );
 
-  for (const post of posts) {
-    // Determine which user(s) to notify.
-    let recipientIds: string[];
-
-    if (post.assigned_to_email) {
-      const uid = emailToId.get(post.assigned_to_email);
-      recipientIds = uid ? [uid] : [];
-    } else {
-      // Unassigned — notify all admins.
-      recipientIds = adminUsers.map((u) => u.id);
-    }
-
-    if (recipientIds.length === 0) continue;
-
-    const title = "Post overdue";
-    const body = `${post.post_type} post scheduled for ${post.scheduled_date} (${post.time_slot}) has not been marked as sent.`;
-
-    const rows = recipientIds.map((userId) => ({
-      user_id: userId,
-      type: "post_overdue",
-      title,
-      body,
-      entity_type: "scheduled_post",
-      entity_id: post.id,
-    }));
-
-    await supabase.from("notifications").insert(rows);
-
-    // Stamp last_notified_at to enforce the 48-hour rate limit.
-    await supabase
-      .from("scheduled_posts")
-      .update({ last_notified_at: now })
-      .eq("id", post.id);
-
-    notified++;
+  if (error) {
+    console.error(`[cron/${slot}] social_posts error`, error);
+    return NextResponse.json({ error }, { status: 500 });
   }
 
-  return NextResponse.json({ slot, notified });
+  return NextResponse.json({ slot, notified: count });
 }

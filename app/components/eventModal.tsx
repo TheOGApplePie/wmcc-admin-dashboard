@@ -5,11 +5,9 @@ import Image from "next/image";
 import Link from "next/link";
 import { ChangeEvent, useEffect, useRef, useState } from "react";
 import { createEvent, editEvent, deleteEvent } from "@/actions/events";
-import { fetchCampaignForEvent } from "@/actions/postScheduling";
 import { FIVE_MB, URL_REGEX } from "../constants/general";
 import toast from "react-hot-toast";
 import ConfirmationModal from "../../features/announcements/modals/ConfirmationModal";
-import RegeneratePrompt from "@/features/postScheduling/components/RegeneratePrompt";
 import { formatDateTimeLocal } from "../utils/date";
 
 function WMCCLoader() {
@@ -87,9 +85,7 @@ export default function EventModal({
   const [updatedEvent, setUpdatedEvent] = useState<Event | null>(null);
   const [getConfirmation, setGetConfirmation] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [pendingRegenerate, setPendingRegenerate] = useState<{ eventId: number; campaignId: number } | null>(null);
   const wasRecurring = event?.is_recurring ?? false;
-  const originalDatesRef = useRef<{ start: string; end: string } | null>(null);
   const fileChangedRef = useRef(false);
 
   useEffect(() => {
@@ -107,10 +103,6 @@ export default function EventModal({
 
       setImageUrl(event.poster_url ?? null);
       setUseFile(!event.poster_url?.length);
-      originalDatesRef.current = {
-        start: new Date(event.start_date).toISOString(),
-        end: new Date(event.end_date).toISOString(),
-      };
 
       if (event.is_recurring && event.recurrence_rule) {
         const rule = event.recurrence_rule;
@@ -241,40 +233,10 @@ export default function EventModal({
         toast.success(
           response.data?.statusText ?? "Event updated successfully!",
         );
-        const showed = await checkAndPromptRegenerate(
-          updatedEvent!.id,
-          new Date(updatedEvent!.start_date),
-          new Date(updatedEvent!.end_date),
-        );
-        if (!showed) {
-          reset(); setImageUrl(null); setImageFile(null); fileChangedRef.current = false;
-          closeModal(true);
-        }
+        reset(); setImageUrl(null); setImageFile(null); fileChangedRef.current = false;
+        closeModal(true);
       }
     }
-  }
-
-  const handleRegenerateDone = () => {
-    setPendingRegenerate(null);
-    reset();
-    setImageUrl(null);
-    setImageFile(null);
-    fileChangedRef.current = false;
-    closeModal(true);
-  };
-
-  async function checkAndPromptRegenerate(eventId: number, newStartDate: Date, newEndDate: Date): Promise<boolean> {
-    const datesTouched =
-      newStartDate.toISOString() !== originalDatesRef.current?.start ||
-      newEndDate.toISOString() !== originalDatesRef.current?.end;
-    if (!datesTouched) return false;
-    const result = await fetchCampaignForEvent({ event_id: eventId });
-    const campaign = result?.data?.data;
-    if (campaign) {
-      setPendingRegenerate({ eventId, campaignId: (campaign as { id: number }).id });
-      return true;
-    }
-    return false;
   }
 
   const onSubmit = async (data: Event) => {
@@ -341,15 +303,8 @@ export default function EventModal({
           toast.success(
             response.data?.statusText ?? "Event updated successfully!",
           );
-          const showed = await checkAndPromptRegenerate(
-            data.id!,
-            new Date(data.start_date),
-            new Date(data.end_date),
-          );
-          if (!showed) {
-            reset(); setImageUrl(null); setImageFile(null); fileChangedRef.current = false;
-            closeModal(true);
-          }
+          reset(); setImageUrl(null); setImageFile(null); fileChangedRef.current = false;
+          closeModal(true);
         }
       }
     } else {
@@ -1183,13 +1138,6 @@ export default function EventModal({
                 ]
           }
           closeModal={handleDeleteConfirm}
-        />
-      )}
-      {pendingRegenerate && (
-        <RegeneratePrompt
-          eventId={pendingRegenerate.eventId}
-          campaignId={pendingRegenerate.campaignId}
-          onDone={handleRegenerateDone}
         />
       )}
     </>

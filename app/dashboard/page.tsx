@@ -22,7 +22,7 @@ function formatDateTime(isoStr: string) {
 const STATUS_BADGE: Record<string, string> = {
   draft:     "badge-ghost",
   scheduled: "badge-warning",
-  posted:    "badge-success",
+  published: "badge-success",
   failed:    "badge-error",
 };
 
@@ -43,11 +43,11 @@ export default async function Dashboard() {
       .lte("start_date", fortnight)
       .order("start_date")
       .limit(5),
-    user?.email
+    user?.id
       ? supabase
-          .from("scheduled_posts")
-          .select("id, event_id, post_type, scheduled_date, time_slot, status, platforms, events(title)")
-          .eq("assigned_to_email", user.email)
+          .from("social_posts")
+          .select("id, title, post_type, time_slot, scheduled_at, status, channels")
+          .eq("assigned_to", user.id)
           .in("status", ["draft", "scheduled"])
           .gte("scheduled_at", new Date().toISOString())
           .order("scheduled_at")
@@ -106,12 +106,12 @@ export default async function Dashboard() {
           </div>
         </div>
 
-        {/* ── My Next Posts ────────────────────────────────────────────── */}
+        {/* ── My Next Social Posts ─────────────────────────────────────── */}
         <div className="card bg-base-100 border border-base-200 shadow-sm">
           <div className="card-body p-5">
             <div className="flex items-center justify-between mb-3">
               <h2 className="card-title text-base">My Next Posts</h2>
-              <Link href="/dashboard/events" className="text-xs text-primary hover:underline">
+              <Link href="/dashboard/posts" className="text-xs text-primary hover:underline">
                 View all
               </Link>
             </div>
@@ -122,28 +122,27 @@ export default async function Dashboard() {
               </p>
             ) : (
               <ul className="flex flex-col gap-3">
-                {myPosts.map((post) => {
-                  const eventTitle = (post.events as { title: string } | null)?.title ?? "Event";
-                  return (
+                {myPosts.map((post) => (
                     <li key={post.id}>
                       <Link
-                        href={`/dashboard/events/${post.event_id}/posts`}
+                        href="/dashboard/posts"
                         className="flex flex-col hover:opacity-80 transition"
                       >
                         <div className="flex items-center gap-1.5">
-                          <span className="font-medium text-sm">{post.post_type}</span>
-                          <span className={`badge badge-xs ${STATUS_BADGE[post.status] ?? "badge-ghost"}`}>
+                          <span className="font-medium text-sm truncate">{post.title}</span>
+                          <span className={`badge badge-xs shrink-0 ${STATUS_BADGE[post.status] ?? "badge-ghost"}`}>
                             {post.status}
                           </span>
                         </div>
-                        <span className="text-xs opacity-50 truncate">{eventTitle}</span>
-                        <span className="text-xs opacity-40">
-                          {post.scheduled_date} · {post.time_slot}
-                        </span>
+                        <span className="text-xs opacity-50">{post.post_type}</span>
+                        {post.scheduled_at && (
+                          <span className="text-xs opacity-40">
+                            {post.scheduled_at.split("T")[0]} · {post.time_slot ?? ""}
+                          </span>
+                        )}
                       </Link>
                     </li>
-                  );
-                })}
+                  ))}
               </ul>
             )}
           </div>
