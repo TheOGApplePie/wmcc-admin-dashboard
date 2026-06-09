@@ -32,6 +32,7 @@ export interface PostComposerProps {
   adminUsers: AdminUserOption[];
   onSaved:    (post: SocialPost) => void;
   onDeleted:  (id: string) => void;
+  onCancel?:  () => void;
 }
 
 export interface PostQueueProps {

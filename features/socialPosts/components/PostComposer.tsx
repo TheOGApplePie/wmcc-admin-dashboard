@@ -55,7 +55,7 @@ function EmptyComposer() {
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export default function PostComposer({
-  post, isNew, events, allPosts, adminUsers, onSaved, onDeleted,
+  post, isNew, events, allPosts, adminUsers, onSaved, onDeleted, onCancel,
 }: PostComposerProps) {
   const form = usePostForm({ post, isNew, allPosts, onSaved, onDeleted });
   const media = useMediaUpload({
@@ -131,6 +131,16 @@ export default function PostComposer({
         <span className="text-[14px] font-semibold" style={{ color: "var(--sp-ink)" }}>
           {isNew ? "New post" : post?.title || "Edit post"}
         </span>
+        {isNew && onCancel && (
+          <button
+            type="button"
+            onClick={onCancel}
+            className="text-[12px] font-medium"
+            style={{ color: "var(--sp-muted)" }}
+          >
+            Cancel
+          </button>
+        )}
         {!isNew && post && !isReadOnly && (
           <button
             type="button"

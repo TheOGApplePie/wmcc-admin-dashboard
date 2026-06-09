@@ -24,7 +24,13 @@ export default function SocialPostsClient({ initialPosts, events, adminUsers }: 
 
   const handleNewPost = () => { setSelectedPost(null); setIsNew(true); };
 
-  const handleSelectPost = (post: SocialPost) => { setSelectedPost(post); setIsNew(false); };
+  const handleCancel = () => { setIsNew(false); setSelectedPost(null); };
+
+  const handleSelectPost = (post: SocialPost) => {
+    if (isNew && !confirm("Discard this new post? Any unsaved changes will be lost.")) return;
+    setSelectedPost(post);
+    setIsNew(false);
+  };
 
   const handleSaved = (saved: SocialPost) => {
     setIsNew(false);
@@ -135,6 +141,7 @@ export default function SocialPostsClient({ initialPosts, events, adminUsers }: 
               adminUsers={adminUsers}
               onSaved={handleSaved}
               onDeleted={handleDeleted}
+              onCancel={handleCancel}
             />
           </div>
         </div>
