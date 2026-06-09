@@ -291,7 +291,7 @@ export const fetchAdminUsers = actionClient
       const { data: authData } = await supabase.auth.admin.listUsers();
       const users: AdminUserOption[] = (authData?.users ?? [])
         .filter((u): u is typeof u & { email: string } => !!u.email)
-        .map((u) => ({ id: u.id, email: u.email }));
+        .map((u) => ({ id: u.id, email: u.email as string }));
       return ok(users);
     } catch (err) {
       return fail(err instanceof Error ? err.message : String(err), "Failed to load users.");

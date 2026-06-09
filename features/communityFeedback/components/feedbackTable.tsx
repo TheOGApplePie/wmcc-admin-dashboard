@@ -14,7 +14,7 @@ type FilterForm = {
   pageSize: number;
 };
 
-function formatDate(dateStr: string) {
+function formatDate(dateStr: string | Date) {
   return new Date(dateStr).toLocaleString("en-CA", {
     year: "numeric",
     month: "short",
