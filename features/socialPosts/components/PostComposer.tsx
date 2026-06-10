@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import {
   SocialChannel,
   SocialPostType,
@@ -308,7 +309,7 @@ export default function PostComposer({
 
           {watchedMediaUrl ? (
             <div className="relative rounded-xl overflow-hidden" style={{ height: 100 }}>
-              <img src={watchedMediaUrl} alt="" className="w-full h-full object-cover" />
+              <Image src={watchedMediaUrl} alt="" fill className="object-cover" />
               {!isReadOnly && (
                 <button
                   type="button"

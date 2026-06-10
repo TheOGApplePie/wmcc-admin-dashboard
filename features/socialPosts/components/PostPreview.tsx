@@ -1,8 +1,18 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import Image from "next/image";
 import { SocialChannel, CHANNEL_LABELS } from "@/app/schemas/socialPosts";
 import type { PostPreviewProps } from "@/features/socialPosts/types";
+
+function resolveActiveChannel(
+  channels: SocialChannel[],
+  preferred: SocialChannel | null,
+): SocialChannel | null {
+  if (channels.length === 0) return null;
+  if (preferred !== null && channels.includes(preferred)) return preferred;
+  return channels[0];
+}
 
 // ─── IG Feed preview ──────────────────────────────────────────────────────────
 
@@ -25,9 +35,9 @@ function IgFeedPreview({ caption, mediaUrl }: Readonly<{ caption: string; mediaU
       </div>
 
       {/* Media */}
-      <div className="w-full" style={{ aspectRatio: "1/1", backgroundColor: "var(--sp-hairline)" }}>
+      <div className="relative w-full" style={{ aspectRatio: "1/1", backgroundColor: "var(--sp-hairline)" }}>
         {mediaUrl ? (
-          <img src={mediaUrl} alt="Post media" className="w-full h-full object-cover" />
+          <Image src={mediaUrl} alt="Post media" fill className="object-cover" />
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center gap-2">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--sp-muted)" strokeWidth="1.5">
@@ -82,7 +92,7 @@ function IgStoryPreview({ caption, mediaUrl }: Readonly<{ caption: string; media
       }}
     >
       {mediaUrl && (
-        <img src={mediaUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
+        <Image src={mediaUrl} alt="" fill className="object-cover" />
       )}
       <div className="absolute inset-0" style={{ background: "linear-gradient(to bottom, rgba(0,0,0,.3) 0%, transparent 30%, transparent 60%, rgba(0,0,0,.5) 100%)" }} />
 
@@ -156,8 +166,8 @@ function WhatsAppPreview({ caption, mediaUrl }: Readonly<{ caption: string; medi
       <div className="p-4">
         <div className="rounded-xl rounded-tl-none overflow-hidden" style={{ backgroundColor: "var(--sp-surface)", maxWidth: "85%" }}>
           {mediaUrl && (
-            <div style={{ aspectRatio: "4/3" }}>
-              <img src={mediaUrl} alt="" className="w-full h-full object-cover" />
+            <div className="relative" style={{ aspectRatio: "4/3" }}>
+              <Image src={mediaUrl} alt="" fill className="object-cover" />
             </div>
           )}
           <div className="px-3 py-2">
@@ -183,15 +193,8 @@ function WhatsAppPreview({ caption, mediaUrl }: Readonly<{ caption: string; medi
 // ─── Preview switcher ─────────────────────────────────────────────────────────
 
 export default function PostPreview({ channels, caption, mediaUrl }: Readonly<PostPreviewProps>) {
-  const [activeChannel, setActiveChannel] = useState<SocialChannel | null>(null);
-
-  useEffect(() => {
-    if (channels.length === 0) {
-      setActiveChannel(null);
-    } else if (!channels.includes(activeChannel as SocialChannel)) {
-      setActiveChannel(channels[0]);
-    }
-  }, [channels, activeChannel]);
+  const [preferredChannel, setPreferredChannel] = useState<SocialChannel | null>(null);
+  const active = resolveActiveChannel(channels, preferredChannel);
 
   if (channels.length === 0) {
     return (
@@ -209,8 +212,6 @@ export default function PostPreview({ channels, caption, mediaUrl }: Readonly<Po
     );
   }
 
-  const active = activeChannel ?? channels[0];
-
   return (
     <div className="flex flex-col gap-3">
       {channels.length > 1 && (
@@ -218,7 +219,7 @@ export default function PostPreview({ channels, caption, mediaUrl }: Readonly<Po
           {channels.map((ch) => (
             <button
               key={ch}
-              onClick={() => setActiveChannel(ch)}
+              onClick={() => setPreferredChannel(ch)}
               className="px-3 py-1 rounded-full text-[11px] font-semibold transition-all"
               style={
                 active === ch

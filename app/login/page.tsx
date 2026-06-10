@@ -44,114 +44,95 @@ export default function Login() {
     }
     redirect("./dashboard");
   }
-  return (
-    <div className="z-30 flex min-h-dvh items-center justify-center relative">
-      <MarqueeBackground />
-      <main className="flex flex-col items-center justify-between">
-        <div className="rounded-2xl hero bg-base-200 py-32 px-16">
-          <div className="hero-content text-center shadow backdrop-blur-[5px] rounded-2xl">
-            <div className="max-w-md">
-              <h1 className="font-bold">Assalamualaikum!</h1>
-              <h2>Sign in to get started!</h2>
-              <form
-                className="grid gap-3 py-3"
-                onSubmit={handleSubmit(handleLoginSubmit)}
-              >
-                <label className="input w-full" htmlFor="email">
-                  <span className="label">Email</span>
-                  <input
-                    {...register("email", {
-                      required: {
-                        value: true,
-                        message: "Please enter your email",
-                      },
-                      pattern: {
-                        value: EMAIL_REGEX,
-                        message: "Hmm, this doesn't look like a valid email...",
-                      },
-                    })}
-                  />
-                </label>
-                {errors.email && (
-                  <span className="text-red-600" role="alert">
-                    {errors.email.message}
-                  </span>
-                )}
-                <label className="input w-full" htmlFor="password">
-                  <span className="label">Password</span>
-                  <input
-                    {...register("password", {
-                      required: {
-                        value: true,
-                        message: "Please enter your password ",
-                      },
-                    })}
-                    type={hidePassword ? "password" : "text"}
-                  />
-                  <label className="swap">
-                    <input
-                      className="hover:cursor-pointer transition-all duration-1000"
-                      type="checkbox"
-                      onChange={(event) => {
-                        setHidePassword(!event.target.checked);
-                      }}
-                    />
-                    <svg
-                      className="swap-off fill-current"
-                      width="20"
-                      height="20"
-                      viewBox="0 0 20 20"
-                      fill="none"
-                      xmlns="http://www.w3.org/2000/svg"
-                    >
-                      <path
-                        d="M1.688 8.306a1 1 0 1 1 1.624-1.167c.304.423.773.827 1.38 1.177C5.985 9.062 7.777 9.5 9.704 9.5c1.928 0 3.72-.437 5.013-1.184.607-.35 1.076-.754 1.38-1.177a1 1 0 1 1 1.624 1.167c-.48.669-1.164 1.257-2.004 1.742-1.612.93-3.748 1.452-6.013 1.452s-4.4-.522-6.012-1.452c-.84-.485-1.524-1.073-2.004-1.742"
-                        fill="#000"
-                      />
-                      <path
-                        d="M11 11a1 1 0 1 0-2 0v2.5a1 1 0 1 0 2 0zm-5.47-.242a1 1 0 0 1 1.94.485l-.5 2a1 1 0 1 1-1.94-.486zm8.44 0a1 1 0 0 0-1.94.485l.5 2a1 1 0 1 0 1.94-.486zm2.555-2.465a1 1 0 1 0-1.414 1.414l2 2a1 1 0 0 0 1.414-1.414zm-13.447.034a1 1 0 0 1 1.48 1.346l-1.818 2a1 1 0 1 1-1.48-1.346z"
-                        fill="#000"
-                      />
-                    </svg>
 
-                    <svg
-                      className="swap-on fill-current"
-                      width="20"
-                      height="20"
-                      viewBox="0 0 20 20"
-                      fill="none"
-                      xmlns="http://www.w3.org/2000/svg"
-                    >
-                      <path
-                        fillRule="evenodd"
-                        clipRule="evenodd"
-                        d="M10 16.5c4.897 0 9-2.308 9-5.5s-4.103-5.5-9-5.5S1 7.808 1 11s4.103 5.5 9 5.5m0-9c3.94 0 7 1.722 7 3.5s-3.06 3.5-7 3.5-7-1.722-7-3.5 3.06-3.5 7-3.5"
-                        fill="#000"
-                      />
-                      <path
-                        d="M9 3.5a1 1 0 0 1 2 0v3a1 1 0 1 1-2 0zm4.02.304a1 1 0 0 1 1.96.392l-.5 2.5a1 1 0 1 1-1.96-.392zm-6.04 0a1 1 0 0 0-1.96.392l.5 2.5a1 1 0 0 0 1.96-.392zM2.858 4.986a1 1 0 1 0-1.715 1.029l1.5 2.5a1 1 0 1 0 1.715-1.03zm14.285 0a1 1 0 0 1 1.715 1.029l-1.5 2.5a1 1 0 1 1-1.716-1.03z"
-                        fill="#000"
-                      />
-                      <path
-                        fillRule="evenodd"
-                        clipRule="evenodd"
-                        d="M10 14a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7m0-5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3"
-                        fill="#000"
-                      />
-                    </svg>
-                  </label>
-                </label>
-                {errors.password && (
-                  <span className="text-red-600" role="alert">
-                    {errors.password.message}
-                  </span>
-                )}
-                <button className="btn btn-soft" type="submit">
-                  Login
-                </button>
-              </form>
+  return (
+    <div className="relative flex min-h-dvh items-center justify-center">
+      <MarqueeBackground />
+
+      <main className="relative z-10 w-full max-w-sm px-4">
+        {/* Card */}
+        <div className="bg-surface border border-line rounded-2xl shadow-[0_8px_40px_-12px_rgba(20,32,28,.18)] p-8">
+          {/* Logo + heading */}
+          <div className="flex flex-col items-center gap-3 mb-8">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-teal text-[18px] font-extrabold text-white shadow-[0_8px_20px_-6px_rgba(15,128,115,.7)]">
+              W
+            </div>
+            <div className="text-center">
+              <h1 className="text-[22px] font-extrabold tracking-tight">Assalamualaikum!</h1>
+              <p className="text-[13px] text-muted mt-0.5">Sign in to get started</p>
             </div>
           </div>
+
+          <form className="flex flex-col gap-4" onSubmit={handleSubmit(handleLoginSubmit)}>
+            {/* Email */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[12px] font-semibold text-muted" htmlFor="email">
+                Email
+              </label>
+              <input
+                id="email"
+                className="rounded-xl border border-line bg-canvas px-3 py-2.5 text-[13px] outline-none transition-colors focus:border-teal focus:ring-1 focus:ring-teal"
+                {...register("email", {
+                  required: { value: true, message: "Please enter your email" },
+                  pattern: {
+                    value: EMAIL_REGEX,
+                    message: "Hmm, this doesn't look like a valid email...",
+                  },
+                })}
+              />
+              {errors.email && (
+                <span className="text-[12px] text-coral" role="alert">
+                  {errors.email.message}
+                </span>
+              )}
+            </div>
+
+            {/* Password */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[12px] font-semibold text-muted" htmlFor="password">
+                Password
+              </label>
+              <div className="relative">
+                <input
+                  id="password"
+                  className="w-full rounded-xl border border-line bg-canvas px-3 py-2.5 pr-10 text-[13px] outline-none transition-colors focus:border-teal focus:ring-1 focus:ring-teal"
+                  {...register("password", {
+                    required: { value: true, message: "Please enter your password" },
+                  })}
+                  type={hidePassword ? "password" : "text"}
+                />
+                <button
+                  type="button"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-ink transition-colors"
+                  onClick={() => setHidePassword((v) => !v)}
+                  aria-label={hidePassword ? "Show password" : "Hide password"}
+                >
+                  {hidePassword ? (
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19M1 1l22 22" />
+                    </svg>
+                  )}
+                </button>
+              </div>
+              {errors.password && (
+                <span className="text-[12px] text-coral" role="alert">
+                  {errors.password.message}
+                </span>
+              )}
+            </div>
+
+            <button
+              className="mt-2 w-full rounded-xl bg-teal px-4 py-2.5 text-[13px] font-semibold text-white shadow-[0_8px_18px_-8px_rgba(15,128,115,.8)] transition-colors hover:bg-teal-dark active:scale-[.98]"
+              type="submit"
+            >
+              Sign in
+            </button>
+          </form>
         </div>
       </main>
     </div>
