@@ -1,5 +1,6 @@
 import { getSocialPosts, fetchEventsForSelect, fetchAdminUsers } from "@/actions/socialPosts";
 import SocialPostsClient from "@/features/socialPosts/components/SocialPostsClient";
+import { PageShell } from "@/app/components/ui/PageShell";
 
 export const dynamic = "force-dynamic";
 
@@ -15,10 +16,12 @@ export default async function SocialPostsPage() {
   }
 
   return (
-    <SocialPostsClient
-      initialPosts={postsResult.data.data}
-      events={eventsResult?.data?.data ?? []}
-      adminUsers={usersResult?.data?.data ?? []}
-    />
+    <PageShell title="Social Posts" subtitle="Plan & schedule across Instagram and WhatsApp" noPad>
+      <SocialPostsClient
+        initialPosts={postsResult.data.data}
+        events={eventsResult?.data?.data ?? []}
+        adminUsers={usersResult?.data?.data ?? []}
+      />
+    </PageShell>
   );
 }

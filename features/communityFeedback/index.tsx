@@ -9,8 +9,7 @@ export function CommunityFeedbackPage({
   count: number;
 }>) {
   return (
-    <div className="h-[calc(100dvh-4rem)] overflow-hidden flex flex-col p-6 gap-4 max-w-6xl mx-auto">
-      <h1 className="text-3xl font-bold shrink-0">Community Feedback</h1>
+    <div className="h-[calc(100dvh-4.5rem)] overflow-hidden flex flex-col gap-4">
       <FeedbackTable feedback={feedback} count={count} />
     </div>
   );

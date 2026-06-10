@@ -9,20 +9,56 @@ import { FIVE_MB, URL_REGEX } from "../constants/general";
 import toast from "react-hot-toast";
 import ConfirmationModal from "../../features/announcements/modals/ConfirmationModal";
 import { formatDateTimeLocal } from "../utils/date";
+import { toEstDay } from "@/utils/expandEvents";
+import { Field, INPUT } from "./ui/Field";
+
+const NO_IMAGE_URL =
+  "https://gkpctbvyswcfccogoepl.supabase.co/storage/v1/object/public/event-posters/public/NO%20IMAGE.png";
+
+const CHIP =
+  "inline-flex items-center justify-center px-3 py-1.5 rounded-lg border border-line bg-surface text-[12px] font-medium text-muted cursor-pointer transition-colors peer-checked:bg-teal peer-checked:border-teal peer-checked:text-white hover:border-teal/40";
 
 function WMCCLoader() {
   return (
     <div className="flex gap-1 items-end py-6">
       {["W", "M", "C", "C"].map((letter, i) => (
         <span
-          key={i}
-          className="text-3xl font-black animate-bounce"
+          key={`${letter}-${i}`}
+          className="text-2xl font-black animate-bounce"
           style={{ animationDelay: `${i * 150}ms` }}
         >
           {letter}
         </span>
       ))}
     </div>
+  );
+}
+
+function RadioPill({
+  name,
+  value,
+  checked,
+  onChange,
+  label,
+}: Readonly<{
+  name: string;
+  value: string;
+  checked: boolean;
+  onChange: (value: string) => void;
+  label: string;
+}>) {
+  return (
+    <label className="cursor-pointer">
+      <input
+        type="radio"
+        className="peer sr-only"
+        name={name}
+        value={value}
+        checked={checked}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <span className={CHIP}>{label}</span>
+    </label>
   );
 }
 
@@ -39,7 +75,7 @@ export default function EventModal({
   const {
     register,
     handleSubmit,
-    formState: { errors, isDirty },
+    formState: { errors, isDirty, isSubmitting },
     setError,
     clearErrors,
     reset,
@@ -70,11 +106,7 @@ export default function EventModal({
     event?.poster_url ?? null,
   );
   const [imageFile, setImageFile] = useState<File | null>(null);
-  const [isImageLoading, setIsImageLoading] = useState(true);
-
-  useEffect(() => {
-    setIsImageLoading(true);
-  }, [imageUrl]);
+  const [isImageLoading, setIsImageLoading] = useState<boolean>(!!event?.poster_url?.length);
   const [frequencyKind, setFrequencyKind] = useState<string>("day");
   const [recurrenceType, setRecurrenceType] = useState<string>("date");
   const [message, setMessage] = useState("");
@@ -87,6 +119,7 @@ export default function EventModal({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const wasRecurring = event?.is_recurring ?? false;
   const fileChangedRef = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (event) {
@@ -94,11 +127,17 @@ export default function EventModal({
       let endDate: Date | string = event.end_date;
 
       if (occurrenceDate && event.is_recurring) {
+        // occurrenceDate is a day marker (EST day at UTC midnight); shift the
+        // original start by whole days so the event's time-of-day is preserved.
+        const DAY_MS = 24 * 60 * 60 * 1000;
+        const dayDiff = Math.round(
+          (occurrenceDate.getTime() - toEstDay(event.start_date).getTime()) / DAY_MS,
+        );
         const duration =
           new Date(event.end_date).getTime() -
           new Date(event.start_date).getTime();
-        startDate = occurrenceDate;
-        endDate = new Date(occurrenceDate.getTime() + duration);
+        startDate = new Date(new Date(event.start_date).getTime() + dayDiff * DAY_MS);
+        endDate = new Date(startDate.getTime() + duration);
       }
 
       setImageUrl(event.poster_url ?? null);
@@ -173,20 +212,22 @@ export default function EventModal({
             "This file is too big. Please select an image file less than 5MB.",
         });
       } else if (
-        !["image/png", "image/jpeg", "image/jpg"].includes(file.type)
+        ["image/png", "image/jpeg", "image/jpg"].includes(file.type)
       ) {
+        setIsImageLoading(true);
+        setImageFile(file);
+        setImageUrl(URL.createObjectURL(file));
+      } else {
         setError("poster_file", {
           message:
             "This is an unsupported file type. Please upload a JPG/JPEG or PNG image.",
         });
-      } else {
-        setImageFile(file);
-        setImageUrl(URL.createObjectURL(file));
       }
     } else {
       const url = event.target.value;
       if (url.length) {
         fileChangedRef.current = true;
+        setIsImageLoading(true);
         setImageUrl(url);
       } else {
         setImageFile(null);
@@ -195,6 +236,13 @@ export default function EventModal({
       clearErrors(["poster_file", "poster_url"]);
     }
   };
+
+  // Pass the handler through register options so RHF's own onChange still
+  // fires — overriding the onChange prop would stop values reaching form state.
+  const { ref: rhfFileRef, ...fileRegister } = register("poster_file", {
+    onChange: handleImageChange,
+  });
+  const posterUrlRegister = register("poster_url", { onChange: handleImageChange });
   async function confirmAction(action?: string) {
     showConfirmationModal(false);
     if (action && action !== "no" && updatedEvent) {
@@ -363,41 +411,73 @@ export default function EventModal({
     }
   };
 
+  const handleClose = () => {
+    if ((isDirty || fileChangedRef.current) && !globalThis.confirm("Unsaved changes will be lost. Close anyway?")) return;
+    reset();
+    setImageUrl(null);
+    setImageFile(null);
+    fileChangedRef.current = false;
+    closeModal(false);
+  };
+
+  const clearImage = () => {
+    // setValue per-field — reset(partial) would replace ALL form values and
+    // wipe title/description/dates.
+    setValue("poster_file", [], { shouldDirty: true });
+    setValue("poster_url", null, { shouldDirty: true });
+    setValue("poster_alt", "", { shouldDirty: true });
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    setImageFile(null);
+    setImageUrl(null);
+  };
+
   return (
     <>
-      <div className="p-8 modal-box min-w-[calc(100dvw-100px)] h-[calc(100dvh-100px)] flex flex-col overflow-hidden">
-        <div className="flex justify-between items-center">
-          <h3 className="font-bold text-lg">
-            {event ? "Edit Event" : "Add new event"}
-          </h3>
+      <div className="modal-box p-0 rounded-2xl overflow-hidden max-w-2xl w-full shadow-xl">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-line">
+          <div className="flex items-center gap-2.5">
+            <h2 className="text-[15px] font-bold">
+              {event ? "Edit event" : "New event"}
+            </h2>
+            {event?.is_recurring && (
+              <span
+                className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full"
+                style={{ backgroundColor: "#CCFBF1", color: "#065F46" }}
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" />
+                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                </svg>
+                Recurring
+              </span>
+            )}
+          </div>
           <button
-            className="btn btn-outline btn-error text-black"
-            onClick={() => {
-              if ((isDirty || fileChangedRef.current) && !window.confirm("Unsaved changes will be lost. Close anyway?")) return;
-              reset();
-              setImageUrl(null);
-              setImageFile(null);
-              fileChangedRef.current = false;
-              closeModal(false);
-            }}
+            type="button"
+            onClick={handleClose}
+            aria-label="Close"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-canvas hover:text-ink transition-colors"
           >
-            Close Modal
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
           </button>
         </div>
-        <div className="divider my-0 shrink-0"></div>
-        <form
-          className="flex gap-6 flex-1 min-h-0 text-lg overflow-hidden"
-          onSubmit={handleSubmit(onSubmit)}
-        >
-          <div className="flex-1 overflow-y-auto flex flex-col gap-2 pr-2">
+
+        <form onSubmit={handleSubmit(onSubmit)}>
+          {/* Scrollable body */}
+          <div
+            className="px-6 py-5 flex flex-col gap-4 overflow-y-auto"
+            style={{ maxHeight: "calc(100dvh - 220px)" }}
+          >
             <input type="number" hidden {...register("id")} />
-            <fieldset className="fieldset">
-              <legend className="fieldset-legend mb-0 text-xl pb-0">
-                Title
-              </legend>
+
+            <Field label="Title" error={errors.title?.message}>
               <input
-                className="input input-lg w-full rounded-2xl"
+                className={INPUT}
                 maxLength={50}
+                placeholder="Event title"
                 {...register("title", {
                   required: {
                     value: true,
@@ -415,20 +495,14 @@ export default function EventModal({
                   },
                 })}
               />
-            </fieldset>
-            {errors.title && (
-              <span className="text-red-600" role="alert">
-                {errors.title.message}
-              </span>
-            )}
-            <fieldset className="fieldset">
-              <legend className="fieldset-legend mb-0 text-xl pb-0">
-                Description
-              </legend>
+            </Field>
+
+            <Field label="Description" error={errors.description?.message}>
               <textarea
-                className="textarea textarea-lg w-full rounded-2xl resize-none"
+                className={INPUT + " resize-none"}
                 maxLength={1000}
                 rows={4}
+                placeholder="What's happening at this event?"
                 {...register("description", {
                   required: {
                     value: true,
@@ -446,177 +520,15 @@ export default function EventModal({
                   },
                 })}
               />
-            </fieldset>
-            {errors.description && (
-              <span className="text-red-600" role="alert">
-                {errors.description.message}
-              </span>
-            )}
-            <div className={`w-full gap-2`}>
-              <fieldset className="fieldset relative">
-                <legend className="fieldset-legend mb-0 text-xl pb-0 w-full">
-                  <div className="flex justify-between w-full items-baseline">
-                    <span>Poster</span>
-                    <span className="text-sm text-error-content pb-0">
-                      In the event that an image file and a url are presented,
-                      the image file will take precedence.
-                    </span>
-                    <label className="toggle toggle-lg text-base-content p-0">
-                      <input
-                        type="checkbox"
-                        checked={useFile}
-                        onChange={() => setUseFile(!useFile)}
-                      />
-                      <span
-                        className="text-xs flex items-center"
-                        aria-label="enabled"
-                      >
-                        URL
-                      </span>
-                      <span
-                        className="text-xs flex items-center"
-                        aria-label="disabled"
-                      >
-                        FILE
-                      </span>
-                    </label>
-                  </div>
-                </legend>
-                {useFile ? (
-                  <input
-                    {...register("poster_file")}
-                    type="file"
-                    accept="image/png, image/jpeg, image/jpg"
-                    className="input input-lg hover:cursor-pointer rounded-2xl w-full"
-                    onChange={handleImageChange}
-                  />
-                ) : (
-                  <input
-                    {...register("poster_url")}
-                    type="url"
-                    className="input input-lg w-full rounded-2xl"
-                    onChange={handleImageChange}
-                  />
-                )}
-              </fieldset>
+            </Field>
 
-              <fieldset className="fieldset grow">
-                <legend className="fieldset-legend mb-0 text-xl pb-0">
-                  Poster Alt Text
-                </legend>
+            {/* Start / End */}
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Starts" error={errors.start_date?.message}>
                 <input
-                  className="w-full input input-lg rounded-2xl"
-                  maxLength={100}
-                  {...register("poster_alt", {
-                    maxLength: {
-                      value: 100,
-                      message: "Please limit the alt text to 100 characters.",
-                    },
-                    validate: {
-                      validatePosterUrlImageAndAlt: (
-                        poster_alt: string,
-                        {
-                          poster_url,
-                          poster_file,
-                        }: {
-                          poster_url: string | null;
-                          poster_file: File[] | null;
-                        },
-                      ) => {
-                        if (!poster_url && !poster_file && poster_alt)
-                          return "Please select an image to add as a poster.";
-                        if ((poster_url || poster_file?.length) && !poster_alt)
-                          return "For better accessibility, please describe this image.";
-                        return true;
-                      },
-                    },
-                  })}
-                />
-              </fieldset>
-            </div>
-            {errors.poster_alt && (
-              <span className="text-red-600" role="alert">
-                {errors.poster_alt.message}
-              </span>
-            )}
-            <fieldset className="fieldset">
-              <legend className="fieldset-legend mb-0 text-xl pb-0">
-                Call To Action Button Link
-              </legend>
-              <input
-                className="w-full input input-lg rounded-2xl"
-                {...register("call_to_action_link", {
-                  pattern: {
-                    value: URL_REGEX,
-                    message:
-                      'Please enter a valid URL. Make sure it begins with "https://" and does not have any leading or trailing spaces.',
-                  },
-                  validate: {
-                    validateCallToActionLink: (
-                      call_to_action_link: string | null,
-                      {
-                        call_to_action_caption,
-                      }: {
-                        call_to_action_caption: string;
-                      },
-                    ) => {
-                      if (!call_to_action_link && call_to_action_caption) {
-                        return "Please add a link for the call to action button, or remove the caption.";
-                      }
-                      return true;
-                    },
-                  },
-                })}
-              />
-            </fieldset>
-            {errors.call_to_action_link && (
-              <span className="text-red-600" role="alert">
-                {errors.call_to_action_link.message}
-              </span>
-            )}
-            <fieldset className="fieldset">
-              <legend className="fieldset-legend mb-0 text-xl pb-0">
-                Call To Action Caption
-              </legend>
-              <input
-                className="w-full input input-lg rounded-2xl"
-                maxLength={20}
-                {...register("call_to_action_caption", {
-                  maxLength: {
-                    value: 20,
-                    message: "Please limit the button text to 20 characters",
-                  },
-                  validate: {
-                    validateCallToActionCaption: (
-                      call_to_action_caption: string,
-                      {
-                        call_to_action_link,
-                      }: {
-                        call_to_action_link: string | null;
-                      },
-                    ) => {
-                      if (call_to_action_link && !call_to_action_caption) {
-                        return "Please add a caption for the call to action button, or remove the link.";
-                      }
-                      return true;
-                    },
-                  },
-                })}
-              />
-            </fieldset>
-            {errors.call_to_action_caption && (
-              <span className="text-red-600" role="alert">
-                {errors.call_to_action_caption.message}
-              </span>
-            )}
-            <div className="flex">
-              <fieldset className="fieldset grow">
-                <legend className="fieldset-legend mb-0 text-xl pb-0">
-                  Start Date
-                </legend>
-                <input
-                  className="w-full input input-lg rounded-2xl"
+                  className={INPUT}
                   type="datetime-local"
+                  suppressHydrationWarning
                   {...register("start_date", {
                     required: {
                       value: true,
@@ -626,11 +538,7 @@ export default function EventModal({
                     validate: {
                       validateStartDate: (
                         start_date: string | Date,
-                        {
-                          end_date,
-                        }: {
-                          end_date: string | Date;
-                        },
+                        { end_date }: { end_date: string | Date },
                       ) => {
                         if (end_date && start_date > end_date) {
                           return "You cannot set the start datetime to be after the end datetime.";
@@ -640,14 +548,12 @@ export default function EventModal({
                     },
                   })}
                 />
-              </fieldset>
-              <fieldset className="fieldset grow">
-                <legend className="fieldset-legend mb-0 text-xl pb-0">
-                  Ends At
-                </legend>
+              </Field>
+              <Field label="Ends" error={!errors.start_date ? errors.end_date?.message : undefined}>
                 <input
-                  className="w-full input input-lg rounded-2xl"
+                  className={INPUT}
                   type="datetime-local"
+                  suppressHydrationWarning
                   {...register("end_date", {
                     required: {
                       value: true,
@@ -657,11 +563,7 @@ export default function EventModal({
                     validate: {
                       validateEndDate: (
                         end_date: string | Date,
-                        {
-                          start_date,
-                        }: {
-                          start_date: string | Date;
-                        },
+                        { start_date }: { start_date: string | Date },
                       ) => {
                         if (start_date && start_date > end_date) {
                           return "You cannot set the end datetime to be before the start datetime.";
@@ -671,107 +573,235 @@ export default function EventModal({
                     },
                   })}
                 />
-              </fieldset>
+              </Field>
             </div>
-            <div>
-              {errors.start_date && (
-                <span className="text-red-600" role="alert">
-                  {errors.start_date.message}
-                </span>
-              )}
-              {errors.end_date && !errors.start_date && (
-                <span className="text-red-600" role="alert">
-                  {errors.end_date.message}
-                </span>
-              )}
-            </div>
-            <div>
-              <fieldset className="fieldset grow">
-                <legend className="fieldset-legend mb-0 text-xl pb-0">
-                  Location
-                </legend>
+
+            <Field label="Location" error={errors.location?.message}>
+              <input
+                className={INPUT}
+                type="text"
+                placeholder="Where is this event held?"
+                {...register("location", {
+                  required: {
+                    value: true,
+                    message: "Please specify a location for this event",
+                  },
+                })}
+              />
+            </Field>
+
+            {/* CTA */}
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Call to action" error={errors.call_to_action_caption?.message}>
                 <input
-                  className="w-full input input-lg rounded-2xl"
-                  type="text"
-                  {...register("location", {
-                    required: {
-                      value: true,
-                      message: "Please specify a location for this event",
+                  className={INPUT}
+                  maxLength={20}
+                  placeholder="Button label"
+                  {...register("call_to_action_caption", {
+                    maxLength: {
+                      value: 20,
+                      message: "Please limit the button text to 20 characters",
+                    },
+                    validate: {
+                      validateCallToActionCaption: (
+                        call_to_action_caption: string,
+                        { call_to_action_link }: { call_to_action_link: string | null },
+                      ) => {
+                        if (call_to_action_link && !call_to_action_caption) {
+                          return "Please add a caption for the call to action button, or remove the link.";
+                        }
+                        return true;
+                      },
                     },
                   })}
                 />
-              </fieldset>
-            </div>
-            <div>
-              {errors.location && (
-                <span className="text-red-600" role="alert">
-                  {errors.location.message}
-                </span>
-              )}
-            </div>
-            <div>
-              <fieldset className="fieldset grow">
-                <legend className="fieldset-legend mb-0 text-xl pb-0">
-                  Gallery URL
-                </legend>
+              </Field>
+              <Field label="Call to action link" error={errors.call_to_action_link?.message}>
                 <input
-                  className="w-full input input-lg rounded-2xl"
-                  type="url"
-                  {...register("gallery_url")}
+                  className={INPUT}
+                  placeholder="https://…"
+                  {...register("call_to_action_link", {
+                    pattern: {
+                      value: URL_REGEX,
+                      message:
+                        'Please enter a valid URL. Make sure it begins with "https://" and does not have any leading or trailing spaces.',
+                    },
+                    validate: {
+                      validateCallToActionLink: (
+                        call_to_action_link: string | null,
+                        { call_to_action_caption }: { call_to_action_caption: string },
+                      ) => {
+                        if (!call_to_action_link && call_to_action_caption) {
+                          return "Please add a link for the call to action button, or remove the caption.";
+                        }
+                        return true;
+                      },
+                    },
+                  })}
                 />
-              </fieldset>
+              </Field>
             </div>
-            <div>
-              {errors.gallery_url && (
-                <span className="text-red-600" role="alert">
-                  {errors.gallery_url.message}
-                </span>
-              )}
-            </div>
-            <div>
-              <fieldset className="fieldset">
-                <legend className="fieldset-legend mb-0 text-xl pb-0">
-                  Recurrence
-                </legend>
-                <input
-                  type="checkbox"
-                  {...register("is_recurring")}
-                  className="toggle toggle-xl transition-all duration-300 border-red-600 bg-red-500 checked:border-green-500 checked:bg-green-400 checked:text-green-800"
-                />
-              </fieldset>
-            </div>
-            <div
-              className={`${
-                frequency && isRecurring
-                  ? (frequency === "daily"
-                      ? "h-60"
-                      : frequency === "weekly"
-                        ? "h-80"
-                        : frequencyKind === "date"
-                          ? "h-100"
-                          : "h-120") + " opacity-100"
-                  : "h-0 opacity-0"
-              } transform duration-300 gap-3 w-full`}
-            >
-              {/**/}
-              <fieldset className="fieldset bg-base-200 border-base-300 rounded-box border p-4 text-xl">
-                <legend className="fieldset-legend">
-                  How do you want to set up the recurrence?
-                </legend>
 
-                {
-                  <div className="flex gap-3 justify-start items-center">
-                    <span>Every</span>
+            <Field label="Gallery URL" error={errors.gallery_url?.message}>
+              <input
+                className={INPUT}
+                type="url"
+                placeholder="https://…"
+                {...register("gallery_url")}
+              />
+            </Field>
+
+            {/* Poster */}
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <p className="text-[12px] font-semibold text-ink">
+                  Poster <span className="font-normal text-muted">· optional</span>
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setUseFile(!useFile)}
+                  className="text-[11px] font-semibold text-teal hover:text-teal-dark transition-colors"
+                >
+                  {useFile ? "Use image URL instead" : "Upload a file instead"}
+                </button>
+              </div>
+
+              {!useFile && (
+                <input
+                  type="url"
+                  className={INPUT}
+                  placeholder="https://… (image URL)"
+                  {...posterUrlRegister}
+                />
+              )}
+
+              {imageUrl ? (
+                <div className="relative rounded-xl border border-line overflow-hidden bg-canvas">
+                  <div className="flex items-center justify-center min-h-32 max-h-56 overflow-hidden">
+                    {isImageLoading && (
+                      <div className="absolute inset-0 flex justify-center items-center z-10">
+                        <WMCCLoader />
+                      </div>
+                    )}
+                    <Image
+                      src={imageUrl.length ? imageUrl : NO_IMAGE_URL}
+                      alt=""
+                      height={400}
+                      width={400}
+                      className={`max-h-56 w-auto object-contain transition-opacity duration-300 ${isImageLoading ? "opacity-0" : "opacity-100"}`}
+                      loading="eager"
+                      onLoad={() => setIsImageLoading(false)}
+                    />
+                  </div>
+                  <div className="absolute top-2 right-2 flex gap-1.5">
+                    {useFile && (
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-surface/90 backdrop-blur-sm text-ink border border-line hover:border-teal hover:text-teal transition-colors"
+                      >
+                        Replace
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={clearImage}
+                      className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-surface/90 backdrop-blur-sm text-coral border border-coral/30 hover:bg-coral/10 transition-colors"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                useFile && (
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-line py-6 text-[12px] text-muted hover:border-teal/40 hover:text-teal transition-colors"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="17 8 12 3 7 8" />
+                      <line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
+                    Upload poster image
+                  </button>
+                )
+              )}
+
+              <input
+                type="file"
+                accept="image/png, image/jpeg, image/jpg"
+                className="hidden"
+                ref={(el) => { rhfFileRef(el); fileInputRef.current = el; }}
+                {...fileRegister}
+              />
+              {errors.poster_file && (
+                <p className="text-[11px] text-coral">{errors.poster_file.message as string}</p>
+              )}
+
+              {!!imageUrl && (
+                <Field label="Poster alt text" error={errors.poster_alt?.message}>
+                  <input
+                    className={INPUT}
+                    maxLength={100}
+                    placeholder="Describe the image for screen readers"
+                    {...register("poster_alt", {
+                      maxLength: {
+                        value: 100,
+                        message: "Please limit the alt text to 100 characters.",
+                      },
+                      validate: {
+                        validatePosterUrlImageAndAlt: (
+                          poster_alt: string,
+                          {
+                            poster_url,
+                            poster_file,
+                          }: {
+                            poster_url: string | null;
+                            poster_file: File[] | null;
+                          },
+                        ) => {
+                          if (!poster_url && !poster_file && poster_alt)
+                            return "Please select an image to add as a poster.";
+                          if ((poster_url || poster_file?.length) && !poster_alt)
+                            return "For better accessibility, please describe this image.";
+                          return true;
+                        },
+                      },
+                    })}
+                  />
+                </Field>
+              )}
+            </div>
+
+            {/* Recurrence toggle */}
+            <div className="flex items-center justify-between pt-1">
+              <div>
+                <p className="text-[12px] font-semibold text-ink">Recurring event</p>
+                <p className="text-[11px] text-muted">Repeat this event on a schedule.</p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" className="peer sr-only" {...register("is_recurring")} />
+                <span className="w-10 h-6 rounded-full bg-line peer-checked:bg-teal transition-colors after:content-[''] after:absolute after:left-0.5 after:top-0.5 after:w-5 after:h-5 after:rounded-full after:bg-white after:shadow after:transition-transform peer-checked:after:translate-x-4" />
+              </label>
+            </div>
+
+            {/* Recurrence builder */}
+            {isRecurring && (
+              <div className="flex flex-col gap-4 rounded-xl border border-line bg-canvas p-4">
+                {/* Frequency */}
+                <div className="flex flex-col gap-1.5">
+                  <p className="text-[12px] font-semibold text-ink">Repeats every</p>
+                  <div className="flex items-center gap-2">
                     {frequency === "daily" && (
-                      <>
-                        <input
-                          className="input input-lg rounded-2xl"
-                          type="number"
-                          min={1}
-                          placeholder="1"
-                          {...register("recurrence_rule.interval")}
-                        />
-                      </>
+                      <input
+                        className={INPUT + " w-20"}
+                        type="number"
+                        min={1}
+                        placeholder="1"
+                        {...register("recurrence_rule.interval")}
+                      />
                     )}
                     <Controller
                       control={control}
@@ -785,7 +815,7 @@ export default function EventModal({
                       }}
                       render={({ field }) => (
                         <select
-                          className="select select-lg rounded-2xl"
+                          className={INPUT + " w-auto cursor-pointer"}
                           {...field}
                           value={field.value ?? "daily"}
                         >
@@ -796,78 +826,73 @@ export default function EventModal({
                       )}
                     />
                   </div>
-                }
-                {errors.recurrence_rule?.frequency && (
-                  <p className="text-red-500">
-                    {errors.recurrence_rule?.frequency.message}
-                  </p>
-                )}
+                  {errors.recurrence_rule?.frequency && (
+                    <p className="text-[11px] text-coral">
+                      {errors.recurrence_rule?.frequency.message}
+                    </p>
+                  )}
+                </div>
+
+                {/* Monthly: by day vs by date */}
                 {frequency === "monthly" && (
-                  <fieldset className="mt-3 fieldset text-lg">
-                    <legend className="fieldset-legend">
-                      How do you want the recurrence to be calculated?
-                    </legend>
-                    <fieldset className="fieldset flex text-lg gap-3">
-                      <label>
-                        <input
-                          className="radio radio-lg"
-                          type="radio"
-                          name="frequencyKind"
-                          value="day"
-                          checked={frequencyKind === "day"}
-                          onChange={(e) => {
-                            resetField("recurrence_rule.by_set_position", {
-                              defaultValue: [],
-                            });
-                            setFrequencyKind(e.target.value);
-                          }}
-                        />
-                        By day
-                      </label>
-                      <label>
-                        <input
-                          className="radio radio-lg"
-                          type="radio"
-                          name="frequencyKind"
-                          value="date"
-                          checked={frequencyKind === "date"}
-                          onChange={(e) => {
-                            resetField("recurrence_rule.by_month_day");
-                            resetField("recurrence_rule.by_weekdays");
-                            setFrequencyKind(e.target.value);
-                          }}
-                        />
-                        By date
-                      </label>
-                    </fieldset>
+                  <div className="flex flex-col gap-2">
+                    <p className="text-[12px] font-semibold text-ink">
+                      How should the recurrence be calculated?
+                    </p>
+                    <div className="flex gap-2">
+                      <RadioPill
+                        name="frequencyKind"
+                        value="day"
+                        checked={frequencyKind === "day"}
+                        onChange={(v) => {
+                          resetField("recurrence_rule.by_set_position", {
+                            defaultValue: [],
+                          });
+                          setFrequencyKind(v);
+                        }}
+                        label="By day"
+                      />
+                      <RadioPill
+                        name="frequencyKind"
+                        value="date"
+                        checked={frequencyKind === "date"}
+                        onChange={(v) => {
+                          resetField("recurrence_rule.by_month_day");
+                          resetField("recurrence_rule.by_weekdays");
+                          setFrequencyKind(v);
+                        }}
+                        label="By date"
+                      />
+                    </div>
 
                     {frequencyKind === "day" && (
-                      <fieldset className="fieldset grid grid-cols-5 items-center text-lg gap-3">
-                        Repeat on the
-                        {frequencyKinds.map((kind) => {
-                          return (
-                            <input
-                              {...register("recurrence_rule.by_set_position", {
-                                required: {
-                                  value: isRecurring && frequencyKind === "day",
-                                  message:
-                                    "Please select the week(s) you want this event to occur on.",
-                                },
-                              })}
-                              key={kind.label}
-                              className="btn btn-lg border-gray-100 rounded-2xl checked:btn-success checked:border-0"
-                              type="checkbox"
-                              aria-label={kind.label}
-                              value={kind.value}
-                            />
-                          );
-                        })}
-                      </fieldset>
+                      <div className="flex flex-col gap-1.5">
+                        <p className="text-[11px] text-muted">Repeat on the</p>
+                        <div className="flex flex-wrap gap-2">
+                          {frequencyKinds.map((kind) => (
+                            <label key={kind.label} className="cursor-pointer">
+                              <input
+                                type="checkbox"
+                                className="peer sr-only"
+                                value={kind.value}
+                                {...register("recurrence_rule.by_set_position", {
+                                  required: {
+                                    value: isRecurring && frequencyKind === "day",
+                                    message:
+                                      "Please select the week(s) you want this event to occur on.",
+                                  },
+                                })}
+                              />
+                              <span className={CHIP}>{kind.label}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
                     )}
                     {frequencyKind === "date" && (
                       <input
                         type="number"
-                        className="input input-lg rounded-2xl w-full"
+                        className={INPUT}
                         placeholder="Enter a date of the month (between 1 & 31)"
                         {...register("recurrence_rule.by_month_day", {
                           required: {
@@ -883,172 +908,176 @@ export default function EventModal({
                     {frequencyKind === "date" &&
                       byMonthDay &&
                       byMonthDay > 28 && (
-                        <p className="text-red-600">
+                        <p className="text-[11px] text-coral">
                           Some months may not have {byMonthDay} days. In such
                           cases, an event may not be populated on that month.
                         </p>
                       )}
-                  </fieldset>
+                  </div>
                 )}
+
+                {/* Weekday picker */}
                 {(frequency === "weekly" ||
                   (frequency === "monthly" && frequencyKind === "day")) && (
-                  <fieldset className="pb-3 grid grid-cols-7 gap-3">
-                    {daysOfTheWeek.map((day) => {
-                      return (
-                        <input
-                          {...register("recurrence_rule.by_weekdays", {
-                            required: {
-                              value:
-                                isRecurring &&
-                                (frequency === "weekly" ||
-                                  (frequency === "monthly" &&
-                                    frequencyKind === "day")),
-                              message:
-                                "Please select at least one day of the week that this event should repeat on.",
-                            },
-                          })}
-                          key={day.label}
-                          className="btn btn-lg border-gray-100 rounded-2xl checked:btn-success checked:border-0"
-                          type="checkbox"
-                          aria-label={day.label}
-                          value={day.value}
-                        />
-                      );
-                    })}
-                  </fieldset>
+                  <div className="flex flex-col gap-1.5">
+                    <p className="text-[12px] font-semibold text-ink">On these days</p>
+                    <div className="flex flex-wrap gap-2">
+                      {daysOfTheWeek.map((day) => (
+                        <label key={day.label} className="cursor-pointer">
+                          <input
+                            type="checkbox"
+                            className="peer sr-only"
+                            value={day.value}
+                            {...register("recurrence_rule.by_weekdays", {
+                              required: {
+                                value:
+                                  isRecurring &&
+                                  (frequency === "weekly" ||
+                                    (frequency === "monthly" &&
+                                      frequencyKind === "day")),
+                                message:
+                                  "Please select at least one day of the week that this event should repeat on.",
+                              },
+                            })}
+                          />
+                          <span className={CHIP}>{day.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
                 )}
                 {frequencyKind === "day" &&
                   errors.recurrence_rule?.by_set_position && (
-                    <p className="text-red-500">
+                    <p className="text-[11px] text-coral">
                       {errors.recurrence_rule?.by_set_position.message}
                     </p>
                   )}
                 {frequencyKind === "date" &&
                   errors.recurrence_rule?.by_month_day && (
-                    <p className="text-red-500">
+                    <p className="text-[11px] text-coral">
                       {errors.recurrence_rule?.by_month_day.message}
                     </p>
                   )}
                 {(frequency === "weekly" ||
                   (frequency === "monthly" && frequencyKind === "day")) &&
                   errors.recurrence_rule?.by_weekdays && (
-                    <p className="text-red-500">
+                    <p className="text-[11px] text-coral">
                       {errors.recurrence_rule?.by_weekdays.message}
                     </p>
                   )}
-                <fieldset className="fieldset text-lg">
-                  <legend className="fieldset-legend">
-                    Till when do you want the event to recur?
-                  </legend>
-                  <div className="flex justify-between">
-                    <div className="flex-1 flex gap-3">
-                      <label>
-                        <input
-                          className="radio radio-lg"
-                          type="radio"
-                          name="recurrenceType"
-                          value="date"
-                          checked={recurrenceType === "date"}
-                          onChange={(e) => {
-                            resetField("recurrence_rule.count");
-                            setRecurrenceType(e.target.value);
-                          }}
-                        />
-                        Until
-                      </label>
-                      <label>
-                        <input
-                          className="radio radio-lg"
-                          type="radio"
-                          name="recurrenceType"
-                          value="count"
-                          checked={recurrenceType === "count"}
-                          onChange={(e) => {
-                            resetField("recurrence_rule.until");
-                            setRecurrenceType(e.target.value);
-                          }}
-                        />
-                        For
-                      </label>
-                    </div>
-                    <div className="flex-2 flex gap-3">
-                      {recurrenceType === "date" && (
-                        <input
-                          className="input input-lg rounded-2xl w-full"
-                          type="date"
-                          {...register("recurrence_rule.until", {
-                            required: {
-                              value: isRecurring && recurrenceType === "date",
-                              message:
-                                "You must select a date to terminate the recurrence.",
+
+                {/* Until / count */}
+                <div className="flex flex-col gap-2">
+                  <p className="text-[12px] font-semibold text-ink">
+                    Until when should it recur?
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <RadioPill
+                      name="recurrenceType"
+                      value="date"
+                      checked={recurrenceType === "date"}
+                      onChange={(v) => {
+                        resetField("recurrence_rule.count");
+                        setRecurrenceType(v);
+                      }}
+                      label="Until"
+                    />
+                    <RadioPill
+                      name="recurrenceType"
+                      value="count"
+                      checked={recurrenceType === "count"}
+                      onChange={(v) => {
+                        resetField("recurrence_rule.until");
+                        setRecurrenceType(v);
+                      }}
+                      label="For"
+                    />
+                    {recurrenceType === "date" && (
+                      <input
+                        className={INPUT + " flex-1"}
+                        type="date"
+                        suppressHydrationWarning
+                        {...register("recurrence_rule.until", {
+                          required: {
+                            value: isRecurring && recurrenceType === "date",
+                            message:
+                              "You must select a date to terminate the recurrence.",
+                          },
+                          validate: {
+                            validateRecursUntilTime: (
+                              until,
+                              { end_date }: { end_date: string | Date },
+                            ) => {
+                              const parsedDate = new Date(until ?? "");
+                              const eventEndDate = new Date(end_date ?? "");
+                              if (parsedDate < eventEndDate) {
+                                return "The recurrence end date must be later than the event's end date.";
+                              }
+                              return true;
                             },
-                            validate: {
-                              validateRecursUntilTime: (
-                                until,
-                                {
-                                  end_date,
-                                }: {
-                                  end_date: string | Date;
-                                },
-                              ) => {
-                                const parsedDate = new Date(until ?? "");
-                                const eventEndDate = new Date(end_date ?? "");
-                                if (parsedDate < eventEndDate) {
-                                  return "The recurrence end date must be later than the event's end date.";
-                                }
-                                return true;
-                              },
+                          },
+                        })}
+                      />
+                    )}
+                    {recurrenceType === "count" && (
+                      <div className="flex-1 flex items-center gap-2">
+                        <input
+                          className={INPUT}
+                          type="number"
+                          min={2}
+                          max={20}
+                          placeholder="2–20"
+                          {...register("recurrence_rule.count", {
+                            required: {
+                              value: isRecurring && recurrenceType === "count",
+                              message:
+                                "Please indicate how many occurences you want to generate of this event.",
                             },
                           })}
                         />
-                      )}
-                      {recurrenceType === "count" && (
-                        <label className="w-full label">
-                          <input
-                            className="w-full input input-lg rounded-2xl"
-                            type="number"
-                            min={2}
-                            max={20}
-                            placeholder="Enter a number between 2 and 20"
-                            {...register("recurrence_rule.count", {
-                              required: {
-                                value:
-                                  isRecurring && recurrenceType === "count",
-                                message:
-                                  "Please indicate how many occurences you want to generate of this event.",
-                              },
-                            })}
-                          />
-                          occurences
-                        </label>
-                      )}
-                    </div>
+                        <span className="text-[12px] text-muted whitespace-nowrap">occurrences</span>
+                      </div>
+                    )}
                   </div>
                   {recurrenceType === "date" &&
                     errors.recurrence_rule?.until && (
-                      <p className="text-red-500">
+                      <p className="text-[11px] text-coral">
                         {errors.recurrence_rule.until.message}
                       </p>
                     )}
                   {recurrenceType === "count" &&
                     errors.recurrence_rule?.count && (
-                      <p className="text-red-500">
+                      <p className="text-[11px] text-coral">
                         {errors.recurrence_rule.count.message}
                       </p>
                     )}
-                </fieldset>
-              </fieldset>
-            </div>
-            <div className="flex gap-2">
-              <button className="btn btn-success flex-1 z-10" type="submit">
-                Save
-              </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-between px-6 py-4 border-t border-line">
+            <div className="flex items-center gap-2">
+              {event && (
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-[13px] font-semibold text-coral border border-coral/30 hover:bg-coral/5 transition-colors"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6l-1 14H6L5 6M10 11v6M14 11v6M9 6V4h6v2" />
+                  </svg>
+                  Delete
+                </button>
+              )}
               {event && (
                 <Link
                   href={`/dashboard/events/${event.id}/posts`}
-                  className="btn btn-outline flex-1 z-10"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-[13px] font-semibold text-ink border border-line hover:bg-canvas transition-colors"
                   onClick={(e) => {
-                    if ((isDirty || fileChangedRef.current) && !window.confirm("Unsaved changes will be lost. Continue?")) {
+                    if ((isDirty || fileChangedRef.current) && !globalThis.confirm("Unsaved changes will be lost. Continue?")) {
                       e.preventDefault();
                       return;
                     }
@@ -1058,55 +1087,31 @@ export default function EventModal({
                   Manage Posts
                 </Link>
               )}
-              {event && (
-                <button
-                  type="button"
-                  className="btn btn-error flex-1 z-10"
-                  onClick={() => setShowDeleteConfirm(true)}
-                >
-                  Delete
-                </button>
-              )}
             </div>
-          </div>
-          <div className="w-1/3 shrink-0 flex flex-col items-center gap-4 pt-2 relative">
-            <div className="relative w-full flex justify-center items-center">
-              {isImageLoading && (
-                <div className="absolute inset-0 flex justify-center items-center">
-                  <WMCCLoader />
-                </div>
-              )}
-              <Image
-                src={
-                  imageUrl?.length
-                    ? imageUrl
-                    : "https://gkpctbvyswcfccogoepl.supabase.co/storage/v1/object/public/event-posters/public/NO%20IMAGE.png"
-                }
-                alt=""
-                height="500"
-                width="500"
-                className={`max-w-full h-auto transition-opacity duration-300 ${isImageLoading ? "opacity-0" : "opacity-100"}`}
-                loading="eager"
-                onLoad={() => setIsImageLoading(false)}
-              />
-            </div>
-            {(imageUrl || imageFile) && (
+
+            <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => {
-                  reset({
-                    poster_file: [],
-                    poster_url: null,
-                    poster_alt: "",
-                  });
-                  setImageFile(null);
-                  setImageUrl(null);
-                }}
-                className="absolute btn btn-xs btn-soft btn-error top-2 right-2"
+                onClick={handleClose}
+                className="px-4 py-2 rounded-xl text-[13px] font-semibold text-ink border border-line hover:bg-canvas transition-colors"
               >
-                Clear Image
+                Cancel
               </button>
-            )}
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold text-white bg-teal hover:bg-teal-dark disabled:opacity-50 transition-colors shadow-[0_4px_12px_-4px_rgba(15,128,115,.5)]"
+              >
+                {isSubmitting ? (
+                  <span className="loading loading-spinner loading-xs" />
+                ) : (
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                )}
+                Save
+              </button>
+            </div>
           </div>
         </form>
       </div>
@@ -1127,13 +1132,13 @@ export default function EventModal({
           buttons={
             event?.is_recurring && event?.recurrence_rule_id
               ? [
-                  { value: "all", label: "All instances" },
+                  { value: "all", label: "All instances", variant: "danger" },
                   { value: "future", label: "This + future" },
                   { value: "this", label: "This occurrence" },
                   { value: "no", label: "Cancel" },
                 ]
               : [
-                  { value: "yes", label: "Yes, delete" },
+                  { value: "yes", label: "Yes, delete", variant: "danger" },
                   { value: "no", label: "Cancel" },
                 ]
           }

@@ -7,6 +7,8 @@ import {
   markNotificationRead,
   markAllNotificationsRead,
 } from "@/actions/notifications";
+import { PageShell } from "@/app/components/ui/PageShell";
+import { Badge } from "@/app/components/ui/Badge";
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -16,33 +18,25 @@ function timeAgo(dateStr: string): string {
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h ago`;
   const d = Math.floor(h / 24);
-  if (d < 30) return `${d}d ago`;
-  return new Date(dateStr).toLocaleDateString();
+  return d < 30 ? `${d}d ago` : new Date(dateStr).toLocaleDateString();
 }
 
-const TYPE_LABEL: Record<string, string> = {
-  post_overdue: "Overdue Post",
-  post_assigned: "Assignment",
-};
-
-const TYPE_COLOR: Record<string, string> = {
-  post_overdue: "badge-warning",
-  post_assigned: "badge-info",
+const TYPE_META: Record<string, { label: string; variant: "amber" | "violet" | "teal" | "muted" }> = {
+  post_overdue:  { label: "Overdue Post", variant: "amber"  },
+  post_assigned: { label: "Assignment",   variant: "violet" },
 };
 
 export default function NotificationsPage() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [markingAll, setMarkingAll] = useState(false);
+  const [loading, setLoading]             = useState(true);
+  const [markingAll, setMarkingAll]       = useState(false);
 
-  const load = async () => {
-    setLoading(true);
-    const res = await fetchNotifications({});
-    setNotifications(res?.data?.notifications ?? []);
-    setLoading(false);
-  };
-
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    fetchNotifications({}).then((res) => {
+      setNotifications(res?.data?.notifications ?? []);
+      setLoading(false);
+    });
+  }, []);
 
   const handleRead = async (n: Notification) => {
     if (n.read_at) return;
@@ -55,97 +49,107 @@ export default function NotificationsPage() {
   const handleMarkAllRead = async () => {
     setMarkingAll(true);
     await markAllNotificationsRead({});
-    setNotifications((prev) => prev.map((p) => ({ ...p, read_at: p.read_at ?? new Date().toISOString() })));
+    setNotifications((prev) =>
+      prev.map((p) => ({ ...p, read_at: p.read_at ?? new Date().toISOString() })),
+    );
     setMarkingAll(false);
   };
 
   const unreadCount = notifications.filter((n) => !n.read_at).length;
 
-  if (loading) {
+  const markAllAction: React.ReactNode = unreadCount > 0 ? (
+    <button
+      className="px-3 py-1.5 text-[12px] font-semibold rounded-xl border border-line hover:border-teal hover:text-teal transition-colors disabled:opacity-50"
+      disabled={markingAll}
+      onClick={handleMarkAllRead}
+    >
+      {markingAll && <span className="loading loading-spinner loading-xs mr-1.5" />}
+      Mark all read
+    </button>
+  ) : undefined;
+
+  const subtitle = unreadCount > 0 ? `${unreadCount} unread` : undefined;
+
+  function renderBody() {
+    if (loading) {
+      return (
+        <div className="flex items-center justify-center py-24">
+          <span className="loading loading-spinner loading-lg" />
+        </div>
+      );
+    }
+    if (notifications.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center py-24 opacity-40 gap-3">
+          <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0" />
+          </svg>
+          <p className="text-[14px]">No notifications yet.</p>
+        </div>
+      );
+    }
     return (
-      <div className="flex items-center justify-center h-64">
-        <span className="loading loading-spinner loading-lg" />
-      </div>
+      <ul className="flex flex-col gap-2">
+        {notifications.map((n) => {
+              const meta = TYPE_META[n.type] ?? { label: n.type, variant: "muted" as const };
+              return (
+                <li
+                  key={n.id}
+                  className={`bg-surface border rounded-2xl p-4 flex gap-4 items-start transition-colors ${
+                    n.read_at ? "border-line" : "border-teal/30 bg-teal-soft/20"
+                  }`}
+                >
+                  <div className="mt-1 shrink-0">
+                    <span
+                      className="block w-2 h-2 rounded-full"
+                      style={{ backgroundColor: n.read_at ? "#E7E3DA" : "#0F8073" }}
+                    />
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <Badge variant={meta.variant}>{meta.label}</Badge>
+                      <span className="text-[11px] text-muted">{timeAgo(n.created_at)}</span>
+                    </div>
+                    <p className="text-[13px] font-semibold">{n.title}</p>
+                    <p className="text-[12px] text-muted mt-0.5">{n.body}</p>
+                  </div>
+
+                  <div className="flex flex-col gap-1 shrink-0">
+                    {n.entity_type === "scheduled_post" && (
+                      <Link
+                        href="/dashboard/posts"
+                        className="text-[12px] text-teal hover:text-teal-dark transition-colors font-medium"
+                        onClick={() => handleRead(n)}
+                      >
+                        View →
+                      </Link>
+                    )}
+                    {!n.read_at && (
+                      <button
+                        className="text-[11px] text-muted hover:text-ink transition-colors"
+                        onClick={() => handleRead(n)}
+                      >
+                        Dismiss
+                      </button>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
     );
   }
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold">Notifications</h1>
-          {unreadCount > 0 && (
-            <p className="text-sm opacity-60">{unreadCount} unread</p>
-          )}
-        </div>
-        {unreadCount > 0 && (
-          <button
-            className="btn btn-sm btn-outline"
-            disabled={markingAll}
-            onClick={handleMarkAllRead}
-          >
-            {markingAll ? <span className="loading loading-spinner loading-xs" /> : null}
-            Mark all read
-          </button>
-        )}
+    <PageShell
+      title="Notifications"
+      subtitle={subtitle}
+      actions={markAllAction}
+    >
+      <div className="max-w-3xl mx-auto">
+        {renderBody()}
       </div>
-
-      {notifications.length === 0 ? (
-        <div className="text-center py-20 opacity-50">
-          <p className="text-lg">No notifications yet.</p>
-        </div>
-      ) : (
-        <ul className="flex flex-col gap-2">
-          {notifications.map((n) => (
-            <li
-              key={n.id}
-              className={`border border-base-200 rounded-xl p-4 flex gap-4 items-start transition ${
-                !n.read_at ? "bg-primary/5 border-primary/20" : "bg-base-100"
-              }`}
-            >
-              {/* Unread dot */}
-              <div className="mt-1 flex-shrink-0">
-                {!n.read_at ? (
-                  <span className="w-2.5 h-2.5 rounded-full bg-primary block" />
-                ) : (
-                  <span className="w-2.5 h-2.5 rounded-full bg-base-300 block" />
-                )}
-              </div>
-
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap mb-1">
-                  <span className={`badge badge-sm ${TYPE_COLOR[n.type] ?? "badge-ghost"}`}>
-                    {TYPE_LABEL[n.type] ?? n.type}
-                  </span>
-                  <span className="text-xs opacity-40">{timeAgo(n.created_at)}</span>
-                </div>
-                <p className="font-semibold text-sm">{n.title}</p>
-                <p className="text-sm opacity-70 mt-0.5">{n.body}</p>
-              </div>
-
-              <div className="flex flex-col gap-1 flex-shrink-0">
-                {n.entity_type === "scheduled_post" && (
-                  <Link
-                    href="/dashboard/events"
-                    className="btn btn-xs btn-ghost"
-                    onClick={() => handleRead(n)}
-                  >
-                    View
-                  </Link>
-                )}
-                {!n.read_at && (
-                  <button
-                    className="btn btn-xs btn-ghost opacity-60"
-                    onClick={() => handleRead(n)}
-                  >
-                    Dismiss
-                  </button>
-                )}
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+    </PageShell>
   );
 }

@@ -60,42 +60,29 @@ export default function SocialPostsClient({ initialPosts, events, adminUsers }: 
   return (
     <div
       className="flex flex-col gap-5 p-6"
-      style={{ minHeight: "calc(100dvh - 4rem)", backgroundColor: "var(--sp-canvas)", fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+      style={{ minHeight: "calc(100dvh - 4.5rem)", backgroundColor: "var(--sp-canvas)" }}
     >
-      {/* Page header */}
-      <div className="flex items-start justify-between gap-4 shrink-0">
-        <div>
-          <h1 className="text-[26px] font-extrabold leading-tight" style={{ color: "var(--sp-ink)" }}>
-            Social Posts
-          </h1>
-          <p className="text-[13px] mt-0.5" style={{ color: "var(--sp-muted)" }}>
-            Plan &amp; schedule across Instagram and WhatsApp
-          </p>
+      {/* Toolbar — channel status + new post button */}
+      <div className="flex items-center justify-between gap-4 shrink-0">
+        <div
+          className="hidden sm:flex items-center gap-3 px-3 py-2 rounded-xl"
+          style={{ backgroundColor: "var(--sp-surface)", border: "1px solid var(--sp-hairline)" }}
+        >
+          <ChannelIndicator label="IG Feed"  colour={CHANNEL_COLOURS.ig_feed}  />
+          <ChannelIndicator label="IG Story" colour={CHANNEL_COLOURS.ig_story} />
+          <ChannelIndicator label="WhatsApp" colour={CHANNEL_COLOURS.whatsapp} />
         </div>
 
-        <div className="flex items-center gap-4">
-          {/* Channel connection status (Phase 1: no live connections) */}
-          <div
-            className="hidden sm:flex items-center gap-3 px-3 py-2 rounded-xl"
-            style={{ backgroundColor: "var(--sp-surface)", border: "1px solid var(--sp-hairline)" }}
-          >
-            <ChannelIndicator label="IG Feed"  colour={CHANNEL_COLOURS.ig_feed}  />
-            <ChannelIndicator label="IG Story" colour={CHANNEL_COLOURS.ig_story} />
-            <ChannelIndicator label="WhatsApp" colour={CHANNEL_COLOURS.whatsapp} />
-          </div>
-
-          {/* New post button — hover via Tailwind, no DOM mutation */}
-          <button
-            onClick={handleNewPost}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-semibold text-white transition-colors active:scale-95 bg-(--sp-teal) hover:bg-(--sp-teal-dark)"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5"  y1="12" x2="19" y2="12" />
-            </svg>
-            New post
-          </button>
-        </div>
+        <button
+          onClick={handleNewPost}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-semibold text-white transition-colors active:scale-95 bg-teal hover:bg-teal-dark shadow-[0_8px_18px_-8px_rgba(15,128,115,.8)]"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5"  y1="12" x2="19" y2="12" />
+          </svg>
+          New post
+        </button>
       </div>
 
       {/* Stats strip */}

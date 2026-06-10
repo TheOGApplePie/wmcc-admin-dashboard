@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
+import Image from "next/image";
 import {
   SocialPost,
   SocialPostStatus,
@@ -111,11 +112,11 @@ function QueueItem({
       >
         {/* Thumbnail */}
         <div
-          className="rounded-xl shrink-0 overflow-hidden"
+          className="relative rounded-xl shrink-0 overflow-hidden"
           style={{ width: 52, height: 52, backgroundColor: "var(--sp-hairline)" }}
         >
           {post.media_url ? (
-            <img src={post.media_url} alt="" className="w-full h-full object-cover" />
+            <Image src={post.media_url} alt="" fill className="object-cover" />
           ) : (
             <div className="w-full h-full flex items-center justify-center">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--sp-muted)" strokeWidth="1.5">
@@ -246,12 +247,12 @@ export default function PostQueue({ posts, selectedId, onSelect, onMarkSent }: P
   const [pageSize, setPageSize]         = useState<PageSize>(10);
   const [page, setPage]                 = useState(1);
 
-  const filtered    = useMemo(() => filterAndSort(posts, statusFilter), [posts, statusFilter]);
-  const totalPages  = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const paginated   = filtered.slice((page - 1) * pageSize, page * pageSize);
+  const filtered   = useMemo(() => filterAndSort(posts, statusFilter), [posts, statusFilter]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const paginated  = filtered.slice((page - 1) * pageSize, page * pageSize);
 
-  // Reset to page 1 whenever the filter or page size changes.
-  useEffect(() => { setPage(1); }, [statusFilter, pageSize]);
+  const handleStatusFilter = (value: StatusFilter) => { setStatusFilter(value); setPage(1); };
+  const handlePageSize     = (value: PageSize)      => { setPageSize(value);     setPage(1); };
 
   if (posts.length === 0) return <EmptyState />;
 
@@ -274,7 +275,7 @@ export default function PostQueue({ posts, selectedId, onSelect, onMarkSent }: P
             return (
               <button
                 key={value}
-                onClick={() => setStatusFilter(value)}
+                onClick={() => handleStatusFilter(value)}
                 className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-all"
                 style={active
                   ? { backgroundColor: "var(--sp-teal)", color: "var(--sp-surface)" }
@@ -291,7 +292,7 @@ export default function PostQueue({ posts, selectedId, onSelect, onMarkSent }: P
         {/* Page size selector */}
         <select
           value={pageSize}
-          onChange={(e) => setPageSize(Number(e.target.value) as PageSize)}
+          onChange={(e) => handlePageSize(Number(e.target.value) as PageSize)}
           className="text-[11px] rounded-lg px-2 py-1 border outline-none"
           style={{
             borderColor:     "var(--sp-hairline)",

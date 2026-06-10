@@ -29,8 +29,7 @@ function notificationHref(n: Notification): string {
 export default function NotificationBell() {
   const [unread, setUnread] = useState(0);
   const [open, setOpen] = useState(false);
-  const [preview, setPreview] = useState<Notification[]>([]);
-  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [preview, setPreview] = useState<Notification[] | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -45,17 +44,16 @@ export default function NotificationBell() {
   }, []);
 
   useEffect(() => {
-    if (!open) return;
-
-    setLoadingPreview(true);
+    if (!open || preview !== null) return;
     fetchNotifications({}).then((res) => {
-      setLoadingPreview(false);
       if (res?.data) {
         setPreview(res.data.notifications.slice(0, 5));
-        setUnread(res.data.unreadCount); // sync badge with same fetch
+        setUnread(res.data.unreadCount);
+      } else {
+        setPreview([]);
       }
     });
-  }, [open]);
+  }, [open, preview]);
 
   // Close dropdown when clicking outside.
   useEffect(() => {
@@ -68,13 +66,19 @@ export default function NotificationBell() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleOpen = () => setOpen((v) => !v);
+  const loadingPreview = open && preview === null;
+
+  const handleOpen = () => {
+    const next = !open;
+    setOpen(next);
+    if (next) setPreview(null);
+  };
 
   const handleRead = async (n: Notification) => {
     if (!n.read_at) {
       await markNotificationRead({ id: n.id });
       setPreview((prev) =>
-        prev.map((p) => (p.id === n.id ? { ...p, read_at: new Date().toISOString() } : p)),
+        (prev ?? []).map((p) => (p.id === n.id ? { ...p, read_at: new Date().toISOString() } : p)),
       );
       setUnread((v) => Math.max(0, v - 1));
     }
@@ -82,7 +86,7 @@ export default function NotificationBell() {
 
   const handleMarkAllRead = async () => {
     await markAllNotificationsRead({});
-    setPreview((prev) => prev.map((p) => ({ ...p, read_at: new Date().toISOString() })));
+    setPreview((prev) => (prev ?? []).map((p) => ({ ...p, read_at: new Date().toISOString() })));
     setUnread(0);
   };
 
@@ -108,7 +112,7 @@ export default function NotificationBell() {
           />
         </svg>
         {unread > 0 && (
-          <span className="absolute top-1 right-1 bg-error text-white text-xs rounded-full min-w-[1rem] h-4 flex items-center justify-center px-1 leading-none">
+          <span className="absolute top-1 right-1 bg-error text-white text-xs rounded-full min-w-4 h-4 flex items-center justify-center px-1 leading-none">
             {unread > 99 ? "99+" : unread}
           </span>
         )}
@@ -133,10 +137,10 @@ export default function NotificationBell() {
               <li className="flex justify-center py-6">
                 <span className="loading loading-spinner loading-sm" />
               </li>
-            ) : preview.length === 0 ? (
+            ) : (preview ?? []).length === 0 ? (
               <li className="text-center text-sm opacity-50 py-6">No notifications</li>
             ) : (
-              preview.map((n) => (
+              (preview ?? []).map((n) => (
                 <li key={n.id}>
                   <Link
                     href={notificationHref(n)}
@@ -150,7 +154,7 @@ export default function NotificationBell() {
                         {n.title}
                       </span>
                       {!n.read_at && (
-                        <span className="mt-1 w-2 h-2 rounded-full bg-primary flex-shrink-0" />
+                        <span className="mt-1 w-2 h-2 rounded-full bg-primary shrink-0" />
                       )}
                     </div>
                     <span className="text-xs opacity-60 line-clamp-2">{n.body}</span>

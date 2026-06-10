@@ -119,6 +119,7 @@ export const fetchAnnouncements = actionClient.action(async () => {
     const { data: announcements } = await supabase
       .from("announcements")
       .select()
+      .order("display_order", { ascending: true, nullsFirst: false })
       .order("id", { ascending: true })
       .overrideTypes<Announcement[]>();
     return announcements;
@@ -127,6 +128,42 @@ export const fetchAnnouncements = actionClient.action(async () => {
     throw error;
   }
 });
+
+export const reorderAnnouncements = actionClient
+  .inputSchema(z.object({ ids: z.array(z.number()) }))
+  .action(async ({ parsedInput }) => {
+    try {
+      const supabase = await createClient();
+      await Promise.all(
+        parsedInput.ids.map((id, index) =>
+          supabase
+            .from("announcements")
+            .update({ display_order: index + 1 })
+            .eq("id", id),
+        ),
+      );
+      revalidatePath("/dashboard/announcements");
+    } catch (error) {
+      console.error(error);
+      return { error };
+    }
+  });
+
+export const restoreAnnouncement = actionClient
+  .inputSchema(z.object({ id: z.coerce.number(), expires_at: z.coerce.date() }))
+  .action(async ({ parsedInput }) => {
+    try {
+      const supabase = await createClient();
+      await supabase
+        .from("announcements")
+        .update({ expires_at: parsedInput.expires_at })
+        .eq("id", parsedInput.id);
+      revalidatePath("/dashboard/announcements");
+    } catch (error) {
+      console.error(error);
+      return { error };
+    }
+  });
 
 const uploadFile = async (name: string, file: z.core.File) => {
   const supabase = await createClient();

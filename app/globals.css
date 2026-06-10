@@ -1,76 +1,99 @@
 @import "tailwindcss";
+
 @plugin "daisyui" {
-  themes: pastel --default;
+  themes: wmcc --default;
 }
+
+@theme {
+  --color-ink: #15201C;
+  --color-muted: #6B726E;
+  --color-line: #E7E3DA;
+  --color-canvas: #F6F4EF;
+  --color-surface: #FFFFFF;
+  --color-teal: #0F8073;
+  --color-teal-dark: #0B6359;
+  --color-teal-soft: #E4F2EF;
+  --color-amber: #E0A53C;
+  --color-amber-soft: #FBF0DA;
+  --color-violet: #7A6CD6;
+  --color-violet-soft: #EDEBFA;
+  --color-coral: #DC6B62;
+  --color-coral-soft: #FBE7E5;
+}
+
+/* ── DaisyUI custom WMCC theme ──────────────────────────────────────── */
+[data-theme="wmcc"] {
+  color-scheme: light;
+  --color-base-100: #ffffff;
+  --color-base-200: #F6F4EF;
+  --color-base-300: #E7E3DA;
+  --color-base-content: #15201C;
+  --color-primary: #0F8073;
+  --color-primary-content: #ffffff;
+  --color-secondary: #7A6CD6;
+  --color-secondary-content: #ffffff;
+  --color-accent: #E0A53C;
+  --color-accent-content: #15201C;
+  --color-neutral: #15201C;
+  --color-neutral-content: #ffffff;
+  --color-info: #3E8EDC;
+  --color-info-content: #ffffff;
+  --color-success: #0F8073;
+  --color-success-content: #ffffff;
+  --color-warning: #E0A53C;
+  --color-warning-content: #15201C;
+  --color-error: #DC6B62;
+  --color-error-content: #ffffff;
+  --rounded-box: 1rem;
+  --rounded-btn: 0.75rem;
+  --rounded-badge: 1.9rem;
+  --border: 1px;
+  --depth: 1;
+  --noise: 0;
+}
+
+/* ── Global base ─────────────────────────────────────────────────────── */
+html, body {
+  -webkit-font-smoothing: antialiased;
+  font-family: var(--font-plus-jakarta, "Plus Jakarta Sans"), ui-sans-serif, system-ui, sans-serif;
+  background-color: #F6F4EF;
+  color: #15201C;
+}
+
+/* ── Scrollbar ──────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb {
+  background: #d6d0c4;
+  border-radius: 9px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-track { background: transparent; }
+
+/* ── Social Posts design tokens (backward compat) ───────────────────── */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-  --font-plus-jakarta: 'Plus Jakarta Sans', sans-serif;
-
-  /* ── Social Posts design tokens ──────────────────────────────────────────── */
-  /* Text */
-  --sp-ink:    #15201C;   /* primary text */
-  --sp-muted:  #6B726E;   /* secondary text, labels */
-
-  /* Surfaces */
-  --sp-canvas:   #F6F4EF; /* page background */
-  --sp-surface:  #FFFFFF; /* card / panel background */
-  --sp-hairline: #E7E3DA; /* borders, dividers */
-
-  /* Brand — primary teal */
+  --sp-ink:    #15201C;
+  --sp-muted:  #6B726E;
+  --sp-canvas:   #F6F4EF;
+  --sp-surface:  #FFFFFF;
+  --sp-hairline: #E7E3DA;
   --sp-teal:      #0F8073;
-  --sp-teal-dark: #0B6359; /* hover state */
-  --sp-teal-soft: #E4F2EF; /* teal tint background */
-
-  /* Accents */
-  --sp-amber:  #E0A53C;   /* draft badge, IG Story channel */
-  --sp-violet: #7A6CD6;   /* event link chip */
-  --sp-coral:  #DC6B62;   /* danger, failed badge */
-
-  /* Channel brand colours */
-  --sp-ig:       #C13584; /* Instagram Feed */
-  --sp-ig-story: #E0A53C; /* Instagram Story (shares amber) */
-  --sp-whatsapp: #25A565; /* WhatsApp */
-
-  /* Status badge palettes  (bg / text) */
+  --sp-teal-dark: #0B6359;
+  --sp-teal-soft: #E4F2EF;
+  --sp-amber:  #E0A53C;
+  --sp-violet: #7A6CD6;
+  --sp-coral:  #DC6B62;
+  --sp-ig:       #C13584;
+  --sp-ig-story: #E0A53C;
+  --sp-whatsapp: #25A565;
   --sp-status-idea-bg:      #F3F4F6;
   --sp-status-idea-text:    #6B7280;
-  --sp-status-draft-bg:     #FEF3C7;
-  --sp-status-draft-text:   #92400E;
+  --sp-status-draft-bg:     #FBF0DA;
+  --sp-status-draft-text:   #9a6e16;
   --sp-status-sched-bg:     #E4F2EF;
   --sp-status-sched-text:   #0B6359;
   --sp-status-pub-bg:       #D1FAE5;
   --sp-status-pub-text:     #065F46;
-  --sp-status-failed-bg:    #FEE2E2;
-  --sp-status-failed-text:  #991B1B;
-  --main-colour-blue: #1e3a5f;
-  --secondary-colour-green: #026c54;
-  --secondary-colour-green-light: #1b9679;
-  --secondary-colour-green-light-filter: invert(44%) sepia(99%) saturate(362%)
-    hue-rotate(116deg) brightness(88%) contrast(86%);
-  --accent-colour-white: #f5f0f6;
-  --warning-colour: #fbbf24;
-}
-h1 {
-  font-size: var(--text-3xl) /* 1.875rem = 30px */;
-  line-height: var(
-    --tw-leading,
-    var(--text-3xl--line-height) /* calc(2.25 / 1.875) ≈ 1.2 */
-  );
-}
-
-h2 {
-  font-size: var(--text-2xl) /* 24px */;
-  line-height: var(
-    --tw-leading,
-    var(--text-2xl--line-height) /* calc(2 / 1.5) ≈ 1.333 */
-  );
-}
-
-h3 {
-  font-size: var(--text-xl) /* 20px */;
-  line-height: var(
-    --tw-leading,
-    var(--text-xl--line-height) /* calc(1.75 / 1.25) ≈ 1.4 */
-  );
+  --sp-status-failed-bg:    #FBE7E5;
+  --sp-status-failed-text:  #a8443c;
 }

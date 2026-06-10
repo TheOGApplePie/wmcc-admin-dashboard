@@ -11,6 +11,9 @@ export interface Announcement {
   call_to_action_caption: string;
   expires_at: Date | string;
   created_at: Date;
+  // MIGRATION REQUIRED: ALTER TABLE announcements ADD COLUMN display_order INTEGER;
+  //                     UPDATE announcements SET display_order = id;
+  display_order?: number | null;
 }
 
 export const AnnouncementZod = z
