@@ -16,6 +16,7 @@ export interface Event {
   end_date: Date | string;
   action: string;
   gallery_url: string | null;
+  navigation_slug: string;
   is_recurring: boolean;
   recurrence_rule_id?: number;
   recurrence_rule?: {
@@ -251,6 +252,7 @@ export const CreateEventZod = z
       (v) => (v === "" ? null : v),
       z.nullable(z.url()),
     ),
+    navigation_slug: z.string().trim(),
     is_recurring: z.boolean(),
     created_at: z.optional(z.coerce.date()),
     recurrence_rule: z.object(recurrenceRuleShape).optional(),
@@ -289,6 +291,7 @@ export const EditEventZod = z
       (v) => (v === "" ? null : v),
       z.nullable(z.url()),
     ),
+    navigation_slug: z.string().trim(),
     recurrence_rule: z.object(recurrenceRuleShape).optional(),
   })
   .superRefine((data, ctx) => {

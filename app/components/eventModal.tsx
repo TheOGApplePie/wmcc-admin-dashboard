@@ -82,6 +82,7 @@ export default function EventModal({
     resetField,
     setValue,
     control,
+    getFieldState,
   } = useForm<Event>({
     mode: "onChange",
   });
@@ -106,7 +107,9 @@ export default function EventModal({
     event?.poster_url ?? null,
   );
   const [imageFile, setImageFile] = useState<File | null>(null);
-  const [isImageLoading, setIsImageLoading] = useState<boolean>(!!event?.poster_url?.length);
+  const [isImageLoading, setIsImageLoading] = useState<boolean>(
+    !!event?.poster_url?.length,
+  );
   const [frequencyKind, setFrequencyKind] = useState<string>("day");
   const [recurrenceType, setRecurrenceType] = useState<string>("date");
   const [message, setMessage] = useState("");
@@ -131,12 +134,15 @@ export default function EventModal({
         // original start by whole days so the event's time-of-day is preserved.
         const DAY_MS = 24 * 60 * 60 * 1000;
         const dayDiff = Math.round(
-          (occurrenceDate.getTime() - toEstDay(event.start_date).getTime()) / DAY_MS,
+          (occurrenceDate.getTime() - toEstDay(event.start_date).getTime()) /
+            DAY_MS,
         );
         const duration =
           new Date(event.end_date).getTime() -
           new Date(event.start_date).getTime();
-        startDate = new Date(new Date(event.start_date).getTime() + dayDiff * DAY_MS);
+        startDate = new Date(
+          new Date(event.start_date).getTime() + dayDiff * DAY_MS,
+        );
         endDate = new Date(startDate.getTime() + duration);
       }
 
@@ -183,6 +189,7 @@ export default function EventModal({
         poster_file: [],
         call_to_action_link: "",
         call_to_action_caption: "",
+        navigation_slug: "",
         is_recurring: false,
         start_date: formatDateTimeLocal(new Date()),
         end_date: formatDateTimeLocal(new Date()),
@@ -211,9 +218,7 @@ export default function EventModal({
           message:
             "This file is too big. Please select an image file less than 5MB.",
         });
-      } else if (
-        ["image/png", "image/jpeg", "image/jpg"].includes(file.type)
-      ) {
+      } else if (["image/png", "image/jpeg", "image/jpg"].includes(file.type)) {
         setIsImageLoading(true);
         setImageFile(file);
         setImageUrl(URL.createObjectURL(file));
@@ -242,7 +247,9 @@ export default function EventModal({
   const { ref: rhfFileRef, ...fileRegister } = register("poster_file", {
     onChange: handleImageChange,
   });
-  const posterUrlRegister = register("poster_url", { onChange: handleImageChange });
+  const posterUrlRegister = register("poster_url", {
+    onChange: handleImageChange,
+  });
   async function confirmAction(action?: string) {
     showConfirmationModal(false);
     if (action && action !== "no" && updatedEvent) {
@@ -281,7 +288,10 @@ export default function EventModal({
         toast.success(
           response.data?.statusText ?? "Event updated successfully!",
         );
-        reset(); setImageUrl(null); setImageFile(null); fileChangedRef.current = false;
+        reset();
+        setImageUrl(null);
+        setImageFile(null);
+        fileChangedRef.current = false;
         closeModal(true);
       }
     }
@@ -351,7 +361,10 @@ export default function EventModal({
           toast.success(
             response.data?.statusText ?? "Event updated successfully!",
           );
-          reset(); setImageUrl(null); setImageFile(null); fileChangedRef.current = false;
+          reset();
+          setImageUrl(null);
+          setImageFile(null);
+          fileChangedRef.current = false;
           closeModal(true);
         }
       }
@@ -412,7 +425,11 @@ export default function EventModal({
   };
 
   const handleClose = () => {
-    if ((isDirty || fileChangedRef.current) && !globalThis.confirm("Unsaved changes will be lost. Close anyway?")) return;
+    if (
+      (isDirty || fileChangedRef.current) &&
+      !globalThis.confirm("Unsaved changes will be lost. Close anyway?")
+    )
+      return;
     reset();
     setImageUrl(null);
     setImageFile(null);
@@ -430,7 +447,18 @@ export default function EventModal({
     setImageFile(null);
     setImageUrl(null);
   };
-
+  const handleTitleSlugSync = (e: { target: { value: string } }) => {
+    if (!getFieldState("navigation_slug").isTouched) {
+      setValue(
+        "navigation_slug",
+        e.target.value
+          .trim()
+          .replaceAll(/\s/g, "-")
+          .replaceAll(/[^\w-]/g, "")
+          .toLowerCase(),
+      );
+    }
+  };
   return (
     <>
       <div className="modal-box p-0 rounded-2xl overflow-hidden max-w-2xl w-full shadow-xl">
@@ -445,8 +473,16 @@ export default function EventModal({
                 className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full"
                 style={{ backgroundColor: "#CCFBF1", color: "#065F46" }}
               >
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" />
+                <svg
+                  width="10"
+                  height="10"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                >
+                  <polyline points="23 4 23 10 17 10" />
+                  <polyline points="1 20 1 14 7 14" />
                   <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
                 </svg>
                 Recurring
@@ -459,8 +495,16 @@ export default function EventModal({
             aria-label="Close"
             className="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-canvas hover:text-ink transition-colors"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
         </div>
@@ -493,6 +537,7 @@ export default function EventModal({
                     message:
                       "Please make sure your title is at least 3 characters long.",
                   },
+                  onChange: handleTitleSlugSync,
                 })}
               />
             </Field>
@@ -549,7 +594,12 @@ export default function EventModal({
                   })}
                 />
               </Field>
-              <Field label="Ends" error={!errors.start_date ? errors.end_date?.message : undefined}>
+              <Field
+                label="Ends"
+                error={
+                  !errors.start_date ? errors.end_date?.message : undefined
+                }
+              >
                 <input
                   className={INPUT}
                   type="datetime-local"
@@ -565,8 +615,11 @@ export default function EventModal({
                         end_date: string | Date,
                         { start_date }: { start_date: string | Date },
                       ) => {
-                        if (start_date && start_date > end_date) {
-                          return "You cannot set the end datetime to be before the start datetime.";
+                        if (
+                          start_date &&
+                          new Date(start_date) >= new Date(end_date)
+                        ) {
+                          return "The event end datetime must be after the start datetime.";
                         }
                         return true;
                       },
@@ -592,7 +645,10 @@ export default function EventModal({
 
             {/* CTA */}
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Call to action" error={errors.call_to_action_caption?.message}>
+              <Field
+                label="Call to action"
+                error={errors.call_to_action_caption?.message}
+              >
                 <input
                   className={INPUT}
                   maxLength={20}
@@ -605,7 +661,9 @@ export default function EventModal({
                     validate: {
                       validateCallToActionCaption: (
                         call_to_action_caption: string,
-                        { call_to_action_link }: { call_to_action_link: string | null },
+                        {
+                          call_to_action_link,
+                        }: { call_to_action_link: string | null },
                       ) => {
                         if (call_to_action_link && !call_to_action_caption) {
                           return "Please add a caption for the call to action button, or remove the link.";
@@ -616,7 +674,10 @@ export default function EventModal({
                   })}
                 />
               </Field>
-              <Field label="Call to action link" error={errors.call_to_action_link?.message}>
+              <Field
+                label="Call to action link"
+                error={errors.call_to_action_link?.message}
+              >
                 <input
                   className={INPUT}
                   placeholder="https://…"
@@ -629,7 +690,9 @@ export default function EventModal({
                     validate: {
                       validateCallToActionLink: (
                         call_to_action_link: string | null,
-                        { call_to_action_caption }: { call_to_action_caption: string },
+                        {
+                          call_to_action_caption,
+                        }: { call_to_action_caption: string },
                       ) => {
                         if (!call_to_action_link && call_to_action_caption) {
                           return "Please add a link for the call to action button, or remove the caption.";
@@ -655,7 +718,8 @@ export default function EventModal({
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between">
                 <p className="text-[12px] font-semibold text-ink">
-                  Poster <span className="font-normal text-muted">· optional</span>
+                  Poster{" "}
+                  <span className="font-normal text-muted">· optional</span>
                 </p>
                 <button
                   type="button"
@@ -719,7 +783,14 @@ export default function EventModal({
                     onClick={() => fileInputRef.current?.click()}
                     className="flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-line py-6 text-[12px] text-muted hover:border-teal/40 hover:text-teal transition-colors"
                   >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
                       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                       <polyline points="17 8 12 3 7 8" />
                       <line x1="12" y1="3" x2="12" y2="15" />
@@ -733,15 +804,23 @@ export default function EventModal({
                 type="file"
                 accept="image/png, image/jpeg, image/jpg"
                 className="hidden"
-                ref={(el) => { rhfFileRef(el); fileInputRef.current = el; }}
+                ref={(el) => {
+                  rhfFileRef(el);
+                  fileInputRef.current = el;
+                }}
                 {...fileRegister}
               />
               {errors.poster_file && (
-                <p className="text-[11px] text-coral">{errors.poster_file.message as string}</p>
+                <p className="text-[11px] text-coral">
+                  {errors.poster_file.message as string}
+                </p>
               )}
 
               {!!imageUrl && (
-                <Field label="Poster alt text" error={errors.poster_alt?.message}>
+                <Field
+                  label="Poster alt text"
+                  error={errors.poster_alt?.message}
+                >
                   <input
                     className={INPUT}
                     maxLength={100}
@@ -764,7 +843,10 @@ export default function EventModal({
                         ) => {
                           if (!poster_url && !poster_file && poster_alt)
                             return "Please select an image to add as a poster.";
-                          if ((poster_url || poster_file?.length) && !poster_alt)
+                          if (
+                            (poster_url || poster_file?.length) &&
+                            !poster_alt
+                          )
                             return "For better accessibility, please describe this image.";
                           return true;
                         },
@@ -773,16 +855,48 @@ export default function EventModal({
                   />
                 </Field>
               )}
+              <Field
+                label="Navigation Slug"
+                error={errors.navigation_slug?.message}
+              >
+                <input
+                  type="text"
+                  className={INPUT}
+                  placeholder="This is the endpoint of this event where users can navigate to"
+                  {...register("navigation_slug", {
+                    required: {
+                      value: true,
+                      message:
+                        "Please specify an endpoint for users to reach this event",
+                    },
+                    validate: {
+                      validateNavigationSlug: (navigation_slug: string) => {
+                        if (navigation_slug.trim().match(/[^a-zA-Z-]/g)?.length)
+                          return "Please only use english alphabet characters and convert spaces into dashes";
+                        return true;
+                      },
+                    },
+                  })}
+                />
+              </Field>
             </div>
 
             {/* Recurrence toggle */}
             <div className="flex items-center justify-between pt-1">
               <div>
-                <p className="text-[12px] font-semibold text-ink">Recurring event</p>
-                <p className="text-[11px] text-muted">Repeat this event on a schedule.</p>
+                <p className="text-[12px] font-semibold text-ink">
+                  Recurring event
+                </p>
+                <p className="text-[11px] text-muted">
+                  Repeat this event on a schedule.
+                </p>
               </div>
               <label className="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" className="peer sr-only" {...register("is_recurring")} />
+                <input
+                  type="checkbox"
+                  className="peer sr-only"
+                  {...register("is_recurring")}
+                />
                 <span className="w-10 h-6 rounded-full bg-line peer-checked:bg-teal transition-colors after:content-[''] after:absolute after:left-0.5 after:top-0.5 after:w-5 after:h-5 after:rounded-full after:bg-white after:shadow after:transition-transform peer-checked:after:translate-x-4" />
               </label>
             </div>
@@ -792,7 +906,9 @@ export default function EventModal({
               <div className="flex flex-col gap-4 rounded-xl border border-line bg-canvas p-4">
                 {/* Frequency */}
                 <div className="flex flex-col gap-1.5">
-                  <p className="text-[12px] font-semibold text-ink">Repeats every</p>
+                  <p className="text-[12px] font-semibold text-ink">
+                    Repeats every
+                  </p>
                   <div className="flex items-center gap-2">
                     {frequency === "daily" && (
                       <input
@@ -875,13 +991,17 @@ export default function EventModal({
                                 type="checkbox"
                                 className="peer sr-only"
                                 value={kind.value}
-                                {...register("recurrence_rule.by_set_position", {
-                                  required: {
-                                    value: isRecurring && frequencyKind === "day",
-                                    message:
-                                      "Please select the week(s) you want this event to occur on.",
+                                {...register(
+                                  "recurrence_rule.by_set_position",
+                                  {
+                                    required: {
+                                      value:
+                                        isRecurring && frequencyKind === "day",
+                                      message:
+                                        "Please select the week(s) you want this event to occur on.",
+                                    },
                                   },
-                                })}
+                                )}
                               />
                               <span className={CHIP}>{kind.label}</span>
                             </label>
@@ -920,7 +1040,9 @@ export default function EventModal({
                 {(frequency === "weekly" ||
                   (frequency === "monthly" && frequencyKind === "day")) && (
                   <div className="flex flex-col gap-1.5">
-                    <p className="text-[12px] font-semibold text-ink">On these days</p>
+                    <p className="text-[12px] font-semibold text-ink">
+                      On these days
+                    </p>
                     <div className="flex flex-wrap gap-2">
                       {daysOfTheWeek.map((day) => (
                         <label key={day.label} className="cursor-pointer">
@@ -1035,7 +1157,9 @@ export default function EventModal({
                             },
                           })}
                         />
-                        <span className="text-[12px] text-muted whitespace-nowrap">occurrences</span>
+                        <span className="text-[12px] text-muted whitespace-nowrap">
+                          occurrences
+                        </span>
                       </div>
                     )}
                   </div>
@@ -1065,7 +1189,14 @@ export default function EventModal({
                   onClick={() => setShowDeleteConfirm(true)}
                   className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-[13px] font-semibold text-coral border border-coral/30 hover:bg-coral/5 transition-colors"
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
                     <polyline points="3 6 5 6 21 6" />
                     <path d="M19 6l-1 14H6L5 6M10 11v6M14 11v6M9 6V4h6v2" />
                   </svg>
@@ -1077,7 +1208,12 @@ export default function EventModal({
                   href={`/dashboard/events/${event.id}/posts`}
                   className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-[13px] font-semibold text-ink border border-line hover:bg-canvas transition-colors"
                   onClick={(e) => {
-                    if ((isDirty || fileChangedRef.current) && !globalThis.confirm("Unsaved changes will be lost. Continue?")) {
+                    if (
+                      (isDirty || fileChangedRef.current) &&
+                      !globalThis.confirm(
+                        "Unsaved changes will be lost. Continue?",
+                      )
+                    ) {
                       e.preventDefault();
                       return;
                     }
@@ -1105,7 +1241,14 @@ export default function EventModal({
                 {isSubmitting ? (
                   <span className="loading loading-spinner loading-xs" />
                 ) : (
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                  >
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
                 )}
