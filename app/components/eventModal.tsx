@@ -461,9 +461,9 @@ export default function EventModal({
   };
   return (
     <>
-      <div className="modal-box p-0 rounded-2xl overflow-hidden max-w-2xl w-full shadow-xl">
+      <div className="modal-box p-0 rounded-2xl max-w-2xl w-full shadow-xl">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-line">
+        <div className="sticky top-0 bg-(--color-base-100) flex items-center justify-between px-6 py-4 border-b border-line">
           <div className="flex items-center gap-2.5">
             <h2 className="text-[15px] font-bold">
               {event ? "Edit event" : "New event"}
@@ -511,10 +511,7 @@ export default function EventModal({
 
         <form onSubmit={handleSubmit(onSubmit)}>
           {/* Scrollable body */}
-          <div
-            className="px-6 py-5 flex flex-col gap-4 overflow-y-auto"
-            style={{ maxHeight: "calc(100dvh - 220px)" }}
-          >
+          <div className="px-6 py-5 flex flex-col gap-4 overflow-y-scroll">
             <input type="number" hidden {...register("id")} />
 
             <Field label="Title" error={errors.title?.message}>
@@ -1181,7 +1178,7 @@ export default function EventModal({
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-between px-6 py-4 border-t border-line">
+          <div className="sticky bottom-0 bg-(--color-base-100) flex items-center justify-between px-6 py-4 border-t border-line">
             <div className="flex items-center gap-2">
               {event && (
                 <button
