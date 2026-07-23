@@ -30,7 +30,26 @@ export interface Event {
     exdates?: string[]; // ISO date strings of excluded occurrences
   };
 }
-
+export interface FCRRuleInput {
+  freq: string;
+  dtstart: string;
+  interval?: number;
+  byweekday?: string[];
+  bymonthday?: number;
+  bysetpos?: number[];
+  until?: string;
+  count?: number;
+}
+export interface RecurrenceRule {
+  frequency: string;
+  interval?: number | null;
+  by_weekdays?: string[] | null;
+  by_month_day?: number | null;
+  by_set_position?: number[] | null;
+  until?: string | null;
+  count?: number | null;
+  exdates?: string[] | null;
+}
 // Strips a Date to its UTC calendar day string (YYYY-MM-DD) for date-only comparisons.
 const toUTCDateStr = (d: Date | string) =>
   new Date(d).toISOString().split("T")[0];

@@ -1,5 +1,9 @@
 "use server";
-import { Event as WMCCEvent } from "@/app/schemas/events";
+import {
+  FCRRuleInput,
+  RecurrenceRule,
+  Event as WMCCEvent,
+} from "@/app/schemas/events";
 import { ResponseCodes } from "@/app/enums/responseCodes";
 import { createSafeActionClient } from "next-safe-action";
 import { createClient } from "../utils/supabase/server";
@@ -11,6 +15,7 @@ import {
 } from "@/app/schemas/events";
 import { logAudit } from "@/utils/audit";
 import { resolveStorageUrl } from "@/utils/uploadFiles";
+import { SupabaseClient } from "@supabase/supabase-js";
 
 const actionClient = createSafeActionClient();
 
@@ -372,22 +377,58 @@ export const deleteEvent = actionClient
   });
 
 export const fetchAllEvents = actionClient
-  .inputSchema(z.object({ search: z.string().optional() }))
+  .inputSchema(
+    z.object({
+      rangeStart: z.date(),
+      rangeEnd: z.date(),
+    }),
+  )
   .action(async ({ parsedInput }) => {
     try {
       const supabase = await createClient();
-      let query = supabase.from("events").select("*, recurrence_rule(*)");
+      const startIso = parsedInput.rangeStart.toISOString();
+      const endIso = parsedInput.rangeEnd.toISOString();
 
-      if (parsedInput.search?.length) {
-        query = query.ilike("title", `%${parsedInput.search}%`);
+      const [singleResult, recurringResult] = await Promise.all([
+        fetchSingleEvents(supabase, startIso, endIso),
+        fetchRecurringEvents(supabase, startIso, endIso),
+      ]);
+
+      if (singleResult.error) {
+        throw singleResult.error;
       }
 
-      const { data, error } = await query.overrideTypes<WMCCEvent[]>();
+      if (recurringResult.error) {
+        throw recurringResult.error;
+      }
 
-      return {
-        error: error?.message ?? null,
-        data,
-      };
+      const singleOccurrences =
+        singleResult.data?.map((ev) => ({
+          ...ev,
+          id: String(ev.id),
+          start: ev.start_date,
+          end: ev.end_date,
+        })) ?? [];
+
+      const recurringOccurrences =
+        recurringResult.data?.map((ev) => {
+          const rule = Array.isArray(ev.recurrence_rule)
+            ? ev.recurrence_rule[0]
+            : ev.recurrence_rule;
+          return {
+            ...ev,
+            id: String(ev.id),
+            start: ev.start_date,
+            end: ev.end_date,
+            rrule: buildRRuleObj(ev.start_date, rule),
+            duration: calcDuration(ev.start_date, ev.end_date),
+            exdate: rule.exdates?.map(toFloatingToronto) ?? [],
+          };
+        }) ?? [];
+
+      return [...singleOccurrences, ...recurringOccurrences].sort(
+        (a, b) => a.start - b.start,
+      );
     } catch (error) {
       console.error(error);
       return {
@@ -396,3 +437,106 @@ export const fetchAllEvents = actionClient
       };
     }
   });
+function fetchSingleEvents(
+  supabase: SupabaseClient,
+  rangeStartIso: string,
+  rangeEndIso: string,
+) {
+  return supabase
+    .from("events")
+    .select(
+      `
+      id,
+      title,
+      start_date,
+      end_date,
+      description,
+      location,
+      poster_url,
+      poster_alt,
+      call_to_action_link,
+      call_to_action_caption,
+      gallery_url,
+      navigation_slug
+    `,
+    )
+    .eq("is_recurring", false)
+    .lt("start_date", rangeEndIso)
+    .gt("end_date", rangeStartIso);
+}
+function fetchRecurringEvents(
+  supabase: SupabaseClient,
+  rangeStartIso: string,
+  rangeEndIso: string,
+) {
+  return supabase
+    .from("events")
+    .select(
+      `
+      id,
+      title,
+      start_date,
+      end_date,
+      description,
+      location,
+      poster_url,
+      poster_alt,
+      call_to_action_link,
+      call_to_action_caption,
+      gallery_url,
+      navigation_slug,
+      recurrence_rule!inner (
+        id,
+        frequency,
+        interval,
+        by_month_day,
+        until,
+        count,
+        by_weekdays,
+        by_set_position,
+        exdates,
+        last_occurence_at
+      )
+    `,
+    )
+    .eq("is_recurring", true)
+    .lt("start_date", rangeEndIso)
+    .or(`last_occurence_at.is.null,last_occurence_at.gte.${rangeStartIso}`, {
+      referencedTable: "recurrence_rule",
+    });
+}
+const buildRRuleObj = (dtstart: string, rule: RecurrenceRule): FCRRuleInput => {
+  const options: FCRRuleInput = {
+    freq: rule.frequency.toUpperCase(),
+    dtstart: toFloatingToronto(dtstart),
+  };
+  if (rule.interval && rule.interval > 1) options.interval = rule.interval;
+  if (rule.by_weekdays?.length) options.byweekday = rule.by_weekdays;
+  if (rule.by_month_day) options.bymonthday = rule.by_month_day;
+  if (rule.by_set_position?.length) options.bysetpos = rule.by_set_position;
+  if (rule.until) options.until = toFloatingToronto(rule.until);
+  if (rule.count) options.count = rule.count;
+  return options;
+};
+
+const calcDuration = (start: string, end: string): string => {
+  const ms = new Date(end).getTime() - new Date(start).getTime();
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+};
+const toFloatingToronto = (isoDate: string): string => {
+  const date = new Date(isoDate);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Toronto",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
+  return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}:${get("second")}`;
+};
