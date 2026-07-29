@@ -2,7 +2,7 @@ import { z } from "zod";
 
 // ─── TypeScript types ─────────────────────────────────────────────────────────
 
-export type SocialChannel    = "ig_feed" | "ig_story" | "whatsapp";
+export type SocialChannel    = "ig_feed"| "ig_story"| "ig_reel"| "tiktok_reel"| "whatsapp"|"youtube_video"| "youtube_reel";
 export type SocialPostStatus = "idea" | "draft" | "scheduled" | "published" | "failed";
 export type SocialPostType   = "ANNOUNCEMENT" | "GENERAL" | "REMINDER";
 export type TimeSlot         = "morning" | "afternoon" | "evening";
@@ -40,7 +40,7 @@ export interface AdminUserOption {
 
 // ─── Zod enums ────────────────────────────────────────────────────────────────
 
-export const SocialChannelEnum    = z.enum(["ig_feed", "ig_story", "whatsapp"]);
+export const SocialChannelEnum    = z.enum(["ig_feed", "ig_story", "ig_reel", "tiktok_reel", "whatsapp","youtube_video", "youtube_reel"]);
 export const SocialPostStatusEnum = z.enum(["idea", "draft", "scheduled", "published", "failed"]);
 export const SocialPostTypeEnum   = z.enum(["ANNOUNCEMENT", "GENERAL", "REMINDER"]);
 export const TimeSlotEnum         = z.enum(["morning", "afternoon", "evening"]);
@@ -96,19 +96,31 @@ export const UploadSocialPostMediaZod = z.object({
 export const CHANNEL_LABELS: Record<SocialChannel, string> = {
   ig_feed:  "IG Feed",
   ig_story: "IG Story",
+  ig_reel: "IG Reel",
+  tiktok_reel: "Tiktok Reel",
   whatsapp: "WhatsApp",
+  youtube_video: "Youtube Video",
+  youtube_reel: "Youtube Reel",
 };
 
 export const CHANNEL_COLOURS: Record<SocialChannel, string> = {
   ig_feed:  "var(--sp-ig)",       /* #C13584 */
   ig_story: "var(--sp-ig-story)", /* #E0A53C */
+  ig_reel: "var(--sp-ig-reel)", /* #E0A53C */
   whatsapp: "var(--sp-whatsapp)", /* #25A565 */
+  tiktok_reel: "var(--sp-tiktok-reel)",
+youtube_video: "var(--sp-youtube-video)",
+youtube_reel: "var(--sp-youtube-reel)",
 };
 
 export const CHANNEL_COLOURS_HEX: Record<SocialChannel, string> = {
   ig_feed:  "#C13584",
   ig_story: "#E0A53C",
+  ig_reel: "#E0A53C",
   whatsapp: "#25A565",
+  tiktok_reel: "#111111",
+  youtube_video: "#FF0033",
+  youtube_reel: "#FF6B35",
 };
 
 export const POST_TYPE_LABELS: Record<SocialPostType, string> = {

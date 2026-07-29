@@ -17,7 +17,7 @@ import PostPreview from "./PostPreview";
 import { AnnouncementIcon, GeneralIcon, ReminderIcon } from "./icons";
 import type { PostComposerProps } from "@/features/socialPosts/types";
 
-const CHANNELS: SocialChannel[]       = ["ig_feed", "ig_story", "whatsapp"];
+const CHANNELS: SocialChannel[]       = ["ig_feed", "ig_story", "ig_reel", "tiktok_reel", "whatsapp","youtube_video", "youtube_reel"];
 const TIME_SLOTS: TimeSlot[]          = ["morning", "afternoon", "evening"];
 const POST_TYPES: SocialPostType[]    = ["ANNOUNCEMENT", "GENERAL", "REMINDER"];
 const MAX_CAPTION                     = 1000;

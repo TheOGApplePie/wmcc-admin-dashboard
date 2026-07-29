@@ -85,7 +85,11 @@ html, body {
   --sp-coral:  #DC6B62;
   --sp-ig:       #C13584;
   --sp-ig-story: #E0A53C;
+  --sp-ig-reel: #E0A53C;
   --sp-whatsapp: #25A565;
+  --sp-tiktok-reel: #111111;
+  --sp-youtube-reel: #FF6B35;
+  --sp-youtube-video: #FF0033;
   --sp-status-idea-bg:      #F3F4F6;
   --sp-status-idea-text:    #6B7280;
   --sp-status-draft-bg:     #FBF0DA;

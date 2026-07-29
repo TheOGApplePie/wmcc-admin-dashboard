@@ -68,9 +68,13 @@ export default function SocialPostsClient({ initialPosts, events, adminUsers }: 
           className="hidden sm:flex items-center gap-3 px-3 py-2 rounded-xl"
           style={{ backgroundColor: "var(--sp-surface)", border: "1px solid var(--sp-hairline)" }}
         >
+          <ChannelIndicator label="IG Reel"  colour={CHANNEL_COLOURS.ig_reel}  />
           <ChannelIndicator label="IG Feed"  colour={CHANNEL_COLOURS.ig_feed}  />
           <ChannelIndicator label="IG Story" colour={CHANNEL_COLOURS.ig_story} />
+          <ChannelIndicator label="Tiktok Reel"  colour={CHANNEL_COLOURS.tiktok_reel}  />
           <ChannelIndicator label="WhatsApp" colour={CHANNEL_COLOURS.whatsapp} />
+          <ChannelIndicator label="Youtube Video" colour={CHANNEL_COLOURS.youtube_video} />
+          <ChannelIndicator label="Youtube Reel" colour={CHANNEL_COLOURS.youtube_reel} />
         </div>
 
         <button
