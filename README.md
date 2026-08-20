@@ -4,7 +4,7 @@ Internal admin panel for managing the Waterdown Muslim Community Centre's public
 
 ## Features
 
-- **Events** — FullCalendar month/list view with full recurring-event support (daily, weekly, monthly). Create, edit (all / this + future / this occurrence), and delete (all / this + future / this occurrence) events. Supports poster image upload, call-to-action links, and gallery URLs.
+- **Events** — FullCalendar month view with full recurring-event support (daily, weekly, monthly). Create, edit (all / this + future / this occurrence), and delete (all / this + future / this occurrence) events. Supports poster image upload, call-to-action links, and gallery URLs.
 - **Announcements** — Create, edit, and expire announcements shown on the public site.
 - **Social Posts** — Plan and schedule social media posts across Instagram Feed, Instagram Story, and WhatsApp. Posts flow through an `idea → draft → scheduled → published/failed` lifecycle. Phase 1 is a fully manual workflow: admins compose, schedule, and confirm publication. Phase 2 will integrate live publishing via Instagram Graph API and WhatsApp Business Cloud API.
 - **Community Feedback** — View and filter feedback submitted through the public site, with a fixed full-viewport layout and slide-in detail pane.
@@ -20,7 +20,7 @@ Internal admin panel for managing the Waterdown Muslim Community Centre's public
 | Database & Auth | Supabase (PostgreSQL + SSR auth) |
 | Storage | Supabase Storage (event posters, social post media) |
 | UI | Tailwind CSS v4 + DaisyUI v5 |
-| Calendar | FullCalendar v6 (daygrid, list, rrule, interaction) |
+| Calendar | FullCalendar v7 (daygrid, rrule, interaction) |
 | Forms | react-hook-form + Zod v4 |
 | Server Actions | next-safe-action v8 |
 | Toasts | react-hot-toast |
@@ -122,7 +122,7 @@ Live publishing via Instagram Graph API and WhatsApp Business Cloud API. The `pu
 |---|---|---|
 | `id` | `int8` | Primary key |
 | `title` | `text` | Max 50 chars |
-| `description` | `text` | Max 300 chars |
+| `description` | `text` | Max 1,500 chars |
 | `location` | `text` | |
 | `start_date` | `timestamptz` | |
 | `end_date` | `timestamptz` | |
@@ -147,8 +147,101 @@ One row per recurring series.
 | `by_month_day` | `int4` | Day of month (1–31) |
 | `by_set_position` | `int4[]` | e.g. `[1]` = first, `[-1]` = last |
 | `until` | `date` | End date for the series |
-| `count` | `int4` | Max occurrences (2–20) |
+| `count` | `int4` | Max occurrences (1–20); user-created series normally start at 2+ |
 | `exdates` | `text[]` | ISO date strings of excluded occurrences |
+
+### Event module behaviour
+
+- Event timestamps are stored as UTC instants and interpreted and displayed in
+  `America/Toronto`. Recurrence calculations must preserve Toronto wall-clock
+  time across daylight-saving transitions.
+- Recurrence termination dates are inclusive.
+- Editing all occurrences from a selected occurrence moves the series so it
+  begins at that selected occurrence.
+- Editing "this and future" splits the remaining occurrence budget. For
+  example, splitting occurrence 6 of a 10-occurrence series creates a new
+  series containing occurrences 6–10, while the original series contains
+  occurrences 1–5.
+- Past events are supported.
+- Recurring events may span midnight or multiple days; generated occurrences
+  must preserve the event's start/end relationship.
+- A replacement for one edited occurrence is an independent event and does not
+  require a persisted link back to its original series.
+- Event titles and navigation slugs are not unique at this time.
+- Poster images must be hosted in the WMCC Supabase project. Gallery URLs are
+  optional and restricted to `institutei3-my.sharepoint.com`.
+- Gallery URLs are editable in the event modal but are not shown in the event
+  detail pane.
+- Stored poster objects are not deleted when an event stops referencing them,
+  because the same object may be used by another module.
+- Poster object names are globally human-readable. When a title-based filename
+  already exists, append an underscore and numeric suffix (`event_1.jpg`,
+  `event_2.jpg`, up to `event_3.jpg`).
+- The admin dashboard and public site must produce identical occurrences from
+  the same recurrence rule. Both use FullCalendar for calendar rendering.
+
+### Deferred event decisions
+
+The following event concerns are intentionally deferred and must be revisited
+before their related work is implemented:
+
+- How occurrence and series mutations affect social posts, campaigns, and
+  scheduled reminders.
+- The long-term navigation-slug collision and uniqueness strategy.
+- Event permissions by role. Event RLS is enabled, but the detailed permission
+  model belongs to a separate pull request.
+- Add optimistic concurrency for simultaneous edits by multiple administrators.
+  Introduce an authoritative `updated_at` or version column, require the
+  version read by the modal on every update/delete, return a specific stale
+  conflict without overwriting either editor, and provide a reload/reapply
+  workflow. Cover recurrence splits and compensation paths, not only ordinary
+  row edits.
+- Add cross-session calendar freshness after the concurrency contract exists.
+  Revalidate the active FullCalendar range on window focus and optionally from
+  a debounced Supabase Realtime subscription to `events` and
+  `recurrence_rule`; retain request IDs so late responses cannot replace newer
+  data, preserve the selected day when possible, and show a non-destructive
+  refresh error without blanking the last successful calendar.
+- Choose an event test framework and add automated coverage for the complete
+  create/edit/delete action matrix; malformed and mismatched IDs; zero-row
+  mutations; count/until exclusivity; inclusive Toronto dates; DST gaps and
+  folds; exact occurrence membership and exclusions; count- and until-based
+  final-occurrence splits; stale responses; and every compensation failure.
+- Unify the dashboard home page's standalone `rrule` expansion with the events
+  page/public site's FullCalendar occurrence generation. The follow-up must
+  verify identical start times, inclusive end dates, exclusions, count limits,
+  multi-day durations, and DST transitions in `America/Toronto`.
+- Replace compensating multi-request recurrence mutations with PostgreSQL
+  functions invoked through `supabase.rpc()`. The RPCs should atomically own
+  create, series update, future split, single-occurrence replacement, recurrence
+  removal, and series deletion; raise on every failed invariant/write; return
+  affected IDs; and be exercised against partial-failure and authorization
+  cases. Storage uploads remain outside the database transaction and require
+  explicit cleanup when a subsequent RPC fails.
+- Evaluate direct-to-Storage poster uploads using short-lived signed upload
+  URLs. Keep the same client and server validation (JPEG/PNG, maximum 5 MB,
+  Supabase destination, required alt text), request the signed URL only after
+  metadata validation, upload with `upsert: false`, then submit the returned
+  trusted object path with the event mutation. Define orphan cleanup for an
+  upload followed by an abandoned or failed event save.
+- Replace the current production-aligned public-read/authenticated-write event
+  policies with role-aware policies in the permissions PR. Test anonymous,
+  authenticated, and service-role access before rollout.
+- Refactor `EventModal` in a dedicated maintainability PR. Extract reusable
+  details, links, poster, recurrence, and action sections plus hooks for form
+  defaults, poster lifecycle, and mutations, and a form-to-action payload
+  mapper. Preserve dirty-state semantics and all loading/success/error states
+  while adding focused component boundaries.
+- Run and resolve repository-wide lint in its dedicated cleanup PR.
+- Make event audit logging authoritative in the next release. Decide whether
+  authenticated inserts use an `audit_logs` RLS policy constrained to
+  `user_id = auth.uid()` or a server-owned/`SECURITY DEFINER` RPC; stop ignoring
+  insert failures; define whether an audit failure rolls back the mutation;
+  and test authenticated, anonymous, and service-role behavior.
+- Review the product meaning of selecting multiple weekdays together with
+  multiple monthly positions. The current implementation follows standard
+  RRULE `BYDAY` + `BYSETPOS` semantics; any "first Monday and first Wednesday"
+  interpretation needs a separately specified recurrence model.
 
 ### `social_posts`
 
@@ -225,7 +318,7 @@ features/
     types.ts              # Shared prop interfaces for all socialPosts components
   communityFeedback/      # Community feedback table with DVH layout and detail pane
 supabase/
-  migrations/             # SQL migration files (run in order, 001 → 009)
+  migrations/             # SQL migration files (run in order, 001 → 011)
 utils/
   actionResponse.ts       # ok() / fail() / clientFail() response envelope helpers
   audit.ts                # logAudit() helper for the audit_logs table

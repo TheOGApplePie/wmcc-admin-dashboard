@@ -1,13 +1,11 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+
+import { useEffect, useMemo, useRef, useState } from "react";
 import { type Event } from "@/app/schemas/events";
-import { fetchAllEvents } from "@/actions/events";
 import EventModal from "./eventModal";
-import { Badge } from "@/app/components/ui/Badge";
 import FullCalendar, {
-  CalendarRef,
-  EventClickInfo,
-  EventInput,
+  type EventApi,
+  type EventClickInfo,
   useCalendarController,
 } from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/react/daygrid";
@@ -17,261 +15,185 @@ import rrulePlugin from "@fullcalendar/rrule";
 import interactionPlugin from "@fullcalendar/react/interaction";
 import "@fullcalendar/react/skeleton.css";
 import "@fullcalendar/react/themes/classic/theme.css";
-import { Btn } from "./ui/Btn";
-import Loading from "../dashboard/posts/loading";
+import { CalendarToolbar } from "@/features/events/components/CalendarToolbar";
+import { EventDetailsPanel } from "@/features/events/components/EventDetailsPanel";
+import { EmptyCalendarState } from "@/features/events/components/EmptyCalendarState";
+import { useCalendarEvents } from "@/features/events/hooks/useCalendarEvents";
+import { eventFromCalendarApi, eventFromCalendarClick } from "@/features/events/lib/calendarEventAdapter";
+import { fromZonedTime } from "date-fns-tz";
+import { torontoDate } from "@/app/utils/date";
 
-function fmtDateTime(d: Date | string): string {
-  return new Date(d).toLocaleString("en-CA", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: true,
-    timeZone: "America/Toronto",
-  });
-}
-
-interface EventDetailPanelProps {
-  event: Event | null;
-  onEdit: (occ: Event) => void;
-  onAdd: () => void;
-}
-
-function EventDetailPanel({ event, onEdit }: Readonly<EventDetailPanelProps>) {
-  if (!event) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-3 h-full opacity-40 py-12">
-        <svg
-          viewBox="0 0 24 24"
-          width="28"
-          height="28"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-        >
-          <path d="M8 2v3M16 2v3M3 8h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" />
-        </svg>
-        <p className="text-[13px] text-center">Click an event to see details</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-4 p-5">
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <h3 className="text-[15px] font-bold leading-snug">{event.title}</h3>
-          {event.is_recurring && (
-            <Badge variant="teal" className="mt-1">
-              Recurring
-            </Badge>
-          )}
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-3 text-[13px]">
-        <div>
-          <p className="text-[11px] text-muted mb-0.5">Start</p>
-          <p>{fmtDateTime(event.start_date)}</p>
-        </div>
-        <div>
-          <p className="text-[11px] text-muted mb-0.5">End</p>
-          <p>{fmtDateTime(event.end_date)}</p>
-        </div>
-        {event.location && (
-          <div>
-            <p className="text-[11px] text-muted mb-0.5">Location</p>
-            <p>{event.location}</p>
-          </div>
-        )}
-
-        {event.description && (
-          <div>
-            <p className="text-[11px] text-muted mb-0.5">Description</p>
-            <p className="leading-relaxed text-ink/80 whitespace-pre-wrap">
-              {event.description}
-            </p>
-          </div>
-        )}
-      </div>
-
-      {event.call_to_action_link && (
-        <a
-          href={event.call_to_action_link}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 text-[12px] font-medium text-teal hover:text-teal-dark transition-colors"
-        >
-          {event.call_to_action_caption || "Learn More"} →
-        </a>
-      )}
-
-      <button
-        className="mt-auto w-full inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-[13px] font-semibold transition-colors bg-teal-soft hover:bg-teal/20 text-teal-dark"
-        onClick={() => onEdit(event)}
-      >
-        Edit / Manage
-      </button>
-    </div>
-  );
-}
-
-// ─── Main component ───────────────────────────────────────────────────────────
+const CALENDAR_PLUGINS = [
+  themePlugin,
+  dayGridPlugin,
+  luxonFormatPlugin,
+  rrulePlugin,
+  interactionPlugin,
+];
 
 export default function EventsCalendar() {
-  const [events, setEvents] = useState<EventInput[]>([]);
-  const [selectedOcc, setSelectedOcc] = useState<Event | null>(null);
-  const [datesSet, setDatesSet] = useState<{ start: Date; end: Date } | null>(
-    null,
-  );
-  const [calendarLoading, setCalendarLoading] = useState(false);
-  const editModalRef = useRef<HTMLDialogElement>(null);
-
-  const [editEvent, setEditEvent] = useState<Event | undefined>(undefined);
-  const [editOccDate, setEditOccDate] = useState<Date | undefined>(undefined);
-
-  const [loadKey, setLoadKey] = useState(0);
-  const reloadEvents = () => setLoadKey((k) => k + 1);
-  const calendarRef = useRef<CalendarRef | null>(null);
-  const fetchData = async () => {
-    if (!datesSet) return;
-    setCalendarLoading(true);
-    const fetchedEvents = await fetchAllEvents({
-      rangeStart: datesSet.start,
-      rangeEnd: datesSet.end,
-    });
-
-    const data = Array.isArray(fetchedEvents.data) ? fetchedEvents.data : [];
-    setEvents(data);
-  };
-
-  useEffect(() => {
-    fetchData();
-  }, [loadKey, datesSet]);
-
-  const openEdit = (occ: Event) => {
-    setEditEvent(occ);
-    setSelectedOcc(occ);
-    editModalRef.current?.showModal();
-  };
-
-  const openAdd = () => {
-    setEditEvent(undefined);
-    setEditOccDate(undefined);
-    editModalRef.current?.showModal();
-  };
-
-  const handleClose = (reload: boolean) => {
-    editModalRef.current?.close();
-    if (reload) reloadEvents();
-  };
-  const handleDatesSet = (args: { start: Date; end: Date }) => {
-    setDatesSet(args);
-  };
-  const handleEventClick = (info: EventClickInfo) => {
-    setSelectedOcc({
-      id: info.event.extendedProps.id,
-      title: info.event.title,
-      description: info.event.extendedProps.description,
-      location: info.event.extendedProps.location,
-      poster_url: info.event.extendedProps.poster_url,
-      poster_file: info.event.extendedProps.poster_file,
-      poster_alt: info.event.extendedProps.poster_alt,
-      call_to_action_link: info.event.extendedProps.call_to_action_link,
-      call_to_action_caption: info.event.extendedProps.call_to_action_caption,
-      action: info.event.extendedProps.action,
-      gallery_url: info.event.extendedProps.gallery_url,
-      navigation_slug: info.event.extendedProps.navigation_slug,
-      is_recurring: !!info.event.extendedProps.recurrence_rule,
-      recurrence_rule: info.event.extendedProps.recurrence_rule ?? undefined,
-      recurrence_rule_id: info.event.extendedProps.recurrence_rule?.id,
-      start_date: info.event.start as Date,
-      end_date: info.event.end as Date,
-    });
-  };
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [calendarOccurrences, setCalendarOccurrences] = useState<Event[]>([]);
+  const [eventBeingEdited, setEventBeingEdited] = useState<Event>();
+  const [editedOccurrenceDate, setEditedOccurrenceDate] = useState<Date>();
+  const [modalSession, setModalSession] = useState(0);
+  const [isCalendarReady, setIsCalendarReady] = useState(false);
+  const modalRef = useRef<HTMLDialogElement>(null);
   const controller = useCalendarController();
-  const buttons = controller.getButtonState();
+  const { events, error, isLoading, changeRange, reload } = useCalendarEvents();
+
+  const openEditModal = (event: Event) => {
+    setModalSession((session) => session + 1);
+    setEventBeingEdited(event);
+    setEditedOccurrenceDate(new Date(event.start_date));
+    modalRef.current?.showModal();
+  };
+
+  const openAddModal = () => {
+    setModalSession((session) => session + 1);
+    setEventBeingEdited(undefined);
+    setEditedOccurrenceDate(undefined);
+    modalRef.current?.showModal();
+  };
+
+  const closeModal = (
+    shouldReload: boolean,
+    focusDate?: Date,
+    clearSelection = false,
+  ) => {
+    modalRef.current?.close();
+    if (clearSelection) setSelectedDay(null);
+    if (focusDate) controller.gotoDate(focusDate);
+    if (shouldReload) {
+      setIsCalendarReady(false);
+      reload();
+    }
+  };
+
+  const selectEvent = (info: EventClickInfo) => {
+    const event = eventFromCalendarClick(info);
+    setSelectedDay(torontoDate(event.start_date));
+  };
+
+  const selectedEvents = useMemo(() => {
+    if (!selectedDay) return [];
+    const dateStr = selectedDay;
+    const start = fromZonedTime(`${dateStr}T00:00:00`, "America/Toronto");
+    const nextDate = new Date(`${dateStr}T00:00:00Z`);
+    nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+    const nextDateStr = nextDate.toISOString().slice(0, 10);
+    const end = fromZonedTime(`${nextDateStr}T00:00:00`, "America/Toronto");
+    return calendarOccurrences
+      .filter((event) => {
+        const eventStart = new Date(event.start_date);
+        const eventEnd = new Date(event.end_date);
+        return eventStart < end && eventEnd > start;
+      })
+      .sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime());
+  }, [calendarOccurrences, selectedDay]);
+
+  const handleEventsSet = (eventApis: EventApi[]) => {
+    setCalendarOccurrences(eventApis.map(eventFromCalendarApi));
+  };
+
+  // Fetch completion and FullCalendar's event-store update can land in
+  // separate renders. Reveal only after the fetched source has committed and
+  // the browser has completed a layout frame; this also works for empty data.
+  useEffect(() => {
+    if (isLoading || error) return;
+
+    let revealFrame: number | undefined;
+    const layoutFrame = requestAnimationFrame(() => {
+      revealFrame = requestAnimationFrame(() => setIsCalendarReady(true));
+    });
+
+    return () => {
+      cancelAnimationFrame(layoutFrame);
+      if (revealFrame !== undefined) cancelAnimationFrame(revealFrame);
+    };
+  }, [error, events, isLoading]);
+
+  const handleDateClick = (info: { dateStr: string }) =>
+    setSelectedDay(info.dateStr.slice(0, 10));
+
+  const handleRangeChange = (range: { start: Date; end: Date }) => {
+    setIsCalendarReady(false);
+    changeRange(range);
+  };
+
+  const handleRetry = () => {
+    setIsCalendarReady(false);
+    reload();
+  };
+
+  const isCalendarBusy = isLoading || (!error && !isCalendarReady);
 
   return (
-    <div className="flex flex-col lg:flex-row gap-5">
-      <div className="p-4 w-full">
-        <div className="flex justify-between py-4">
-          <div className="flex gap-3">
-            <Btn
-              className="btn border-0"
-              variant="soft"
-              size="lg"
-              onClick={() => controller.prev()}
-              disabled={buttons.prev.isDisabled}
-              aria-label={buttons.prev.hint}
+    <div className="flex flex-col gap-5 lg:flex-row">
+      <div className="w-full p-4">
+        <CalendarToolbar controller={controller} onAdd={openAddModal} />
+
+        {error && (
+          <div
+            role="alert"
+            className="mb-3 flex items-center justify-between gap-4 rounded-xl border border-coral/30 bg-coral-soft px-4 py-3 text-sm text-coral"
+          >
+            <span>{error}</span>
+            <button
+              type="button"
+              className="shrink-0 font-semibold underline"
+              onClick={handleRetry}
             >
-              {buttons.prev.text}
-            </Btn>
-            <Btn
-              variant="dark"
-              className="btn border-0"
-              size="lg"
-              onClick={() => controller.today()}
-              disabled={buttons.today.isDisabled}
-              aria-label={buttons.today.hint}
-            >
-              {buttons.today.text}
-            </Btn>
-            <Btn
-              variant="soft"
-              size="lg"
-              className="btn border-0"
-              onClick={() => controller.next()}
-              disabled={buttons.next.isDisabled}
-              aria-label={buttons.next.hint}
-            >
-              {buttons.next.text}
-            </Btn>
+              Retry
+            </button>
           </div>
-          <div className="toolbar-title">{controller.view?.title}</div>
-          <div>
-            <Btn className="btn border-0" onClick={() => openAdd()}>
-              Add Event
-            </Btn>
-          </div>
+        )}
+
+        {isCalendarReady && !isLoading && !error && events.length === 0 && (
+          <EmptyCalendarState onAdd={openAddModal} />
+        )}
+
+        <div className="relative min-h-120" aria-busy={isCalendarBusy}>
+          {isCalendarBusy && (
+            <div className="absolute inset-0 z-10 grid place-items-center rounded-xl bg-surface">
+              <span
+                className="loading loading-spinner loading-md text-teal"
+                aria-label="Loading events"
+              />
+            </div>
+          )}
+          <FullCalendar
+            controller={controller}
+            plugins={CALENDAR_PLUGINS}
+            initialView="dayGridMonth"
+            timeZone="America/Toronto"
+            fixedWeekCount={false}
+            dayMaxEvents={3}
+            events={events}
+            eventClass="cursor-pointer"
+            datesSet={handleRangeChange}
+            eventClick={selectEvent}
+            dateClick={handleDateClick}
+            eventsSet={handleEventsSet}
+          />
         </div>
-        <FullCalendar
-          ref={calendarRef}
-          controller={controller}
-          plugins={[
-            themePlugin,
-            dayGridPlugin,
-            luxonFormatPlugin,
-            rrulePlugin,
-            interactionPlugin,
-          ]}
-          initialView="dayGridMonth"
-          events={events}
-          eventClass={"hover:cursor-pointer"}
-          datesSet={handleDatesSet}
-          eventClick={handleEventClick}
-        />
-      </div>
-      {/* ── Detail panel ──────────────────────────────────────────────── */}
-      <div className="w-full lg:w-87.5 shrink-0 bg-surface border border-line rounded-2xl overflow-hidden flex flex-col sticky top-18.25 self-start">
-        <div className="px-5 py-3 border-b border-line">
-          <p className="text-[12px] font-semibold text-muted uppercase tracking-wide">
-            {selectedOcc ? "Event Details" : "Events"}
-          </p>
-        </div>
-        <EventDetailPanel
-          event={selectedOcc}
-          onEdit={openEdit}
-          onAdd={openAdd}
-        />
       </div>
 
-      {/* ── Event modal (unchanged) ────────────────────────────────────── */}
-      <dialog ref={editModalRef} className="modal">
+      <aside className="sticky top-18.25 flex w-full shrink-0 flex-col self-start overflow-hidden rounded-2xl border border-line bg-surface lg:w-87.5">
+        <div className="border-b border-line px-5 py-3">
+          <p className="text-[12px] font-semibold uppercase tracking-wide text-muted">
+            {selectedEvents.length ? "Events on selected day" : "Events"}
+          </p>
+        </div>
+        <EventDetailsPanel events={selectedEvents} onEdit={openEditModal} />
+      </aside>
+
+      <dialog ref={modalRef} className="modal">
         <EventModal
-          event={editEvent}
-          occurrenceDate={editOccDate}
-          closeModal={handleClose}
+          key={modalSession}
+          event={eventBeingEdited}
+          occurrenceDate={editedOccurrenceDate}
+          closeModal={closeModal}
         />
       </dialog>
     </div>

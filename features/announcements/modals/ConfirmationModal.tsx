@@ -1,16 +1,22 @@
 "use client";
 
+import { useState } from "react";
+
 interface ConfirmationModalProps {
   message: string;
   buttons: { value: string; label: string; variant?: "danger" | "default" }[];
   closeModal: (confirmedAction: string) => void;
+  isLoading?: boolean;
 }
 
 export default function ConfirmationModal({
   message,
   buttons,
   closeModal,
+  isLoading = false,
 }: Readonly<ConfirmationModalProps>) {
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
+
   return (
     <div className="modal-box p-0 rounded-2xl overflow-hidden max-w-sm w-full shadow-xl">
       <div className="px-6 py-5">
@@ -32,15 +38,22 @@ export default function ConfirmationModal({
       <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-line">
         {buttons.map((button) => (
           <button
+            type="button"
             key={button.label}
-            onClick={() => closeModal(button.value)}
+            onClick={() => {
+              setPendingAction(button.value);
+              closeModal(button.value);
+            }}
+            disabled={isLoading}
             className={
               button.variant === "danger"
-                ? "px-4 py-2 rounded-xl text-[13px] font-semibold text-white bg-coral hover:bg-coral/90 transition-colors"
-                : "px-4 py-2 rounded-xl text-[13px] font-semibold text-ink border border-line hover:bg-canvas transition-colors"
+                ? "px-4 py-2 rounded-xl text-[13px] font-semibold text-white bg-coral hover:bg-coral/90 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                : "px-4 py-2 rounded-xl text-[13px] font-semibold text-ink border border-line hover:bg-canvas transition-colors disabled:cursor-not-allowed disabled:opacity-50"
             }
           >
-            {button.label}
+            {isLoading && pendingAction === button.value
+              ? "Working…"
+              : button.label}
           </button>
         ))}
       </div>

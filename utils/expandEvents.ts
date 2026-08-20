@@ -1,4 +1,4 @@
-import { RRule, type Weekday, type ByWeekday } from "rrule";
+import { RRule, type Weekday } from "rrule";
 import type { Event } from "@/app/schemas/events";
 
 export type Occurrence = { event: Event; occurrenceDate: Date };
@@ -33,7 +33,7 @@ export function toEstDay(d: Date | string): Date {
   return new Date(Date.UTC(year, month - 1, day));
 }
 
-function parseWeekday(raw: ByWeekday): Weekday {
+function parseWeekday(raw: string): Weekday {
   // DB stores codes lowercase ("su", "mo") — normalize before matching.
   const m = WEEKDAY_RE.exec(`${raw}`.toUpperCase());
   if (!m) return RRule.MO;
