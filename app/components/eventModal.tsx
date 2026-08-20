@@ -1,19 +1,174 @@
 "use client";
-import { Event } from "../schemas/events";
-import { useForm, useWatch, Controller } from "react-hook-form";
+import {
+  type Event,
+  type DeleteEventAction,
+  type EditEventAction,
+} from "../schemas/events";
+import {
+  useForm,
+  useWatch,
+  Controller,
+  type DefaultValues,
+  type FieldErrors,
+} from "react-hook-form";
 import Image from "next/image";
 import Link from "next/link";
-import { ChangeEvent, useEffect, useRef, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createEvent, editEvent, deleteEvent } from "@/actions/events";
-import { FIVE_MB, URL_REGEX } from "../constants/general";
+import { FIVE_MB } from "../constants/general";
 import toast from "react-hot-toast";
 import ConfirmationModal from "../../features/announcements/modals/ConfirmationModal";
-import { formatDateTimeLocal } from "../utils/date";
-import { toEstDay } from "@/utils/expandEvents";
+import { formatDateTimeLocal, torontoInputToUtc } from "../utils/date";
 import { Field, INPUT } from "./ui/Field";
+import { useUnsavedChanges } from "@/features/events/hooks/useUnsavedChanges";
 
-const NO_IMAGE_URL =
-  "https://gkpctbvyswcfccogoepl.supabase.co/storage/v1/object/public/event-posters/public/NO%20IMAGE.png";
+const WEEKDAY_ORDER = ["su", "mo", "tu", "we", "th", "fr", "sa"] as const;
+const MONTH_POSITION_ORDER = [1, 2, -2, -1] as const;
+
+function safePosterPreviewUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    const parsedUrl = new URL(value);
+    const supabaseOrigin = new URL(
+      process.env.NEXT_PUBLIC_SUPABASE_URL ?? "https://placeholder.supabase.co",
+    ).origin;
+    return parsedUrl.protocol === "https:" && parsedUrl.origin === supabaseOrigin
+      ? parsedUrl.href
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function validateTorontoWallTime(value: string | Date): true | string {
+  try {
+    torontoInputToUtc(value);
+    return true;
+  } catch (error) {
+    return error instanceof Error ? error.message : "Enter a valid Toronto time.";
+  }
+}
+
+function normalizeRecurrenceRule(
+  rule: NonNullable<Event["recurrence_rule"]>,
+): NonNullable<Event["recurrence_rule"]> {
+  const until = rule.until
+    ? rule.until instanceof Date
+      ? rule.until.toISOString().slice(0, 10)
+      : String(rule.until).slice(0, 10)
+    : null;
+
+  return {
+    ...rule,
+    interval: rule.interval ?? 1,
+    by_weekdays: [...(rule.by_weekdays ?? [])].sort(
+      (left, right) =>
+        WEEKDAY_ORDER.indexOf(left) - WEEKDAY_ORDER.indexOf(right),
+    ),
+    by_month_day: rule.by_month_day ?? null,
+    by_set_position: [...(rule.by_set_position ?? [])].sort(
+      (left, right) =>
+        MONTH_POSITION_ORDER.indexOf(left as 1 | 2 | -2 | -1) -
+        MONTH_POSITION_ORDER.indexOf(right as 1 | 2 | -2 | -1),
+    ),
+    until,
+    count: rule.count ?? null,
+    exdates: rule.exdates ?? [],
+  };
+}
+
+function normalizeEventForSubmission(
+  eventData: Event,
+  frequencyKind: string,
+  recurrenceType: string,
+): Event {
+  if (!eventData.recurrence_rule) return eventData;
+
+  const rule = { ...eventData.recurrence_rule };
+  if (rule.frequency === "daily") {
+    rule.by_weekdays = [];
+    rule.by_month_day = null;
+    rule.by_set_position = [];
+  } else if (rule.frequency === "weekly") {
+    rule.interval = 1;
+    rule.by_month_day = null;
+    rule.by_set_position = [];
+  } else {
+    rule.interval = 1;
+    if (frequencyKind === "date") {
+      rule.by_weekdays = [];
+      rule.by_set_position = [];
+    } else {
+      rule.by_month_day = null;
+    }
+  }
+
+  if (recurrenceType === "date") rule.count = null;
+  if (recurrenceType === "count") rule.until = null;
+
+  return { ...eventData, recurrence_rule: rule };
+}
+
+function buildModalInitialState(event?: Event, occurrenceDate?: Date) {
+  if (!event) {
+    const start = new Date();
+    const end = new Date(start.getTime() + 60 * 60 * 1000);
+    return {
+      formValues: {
+        title: "",
+        description: "",
+        location: "",
+        poster_url: null,
+        poster_alt: "",
+        poster_file: null,
+        call_to_action_link: "",
+        call_to_action_caption: "",
+        gallery_url: "",
+        navigation_slug: "",
+        is_recurring: false,
+        start_date: formatDateTimeLocal(start),
+        end_date: formatDateTimeLocal(end),
+        recurrence_rule: undefined,
+      } satisfies DefaultValues<Event>,
+      posterPreview: null,
+      recurrenceRule: undefined as Event["recurrence_rule"],
+      frequencyKind: "day",
+      recurrenceType: "date",
+    };
+  }
+
+  let start: Date | string = event.start_date;
+  let end: Date | string = event.end_date;
+  if (occurrenceDate && event.is_recurring) {
+    const duration =
+      new Date(event.end_date).getTime() - new Date(event.start_date).getTime();
+    start = occurrenceDate;
+    end = new Date(occurrenceDate.getTime() + duration);
+  }
+
+  const recurrenceRule =
+    event.is_recurring && event.recurrence_rule
+      ? normalizeRecurrenceRule(event.recurrence_rule)
+      : undefined;
+
+  return {
+    formValues: {
+      ...event,
+      poster_file: event.poster_file ?? null,
+      poster_alt: event.poster_alt ?? "",
+      call_to_action_link: event.call_to_action_link ?? "",
+      call_to_action_caption: event.call_to_action_caption ?? "",
+      gallery_url: event.gallery_url ?? "",
+      start_date: formatDateTimeLocal(start),
+      end_date: formatDateTimeLocal(end),
+      recurrence_rule: recurrenceRule,
+    } satisfies DefaultValues<Event>,
+    posterPreview: safePosterPreviewUrl(event.poster_url),
+    recurrenceRule,
+    frequencyKind: recurrenceRule?.by_month_day ? "date" : "day",
+    recurrenceType: recurrenceRule?.count ? "count" : "date",
+  };
+}
 
 const CHIP =
   "inline-flex items-center justify-center px-3 py-1.5 rounded-lg border border-line bg-surface text-[12px] font-medium text-muted cursor-pointer transition-colors peer-checked:bg-teal peer-checked:border-teal peer-checked:text-white hover:border-teal/40";
@@ -65,13 +220,34 @@ function RadioPill({
 interface EventModalProps {
   event?: Event;
   occurrenceDate?: Date;
-  closeModal: (reloadEvents: boolean) => void;
+  closeModal: (
+    reloadEvents: boolean,
+    focusDate?: Date,
+    clearSelection?: boolean,
+  ) => void;
+}
+
+type MutationResponse = {
+  data?: { error?: string; statusText?: string } | null;
+  validationErrors?: unknown;
+  serverError?: string;
+};
+
+function mutationError(response: MutationResponse): string | null {
+  if (response.validationErrors) return "Please review the form values and try again.";
+  if (response.serverError) return response.serverError;
+  if (!response.data) return "The request could not be completed. Please try again.";
+  return response.data.error || null;
 }
 export default function EventModal({
   event,
   occurrenceDate,
   closeModal,
 }: Readonly<EventModalProps>) {
+  const initialState = useMemo(
+    () => buildModalInitialState(event, occurrenceDate),
+    [event, occurrenceDate],
+  );
   const {
     register,
     handleSubmit,
@@ -79,12 +255,13 @@ export default function EventModal({
     setError,
     clearErrors,
     reset,
-    resetField,
     setValue,
     control,
     getFieldState,
+    getValues,
   } = useForm<Event>({
     mode: "onChange",
+    defaultValues: initialState.formValues,
   });
 
   const daysOfTheWeek = [
@@ -104,14 +281,18 @@ export default function EventModal({
   ];
 
   const [imageUrl, setImageUrl] = useState<string | null>(
-    event?.poster_url ?? null,
+    initialState.posterPreview,
   );
-  const [imageFile, setImageFile] = useState<File | null>(null);
   const [isImageLoading, setIsImageLoading] = useState<boolean>(
-    !!event?.poster_url?.length,
+    Boolean(initialState.posterPreview),
   );
-  const [frequencyKind, setFrequencyKind] = useState<string>("day");
-  const [recurrenceType, setRecurrenceType] = useState<string>("date");
+  const [imagePreviewError, setImagePreviewError] = useState<string | null>(null);
+  const [frequencyKind, setFrequencyKind] = useState<string>(
+    initialState.frequencyKind,
+  );
+  const [recurrenceType, setRecurrenceType] = useState<string>(
+    initialState.recurrenceType,
+  );
   const [message, setMessage] = useState("");
   const [buttons, setButtons] = useState<{ label: string; value: string }[]>(
     [],
@@ -120,83 +301,23 @@ export default function EventModal({
   const [updatedEvent, setUpdatedEvent] = useState<Event | null>(null);
   const [getConfirmation, setGetConfirmation] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [mutationKind, setMutationKind] = useState<
+    "idle" | "updating" | "deleting"
+  >("idle");
+  const isMutationPending = isSubmitting || mutationKind !== "idle";
   const wasRecurring = event?.is_recurring ?? false;
-  const fileChangedRef = useRef(false);
+  const recurrenceCountMinimum =
+    event?.is_recurring && event.recurrence_rule?.count === 1 ? 1 : 2;
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const recurrenceDraftRef = useRef<Event["recurrence_rule"]>(
+    initialState.recurrenceRule,
+  );
+  const confirmDiscardChanges = useUnsavedChanges(isDirty);
 
   useEffect(() => {
-    if (event) {
-      let startDate: Date | string = event.start_date;
-      let endDate: Date | string = event.end_date;
-
-      if (occurrenceDate && event.is_recurring) {
-        // occurrenceDate is a day marker (EST day at UTC midnight); shift the
-        // original start by whole days so the event's time-of-day is preserved.
-        const DAY_MS = 24 * 60 * 60 * 1000;
-        const dayDiff = Math.round(
-          (occurrenceDate.getTime() - toEstDay(event.start_date).getTime()) /
-            DAY_MS,
-        );
-        const duration =
-          new Date(event.end_date).getTime() -
-          new Date(event.start_date).getTime();
-        startDate = new Date(
-          new Date(event.start_date).getTime() + dayDiff * DAY_MS,
-        );
-        endDate = new Date(startDate.getTime() + duration);
-      }
-
-      setImageUrl(event.poster_url ?? null);
-      setUseFile(!event.poster_url?.length);
-
-      if (event.is_recurring && event.recurrence_rule) {
-        const rule = event.recurrence_rule;
-        setFrequencyKind(rule.by_month_day ? "date" : "day");
-        setRecurrenceType(rule.count ? "count" : "date");
-      }
-
-      reset({
-        ...event,
-        start_date: formatDateTimeLocal(startDate),
-        end_date: formatDateTimeLocal(endDate),
-        recurrence_rule: event.is_recurring
-          ? {
-              ...event.recurrence_rule,
-              until: event.recurrence_rule?.until
-                ? new Date(event.recurrence_rule.until)
-                    .toISOString()
-                    .split("T")[0]
-                : undefined,
-            }
-          : undefined,
-      });
-      if (event.is_recurring && event.recurrence_rule?.frequency) {
-        setValue("recurrence_rule.frequency", event.recurrence_rule.frequency);
-      }
-    } else {
-      setImageUrl(null);
-      setImageFile(null);
-      setUseFile(true);
-      setFrequencyKind("day");
-      setRecurrenceType("date");
-      reset({
-        id: undefined,
-        title: "",
-        description: "",
-        location: "",
-        poster_url: null,
-        poster_alt: "",
-        poster_file: [],
-        call_to_action_link: "",
-        call_to_action_caption: "",
-        navigation_slug: "",
-        is_recurring: false,
-        start_date: formatDateTimeLocal(new Date()),
-        end_date: formatDateTimeLocal(new Date()),
-        recurrence_rule: undefined,
-      });
-    }
-  }, [event, occurrenceDate, reset, setValue]);
+    if (!imageUrl?.startsWith("blob:")) return;
+    return () => URL.revokeObjectURL(imageUrl);
+  }, [imageUrl]);
 
   const isRecurring = useWatch({ control, name: "is_recurring" });
   const frequency = useWatch({
@@ -209,65 +330,137 @@ export default function EventModal({
     name: "recurrence_rule.by_month_day",
   });
 
-  const handleImageChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      fileChangedRef.current = true;
-      if (file.size > FIVE_MB) {
-        setError("poster_file", {
-          message:
-            "This file is too big. Please select an image file less than 5MB.",
-        });
-      } else if (["image/png", "image/jpeg", "image/jpg"].includes(file.type)) {
-        setIsImageLoading(true);
-        setImageFile(file);
-        setImageUrl(URL.createObjectURL(file));
-      } else {
-        setError("poster_file", {
-          message:
-            "This is an unsupported file type. Please upload a JPG/JPEG or PNG image.",
-        });
-      }
-    } else {
-      const url = event.target.value;
-      if (url.length) {
-        fileChangedRef.current = true;
-        setIsImageLoading(true);
-        setImageUrl(url);
-      } else {
-        setImageFile(null);
-        setImageUrl(null);
-      }
-      clearErrors(["poster_file", "poster_url"]);
+  const restorePersistedPoster = () => {
+    const persistedUrl = event?.poster_url ?? null;
+    const persistedPreview = safePosterPreviewUrl(persistedUrl);
+    const persistedAlt = persistedUrl ? (event?.poster_alt ?? "") : "";
+    setValue("poster_url", persistedUrl, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    setValue("poster_alt", persistedAlt, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    setImageUrl(persistedPreview);
+    setImagePreviewError(null);
+    setIsImageLoading(Boolean(persistedPreview));
+  };
+
+  const handlePosterFileChange = (
+    changeEvent: ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = changeEvent.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > FIVE_MB) {
+      setValue("poster_file", null, { shouldDirty: true });
+      changeEvent.target.value = "";
+      restorePersistedPoster();
+      setError("poster_file", {
+        message:
+          "This file is too big. Please select an image file less than 5MB.",
+      });
+      return;
+    }
+
+    if (!["image/png", "image/jpeg", "image/jpg"].includes(file.type)) {
+      setValue("poster_file", null, { shouldDirty: true });
+      changeEvent.target.value = "";
+      restorePersistedPoster();
+      setError("poster_file", {
+        message:
+          "This is an unsupported file type. Please upload a JPG/JPEG or PNG image.",
+      });
+      return;
+    }
+
+    setValue("poster_file", file, {
+      shouldDirty: true,
+      shouldTouch: true,
+      shouldValidate: true,
+    });
+    setValue("poster_url", null, { shouldDirty: true });
+    clearErrors(["poster_file", "poster_url"]);
+    setImagePreviewError(null);
+    setIsImageLoading(true);
+    setImageUrl(URL.createObjectURL(file));
+  };
+
+  const handlePosterUrlChange = (url: string) => {
+    setValue("poster_file", null, { shouldDirty: true });
+    if (!url) {
+      setValue("poster_alt", "", {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+    }
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    const previewUrl = safePosterPreviewUrl(url);
+    setImagePreviewError(null);
+    setIsImageLoading(Boolean(previewUrl));
+    setImageUrl(previewUrl);
+    clearErrors("poster_file");
+    if (!url || previewUrl) clearErrors("poster_url");
+  };
+
+  // FileList stays at the DOM boundary; form and server state use File | null.
+  const fileRegistration = register("poster_file");
+  const handleRecurrenceToggle = (changeEvent: ChangeEvent<HTMLInputElement>) => {
+    if (changeEvent.target.checked && !getValues("recurrence_rule")) {
+      const nextRule = recurrenceDraftRef.current ?? {
+        frequency: "daily" as const,
+        interval: 1,
+        by_weekdays: [],
+        by_month_day: null,
+        by_set_position: [],
+        until: null,
+        count: null,
+        exdates: [],
+      };
+      setFrequencyKind(nextRule.by_month_day ? "date" : "day");
+      setRecurrenceType(nextRule.count ? "count" : "date");
+      setValue(
+        "recurrence_rule",
+        nextRule,
+        { shouldDirty: true },
+      );
+    } else if (!changeEvent.target.checked) {
+      recurrenceDraftRef.current = getValues("recurrence_rule");
+      setValue("recurrence_rule", undefined, { shouldDirty: true });
     }
   };
 
-  // Pass the handler through register options so RHF's own onChange still
-  // fires — overriding the onChange prop would stop values reaching form state.
-  const { ref: rhfFileRef, ...fileRegister } = register("poster_file", {
-    onChange: handleImageChange,
-  });
-  const posterUrlRegister = register("poster_url", {
-    onChange: handleImageChange,
-  });
+  const togglePosterSource = () => {
+    setValue("poster_file", null, { shouldDirty: true });
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    restorePersistedPoster();
+    clearErrors(["poster_file", "poster_url"]);
+    setUseFile((current) => !current);
+  };
   async function confirmAction(action?: string) {
-    showConfirmationModal(false);
-    if (action && action !== "no" && updatedEvent) {
+    if (!action || action === "no" || !updatedEvent) {
+      showConfirmationModal(false);
+      return;
+    }
+
+    setMutationKind("updating");
+    try {
       const response = await editEvent({
         ...updatedEvent,
         poster_url: updatedEvent.poster_url?.length
           ? updatedEvent.poster_url
           : null,
         poster_alt: updatedEvent.poster_alt ?? null,
-        poster_file: updatedEvent.poster_file ?? [],
+        poster_file: updatedEvent.poster_file ?? null,
         call_to_action_link: updatedEvent.call_to_action_link?.length
           ? updatedEvent.call_to_action_link
           : null,
         gallery_url: updatedEvent.gallery_url?.length
           ? updatedEvent.gallery_url
           : null,
-        start_date: new Date(updatedEvent.start_date),
-        end_date: new Date(updatedEvent.end_date),
+        start_date: torontoInputToUtc(updatedEvent.start_date),
+        end_date: torontoInputToUtc(updatedEvent.end_date),
         recurrence_rule: updatedEvent.is_recurring
           ? updatedEvent.recurrence_rule
           : undefined,
@@ -275,48 +468,59 @@ export default function EventModal({
           (action === "single" || action === "future") && occurrenceDate
             ? occurrenceDate
             : undefined,
-        action,
+        action: action as EditEventAction,
       });
-      if (response.data?.error) {
-        toast.error(response.data?.error);
-      } else if (response.validationErrors) {
-        toast.error(
-          "There seems to be something wrong with the form. Please double check your inputs.",
-        );
-        console.error(response.validationErrors);
+      const errorMessage = mutationError(response);
+      if (errorMessage) {
+        toast.error(errorMessage);
       } else {
         toast.success(
           response.data?.statusText ?? "Event updated successfully!",
         );
         reset();
         setImageUrl(null);
-        setImageFile(null);
-        fileChangedRef.current = false;
+        showConfirmationModal(false);
         closeModal(true);
       }
+    } catch (error) {
+      console.error(error);
+      toast.error(
+        error instanceof RangeError
+          ? error.message
+          : "The event could not be updated. Check your connection and try again.",
+      );
+    } finally {
+      setMutationKind("idle");
     }
   }
 
+  const onInvalid = (formErrors: FieldErrors<Event>) => {
+    const firstField = Object.keys(formErrors)[0];
+    const firstMessage = formErrors[firstField as keyof Event]?.message;
+
+    toast.error(
+      typeof firstMessage === "string"
+        ? firstMessage
+        : "Please review the highlighted fields before saving.",
+    );
+
+    requestAnimationFrame(() => {
+      const field = document.querySelector<HTMLElement>(
+        `[name="${firstField}"]`,
+      );
+      field?.scrollIntoView({ behavior: "smooth", block: "center" });
+      field?.focus();
+    });
+  };
   const onSubmit = async (data: Event) => {
-    if (data.recurrence_rule) {
-      if (data.recurrence_rule.frequency !== "daily") {
-        data.recurrence_rule.interval = 1;
-      }
-      if (frequencyKind === "date") {
-        data.recurrence_rule.by_set_position = [];
-        data.recurrence_rule.by_weekdays = [];
-      } else if (frequencyKind === "day") {
-        data.recurrence_rule.by_month_day = null;
-      }
-      if (recurrenceType === "date") {
-        data.recurrence_rule.count = null;
-      } else if (recurrenceType === "count") {
-        data.recurrence_rule.until = null;
-      }
-    }
-    setUpdatedEvent(data);
-    if (data.id) {
-      if (data.is_recurring && wasRecurring) {
+    const submission = normalizeEventForSubmission(
+      data,
+      frequencyKind,
+      recurrenceType,
+    );
+    setUpdatedEvent(submission);
+    if (submission.id) {
+      if (submission.is_recurring && wasRecurring) {
         setMessage(
           "This is a recurring event. Do you want to apply the changes to all instances, just this one, or this one and future instances?",
         );
@@ -326,7 +530,7 @@ export default function EventModal({
           { value: "future", label: "This + Future" },
         ]);
         showConfirmationModal();
-      } else if (!data.is_recurring && wasRecurring) {
+      } else if (!submission.is_recurring && wasRecurring) {
         setMessage(
           "You have removed the recurrence rule. In effect, all other instances of this event will be removed. Do you want to continue?",
         );
@@ -336,67 +540,97 @@ export default function EventModal({
         ]);
         showConfirmationModal();
       } else {
-        const response = await editEvent({
-          ...data,
-          poster_url: data.poster_url?.length ? data.poster_url : null,
-          poster_alt: data.poster_alt ?? null,
-          poster_file: data.poster_file ?? [],
-          call_to_action_link: data.call_to_action_link?.length
-            ? data.call_to_action_link
-            : null,
-          gallery_url: data.gallery_url?.length ? data.gallery_url : null,
-          start_date: new Date(data.start_date),
-          end_date: new Date(data.end_date),
-          recurrence_rule: data.is_recurring ? data.recurrence_rule : undefined,
-          action: "single",
-        });
-        if (response.data?.error) {
-          toast.error(response.data?.error);
-        } else if (response.validationErrors) {
+        setMutationKind("updating");
+        try {
+          const response = await editEvent({
+            ...submission,
+            poster_url: submission.poster_url?.length
+              ? submission.poster_url
+              : null,
+            poster_alt: submission.poster_alt ?? null,
+            poster_file: submission.poster_file ?? null,
+            call_to_action_link: submission.call_to_action_link?.length
+              ? submission.call_to_action_link
+              : null,
+            gallery_url: submission.gallery_url?.length
+              ? submission.gallery_url
+              : null,
+            start_date: torontoInputToUtc(submission.start_date),
+            end_date: torontoInputToUtc(submission.end_date),
+            recurrence_rule: submission.is_recurring
+              ? submission.recurrence_rule
+              : undefined,
+            action: "single",
+          });
+          const errorMessage = mutationError(response);
+          if (errorMessage) {
+            toast.error(errorMessage);
+          } else {
+            toast.success(
+              response.data?.statusText ?? "Event updated successfully!",
+            );
+            reset();
+            setImageUrl(null);
+            closeModal(true);
+          }
+        } catch (error) {
+          console.error(error);
           toast.error(
-            "There seems to be something wrong with the form. Please double check your inputs.",
+            error instanceof RangeError
+              ? error.message
+              : "The event could not be updated. Check your connection and try again.",
           );
-          console.error(response.validationErrors, response);
-        } else {
-          toast.success(
-            response.data?.statusText ?? "Event updated successfully!",
-          );
-          reset();
-          setImageUrl(null);
-          setImageFile(null);
-          fileChangedRef.current = false;
-          closeModal(true);
+        } finally {
+          setMutationKind("idle");
         }
       }
     } else {
-      const response = await createEvent({
-        ...data,
-        poster_url: data.poster_url?.length ? data.poster_url : null,
-        poster_alt: data.poster_alt ?? null,
-        poster_file: data.poster_file ?? [],
-        call_to_action_link: data.call_to_action_link?.length
-          ? data.call_to_action_link
-          : null,
-        gallery_url: data.gallery_url?.length ? data.gallery_url : null,
-        start_date: new Date(data.start_date),
-        end_date: new Date(data.end_date),
-        recurrence_rule: data.is_recurring ? data.recurrence_rule : undefined,
-      });
-      if (response.data?.error) {
-        toast.error(response.data?.error);
-      } else if (response.validationErrors) {
+      try {
+        const startDate = torontoInputToUtc(submission.start_date);
+        const response = await createEvent({
+          ...submission,
+          poster_url: submission.poster_url?.length
+            ? submission.poster_url
+            : null,
+          poster_alt: submission.poster_alt ?? null,
+          poster_file: submission.poster_file ?? null,
+          call_to_action_link: submission.call_to_action_link?.length
+            ? submission.call_to_action_link
+            : null,
+          gallery_url: submission.gallery_url?.length
+            ? submission.gallery_url
+            : null,
+          start_date: startDate,
+          end_date: torontoInputToUtc(submission.end_date),
+          recurrence_rule: submission.is_recurring
+            ? submission.recurrence_rule
+            : undefined,
+        });
+
+        if (response.validationErrors) {
+          console.error(response.validationErrors);
+          toast.error("Please review the form values and try again.");
+        } else if (response.serverError) {
+          toast.error(response.serverError);
+        } else if (!response.data) {
+          toast.error("The event could not be created. Please try again.");
+        } else if (response.data.error) {
+          toast.error(response.data.error);
+        } else {
+          toast.success(
+            response.data.statusText ?? "Event created successfully!",
+          );
+          reset();
+          setImageUrl(null);
+          closeModal(true, startDate);
+        }
+      } catch (error) {
+        console.error(error);
         toast.error(
-          "There seems to be something wrong with the form. Please double check your inputs.",
+          error instanceof RangeError
+            ? error.message
+            : "The event could not be created. Check your connection and try again.",
         );
-        console.error(response.validationErrors);
-      } else {
-        toast.success(
-          response.data?.statusText ?? "Event created successfully!",
-        );
-        reset();
-        setImageUrl(null);
-        setImageFile(null);
-        closeModal(true);
       }
     }
   };
@@ -405,46 +639,56 @@ export default function EventModal({
   };
 
   const handleDeleteConfirm = async (action: string) => {
-    setShowDeleteConfirm(false);
-    if (!event || action === "no") return;
-    const result = await deleteEvent({
-      id: event.id,
-      action,
-      recurrence_rule_id: event.recurrence_rule_id,
-      start_date: occurrenceDate ?? new Date(event.start_date),
-    });
-    if (result?.data?.error) {
-      toast.error(result.data.error);
-    } else {
-      toast.success("Event deleted successfully!");
-      reset();
-      setImageUrl(null);
-      setImageFile(null);
-      closeModal(true);
+    if (!event || action === "no") {
+      setShowDeleteConfirm(false);
+      return;
+    }
+
+    setMutationKind("deleting");
+    try {
+      const result = await deleteEvent({
+        id: event.id,
+        action: action as DeleteEventAction,
+        recurrence_rule_id: event.recurrence_rule_id,
+        start_date: occurrenceDate ?? new Date(event.start_date),
+      });
+      const errorMessage = mutationError(result);
+      if (errorMessage) {
+        toast.error(errorMessage);
+      } else {
+        toast.success(result.data?.statusText ?? "Event deleted successfully!");
+        reset();
+        setImageUrl(null);
+        setShowDeleteConfirm(false);
+        closeModal(true, undefined, true);
+      }
+    } catch (error) {
+      console.error(error);
+      toast.error(
+        "The event could not be deleted. Check your connection and try again.",
+      );
+    } finally {
+      setMutationKind("idle");
     }
   };
 
   const handleClose = () => {
-    if (
-      (isDirty || fileChangedRef.current) &&
-      !globalThis.confirm("Unsaved changes will be lost. Close anyway?")
-    )
-      return;
+    if (isMutationPending) return;
+    if (!confirmDiscardChanges()) return;
     reset();
     setImageUrl(null);
-    setImageFile(null);
-    fileChangedRef.current = false;
     closeModal(false);
   };
 
   const clearImage = () => {
     // setValue per-field — reset(partial) would replace ALL form values and
     // wipe title/description/dates.
-    setValue("poster_file", [], { shouldDirty: true });
+    setValue("poster_file", null, { shouldDirty: true });
     setValue("poster_url", null, { shouldDirty: true });
     setValue("poster_alt", "", { shouldDirty: true });
     if (fileInputRef.current) fileInputRef.current.value = "";
-    setImageFile(null);
+    setImagePreviewError(null);
+    setIsImageLoading(false);
     setImageUrl(null);
   };
   const handleTitleSlugSync = (e: { target: { value: string } }) => {
@@ -453,9 +697,12 @@ export default function EventModal({
         "navigation_slug",
         e.target.value
           .trim()
-          .replaceAll(/\s/g, "-")
-          .replaceAll(/[^\w-]/g, "")
+          .replaceAll(/\s+/g, "-")
+          .replaceAll(/[^a-zA-Z-]/g, "")
+          .replaceAll(/-+/g, "-")
+          .replaceAll(/^-+|-+$/g, "")
           .toLowerCase(),
+        { shouldDirty: true, shouldValidate: true },
       );
     }
   };
@@ -492,8 +739,9 @@ export default function EventModal({
           <button
             type="button"
             onClick={handleClose}
+            disabled={isMutationPending}
             aria-label="Close"
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-canvas hover:text-ink transition-colors"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-canvas hover:text-ink transition-colors disabled:cursor-not-allowed disabled:opacity-50"
           >
             <svg
               width="16"
@@ -509,7 +757,13 @@ export default function EventModal({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)}>
+        <form
+          onSubmit={handleSubmit(onSubmit, onInvalid)}
+          noValidate
+          aria-busy={isMutationPending}
+          className={isMutationPending ? "pointer-events-none" : ""}
+        >
+          <fieldset disabled={isMutationPending} className="contents">
           {/* Scrollable body */}
           <div className="px-6 py-5 flex flex-col gap-4 overflow-y-scroll">
             <input type="number" hidden {...register("id")} />
@@ -520,19 +774,20 @@ export default function EventModal({
                 maxLength={50}
                 placeholder="Event title"
                 {...register("title", {
-                  required: {
-                    value: true,
-                    message: "Please enter a title for the event.",
-                  },
                   maxLength: {
                     value: 50,
                     message:
                       "Please limit your title to less than 50 characters long.",
                   },
-                  minLength: {
-                    value: 3,
-                    message:
-                      "Please make sure your title is at least 3 characters long.",
+                  validate: (value) => {
+                    const trimmedTitle = value.trim();
+                    if (!trimmedTitle) {
+                      return "Please enter a title for the event.";
+                    }
+                    if (trimmedTitle.length < 3) {
+                      return "Please make sure your title is at least 3 characters long.";
+                    }
+                    return true;
                   },
                   onChange: handleTitleSlugSync,
                 })}
@@ -542,23 +797,24 @@ export default function EventModal({
             <Field label="Description" error={errors.description?.message}>
               <textarea
                 className={INPUT + " resize-none"}
-                maxLength={1000}
+                maxLength={1500}
                 rows={4}
                 placeholder="What's happening at this event?"
                 {...register("description", {
-                  required: {
-                    value: true,
-                    message: "Please enter a description for the event.",
-                  },
                   maxLength: {
-                    value: 1000,
+                    value: 1500,
                     message:
-                      "Please limit your description to less than 1000 characters long.",
+                      "Please limit your description to 1500 characters or fewer.",
                   },
-                  minLength: {
-                    value: 20,
-                    message:
-                      "Please make sure your description is at least 20 characters long.",
+                  validate: (value) => {
+                    const trimmedDescription = value.trim();
+                    if (!trimmedDescription) {
+                      return "Please enter a description for the event.";
+                    }
+                    if (trimmedDescription.length < 20) {
+                      return "Please make sure your description is at least 20 characters long.";
+                    }
+                    return true;
                   },
                 })}
               />
@@ -578,12 +834,21 @@ export default function EventModal({
                         "Please specify a start date and time for this event.",
                     },
                     validate: {
+                      validTorontoTime: validateTorontoWallTime,
                       validateStartDate: (
                         start_date: string | Date,
                         { end_date }: { end_date: string | Date },
                       ) => {
-                        if (end_date && start_date > end_date) {
-                          return "You cannot set the start datetime to be after the end datetime.";
+                        try {
+                          if (
+                            end_date &&
+                            torontoInputToUtc(start_date).getTime() >=
+                              torontoInputToUtc(end_date).getTime()
+                          ) {
+                            return "The event start datetime must be before the end datetime.";
+                          }
+                        } catch {
+                          return true;
                         }
                         return true;
                       },
@@ -608,15 +873,21 @@ export default function EventModal({
                         "Please specify an end date and time for this event.",
                     },
                     validate: {
+                      validTorontoTime: validateTorontoWallTime,
                       validateEndDate: (
                         end_date: string | Date,
                         { start_date }: { start_date: string | Date },
                       ) => {
-                        if (
-                          start_date &&
-                          new Date(start_date) >= new Date(end_date)
-                        ) {
-                          return "The event end datetime must be after the start datetime.";
+                        try {
+                          if (
+                            start_date &&
+                            torontoInputToUtc(start_date).getTime() >=
+                              torontoInputToUtc(end_date).getTime()
+                          ) {
+                            return "The event end datetime must be after the start datetime.";
+                          }
+                        } catch {
+                          return true;
                         }
                         return true;
                       },
@@ -630,12 +901,16 @@ export default function EventModal({
               <input
                 className={INPUT}
                 type="text"
+                maxLength={100}
                 placeholder="Where is this event held?"
                 {...register("location", {
-                  required: {
-                    value: true,
-                    message: "Please specify a location for this event",
+                  maxLength: {
+                    value: 100,
+                    message: "Please limit the location to 100 characters.",
                   },
+                  validate: (value) =>
+                    Boolean(value.trim()) ||
+                    "Please specify a location for this event.",
                 })}
               />
             </Field>
@@ -662,7 +937,11 @@ export default function EventModal({
                           call_to_action_link,
                         }: { call_to_action_link: string | null },
                       ) => {
-                        if (call_to_action_link && !call_to_action_caption) {
+                        const hasLink = Boolean(call_to_action_link?.trim());
+                        const hasCaption = Boolean(
+                          call_to_action_caption.trim(),
+                        );
+                        if (hasLink && !hasCaption) {
                           return "Please add a caption for the call to action button, or remove the link.";
                         }
                         return true;
@@ -677,21 +956,33 @@ export default function EventModal({
               >
                 <input
                   className={INPUT}
+                  type="url"
                   placeholder="https://…"
                   {...register("call_to_action_link", {
-                    pattern: {
-                      value: URL_REGEX,
-                      message:
-                        'Please enter a valid URL. Make sure it begins with "https://" and does not have any leading or trailing spaces.',
-                    },
+                    setValueAs: (value: string) => value.trim(),
                     validate: {
+                      validateSecureUrl: (call_to_action_link: string | null) => {
+                        if (!call_to_action_link) return true;
+                        try {
+                          return (
+                            new URL(call_to_action_link).protocol === "https:" ||
+                            'Please enter a valid URL beginning with "https://".'
+                          );
+                        } catch {
+                          return "Please enter a valid HTTPS URL.";
+                        }
+                      },
                       validateCallToActionLink: (
                         call_to_action_link: string | null,
                         {
                           call_to_action_caption,
                         }: { call_to_action_caption: string },
                       ) => {
-                        if (!call_to_action_link && call_to_action_caption) {
+                        const hasLink = Boolean(call_to_action_link?.trim());
+                        const hasCaption = Boolean(
+                          call_to_action_caption?.trim(),
+                        );
+                        if (!hasLink && hasCaption) {
                           return "Please add a link for the call to action button, or remove the caption.";
                         }
                         return true;
@@ -706,8 +997,23 @@ export default function EventModal({
               <input
                 className={INPUT}
                 type="url"
-                placeholder="https://…"
-                {...register("gallery_url")}
+                placeholder="https://institutei3-my.sharepoint.com/…"
+                {...register("gallery_url", {
+                  validate: (value) => {
+                    if (!value) return true;
+                    try {
+                      const gallery = new URL(value);
+                      return (
+                        (gallery.protocol === "https:" &&
+                          gallery.hostname ===
+                            "institutei3-my.sharepoint.com") ||
+                        "Use a secure institutei3-my.sharepoint.com gallery URL."
+                      );
+                    } catch {
+                      return "Enter a valid gallery URL.";
+                    }
+                  },
+                })}
               />
             </Field>
 
@@ -720,7 +1026,7 @@ export default function EventModal({
                 </p>
                 <button
                   type="button"
-                  onClick={() => setUseFile(!useFile)}
+                  onClick={togglePosterSource}
                   className="text-[11px] font-semibold text-teal hover:text-teal-dark transition-colors"
                 >
                   {useFile ? "Use image URL instead" : "Upload a file instead"}
@@ -728,12 +1034,35 @@ export default function EventModal({
               </div>
 
               {!useFile && (
-                <input
-                  type="url"
-                  className={INPUT}
-                  placeholder="https://… (image URL)"
-                  {...posterUrlRegister}
+                <Controller
+                  control={control}
+                  name="poster_url"
+                  rules={{
+                    validate: (value) =>
+                      !value ||
+                      Boolean(safePosterPreviewUrl(value)) ||
+                      "Use a secure poster URL from this site's Supabase project.",
+                  }}
+                  render={({ field }) => (
+                    <input
+                      type="url"
+                      className={INPUT}
+                      placeholder="https://… (image URL)"
+                      {...field}
+                      value={field.value ?? ""}
+                      onChange={(changeEvent) => {
+                        const value = changeEvent.target.value;
+                        field.onChange(value || null);
+                        handlePosterUrlChange(value);
+                      }}
+                    />
+                  )}
                 />
+              )}
+              {!useFile && errors.poster_url && (
+                <p className="text-[11px] text-coral">
+                  {errors.poster_url.message}
+                </p>
               )}
 
               {imageUrl ? (
@@ -745,13 +1074,19 @@ export default function EventModal({
                       </div>
                     )}
                     <Image
-                      src={imageUrl.length ? imageUrl : NO_IMAGE_URL}
+                      src={imageUrl}
                       alt=""
                       height={400}
                       width={400}
                       className={`max-h-56 w-auto object-contain transition-opacity duration-300 ${isImageLoading ? "opacity-0" : "opacity-100"}`}
                       loading="eager"
                       onLoad={() => setIsImageLoading(false)}
+                      onError={() => {
+                        setIsImageLoading(false);
+                        setImagePreviewError(
+                          "This poster could not be loaded. Check the URL or choose another image.",
+                        );
+                      }}
                     />
                   </div>
                   <div className="absolute top-2 right-2 flex gap-1.5">
@@ -796,16 +1131,23 @@ export default function EventModal({
                   </button>
                 )
               )}
+              {imagePreviewError && (
+                <p role="alert" className="text-[11px] text-coral">
+                  {imagePreviewError}
+                </p>
+              )}
 
               <input
                 type="file"
                 accept="image/png, image/jpeg, image/jpg"
                 className="hidden"
                 ref={(el) => {
-                  rhfFileRef(el);
+                  fileRegistration.ref(el);
                   fileInputRef.current = el;
                 }}
-                {...fileRegister}
+                name={fileRegistration.name}
+                onBlur={fileRegistration.onBlur}
+                onChange={handlePosterFileChange}
               />
               {errors.poster_file && (
                 <p className="text-[11px] text-coral">
@@ -835,15 +1177,16 @@ export default function EventModal({
                             poster_file,
                           }: {
                             poster_url: string | null;
-                            poster_file: File[] | null;
+                            poster_file: File | null;
                           },
                         ) => {
-                          if (!poster_url && !poster_file && poster_alt)
+                          const hasPoster = Boolean(
+                            poster_url?.trim() || poster_file,
+                          );
+                          const hasPosterAlt = Boolean(poster_alt.trim());
+                          if (!hasPoster && hasPosterAlt)
                             return "Please select an image to add as a poster.";
-                          if (
-                            (poster_url || poster_file?.length) &&
-                            !poster_alt
-                          )
+                          if (hasPoster && !hasPosterAlt)
                             return "For better accessibility, please describe this image.";
                           return true;
                         },
@@ -852,6 +1195,11 @@ export default function EventModal({
                   />
                 </Field>
               )}
+              <p className="text-[11px] leading-relaxed text-muted">
+                Choosing a new file or URL changes this event&apos;s poster. The
+                existing Storage object is not deleted because it may be used
+                elsewhere.
+              </p>
               <Field
                 label="Navigation Slug"
                 error={errors.navigation_slug?.message}
@@ -868,8 +1216,12 @@ export default function EventModal({
                     },
                     validate: {
                       validateNavigationSlug: (navigation_slug: string) => {
-                        if (navigation_slug.trim().match(/[^a-zA-Z-]/g)?.length)
-                          return "Please only use english alphabet characters and convert spaces into dashes";
+                        if (
+                          !/^[a-zA-Z]+(?:-[a-zA-Z]+)*$/.test(
+                            navigation_slug.trim(),
+                          )
+                        )
+                          return "Please use English letters separated by single dashes.";
                         return true;
                       },
                     },
@@ -889,10 +1241,23 @@ export default function EventModal({
                 </p>
               </div>
               <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="peer sr-only"
-                  {...register("is_recurring")}
+                <Controller
+                  control={control}
+                  name="is_recurring"
+                  render={({ field }) => (
+                    <input
+                      type="checkbox"
+                      className="peer sr-only"
+                      name={field.name}
+                      ref={field.ref}
+                      onBlur={field.onBlur}
+                      checked={field.value}
+                      onChange={(changeEvent) => {
+                        field.onChange(changeEvent.target.checked);
+                        handleRecurrenceToggle(changeEvent);
+                      }}
+                    />
+                  )}
                 />
                 <span className="w-10 h-6 rounded-full bg-line peer-checked:bg-teal transition-colors after:content-[''] after:absolute after:left-0.5 after:top-0.5 after:w-5 after:h-5 after:rounded-full after:bg-white after:shadow after:transition-transform peer-checked:after:translate-x-4" />
               </label>
@@ -912,8 +1277,26 @@ export default function EventModal({
                         className={INPUT + " w-20"}
                         type="number"
                         min={1}
+                        max={20}
                         placeholder="1"
-                        {...register("recurrence_rule.interval")}
+                        {...register("recurrence_rule.interval", {
+                          valueAsNumber: true,
+                          required: {
+                            value: isRecurring && frequency === "daily",
+                            message:
+                              "Please enter how many days should pass between occurrences.",
+                          },
+                          min: {
+                            value: 1,
+                            message:
+                              "The daily interval must be at least 1 day.",
+                          },
+                          max: {
+                            value: 20,
+                            message:
+                              "The daily interval cannot exceed 20 days.",
+                          },
+                        })}
                       />
                     )}
                     <Controller
@@ -944,6 +1327,12 @@ export default function EventModal({
                       {errors.recurrence_rule?.frequency.message}
                     </p>
                   )}
+                  {frequency === "daily" &&
+                    errors.recurrence_rule?.interval && (
+                      <p className="text-[11px] text-coral">
+                        {errors.recurrence_rule.interval.message}
+                      </p>
+                    )}
                 </div>
 
                 {/* Monthly: by day vs by date */}
@@ -958,8 +1347,13 @@ export default function EventModal({
                         value="day"
                         checked={frequencyKind === "day"}
                         onChange={(v) => {
-                          resetField("recurrence_rule.by_set_position", {
-                            defaultValue: [],
+                          setValue("recurrence_rule.by_month_day", null, {
+                            shouldDirty: true,
+                            shouldValidate: true,
+                          });
+                          setValue("recurrence_rule.by_set_position", [], {
+                            shouldDirty: true,
+                            shouldValidate: true,
                           });
                           setFrequencyKind(v);
                         }}
@@ -970,8 +1364,18 @@ export default function EventModal({
                         value="date"
                         checked={frequencyKind === "date"}
                         onChange={(v) => {
-                          resetField("recurrence_rule.by_month_day");
-                          resetField("recurrence_rule.by_weekdays");
+                          setValue("recurrence_rule.by_month_day", null, {
+                            shouldDirty: true,
+                            shouldValidate: true,
+                          });
+                          setValue("recurrence_rule.by_weekdays", [], {
+                            shouldDirty: true,
+                            shouldValidate: true,
+                          });
+                          setValue("recurrence_rule.by_set_position", [], {
+                            shouldDirty: true,
+                            shouldValidate: true,
+                          });
                           setFrequencyKind(v);
                         }}
                         label="By date"
@@ -981,29 +1385,61 @@ export default function EventModal({
                     {frequencyKind === "day" && (
                       <div className="flex flex-col gap-1.5">
                         <p className="text-[11px] text-muted">Repeat on the</p>
-                        <div className="flex flex-wrap gap-2">
-                          {frequencyKinds.map((kind) => (
-                            <label key={kind.label} className="cursor-pointer">
-                              <input
-                                type="checkbox"
-                                className="peer sr-only"
-                                value={kind.value}
-                                {...register(
-                                  "recurrence_rule.by_set_position",
-                                  {
-                                    required: {
-                                      value:
-                                        isRecurring && frequencyKind === "day",
-                                      message:
-                                        "Please select the week(s) you want this event to occur on.",
-                                    },
-                                  },
-                                )}
-                              />
-                              <span className={CHIP}>{kind.label}</span>
-                            </label>
-                          ))}
-                        </div>
+                        <Controller
+                          control={control}
+                          name="recurrence_rule.by_set_position"
+                          rules={{
+                            required: {
+                              value: isRecurring && frequencyKind === "day",
+                              message:
+                                "Please select the week(s) you want this event to occur on.",
+                            },
+                          }}
+                          render={({ field }) => (
+                            <div className="flex flex-wrap gap-2">
+                              {frequencyKinds.map((kind) => {
+                                const positions = field.value ?? [];
+                                const checked = positions.includes(kind.value);
+                                return (
+                                  <label
+                                    key={kind.label}
+                                    className="cursor-pointer"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      className="peer sr-only"
+                                      name={field.name}
+                                      value={kind.value}
+                                      checked={checked}
+                                      onBlur={field.onBlur}
+                                      onChange={(changeEvent) => {
+                                        const nextPositions =
+                                          changeEvent.target.checked
+                                            ? [...positions, kind.value]
+                                            : positions.filter(
+                                                (position) =>
+                                                  position !== kind.value,
+                                              );
+                                        field.onChange(
+                                          nextPositions.sort(
+                                            (left, right) =>
+                                              MONTH_POSITION_ORDER.indexOf(
+                                                left as 1 | 2 | -2 | -1,
+                                              ) -
+                                              MONTH_POSITION_ORDER.indexOf(
+                                                right as 1 | 2 | -2 | -1,
+                                              ),
+                                          ),
+                                        );
+                                      }}
+                                    />
+                                    <span className={CHIP}>{kind.label}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          )}
+                        />
                       </div>
                     )}
                     {frequencyKind === "date" && (
@@ -1012,10 +1448,24 @@ export default function EventModal({
                         className={INPUT}
                         placeholder="Enter a date of the month (between 1 & 31)"
                         {...register("recurrence_rule.by_month_day", {
+                          valueAsNumber: true,
                           required: {
-                            value: isRecurring && frequencyKind === "date",
+                            value:
+                              isRecurring &&
+                              frequency === "monthly" &&
+                              frequencyKind === "date",
                             message:
                               "Please enter a date of month that you want this event to repeat on.",
+                          },
+                          min: {
+                            value: 1,
+                            message:
+                              "The day of the month must be between 1 and 31.",
+                          },
+                          max: {
+                            value: 31,
+                            message:
+                              "The day of the month must be between 1 and 31.",
                           },
                         })}
                         min={1}
@@ -1096,7 +1546,10 @@ export default function EventModal({
                       value="date"
                       checked={recurrenceType === "date"}
                       onChange={(v) => {
-                        resetField("recurrence_rule.count");
+                        setValue("recurrence_rule.count", null, {
+                          shouldDirty: true,
+                          shouldValidate: true,
+                        });
                         setRecurrenceType(v);
                       }}
                       label="Until"
@@ -1106,7 +1559,10 @@ export default function EventModal({
                       value="count"
                       checked={recurrenceType === "count"}
                       onChange={(v) => {
-                        resetField("recurrence_rule.until");
+                        setValue("recurrence_rule.until", null, {
+                          shouldDirty: true,
+                          shouldValidate: true,
+                        });
                         setRecurrenceType(v);
                       }}
                       label="For"
@@ -1125,12 +1581,12 @@ export default function EventModal({
                           validate: {
                             validateRecursUntilTime: (
                               until,
-                              { end_date }: { end_date: string | Date },
+                              { start_date }: { start_date: string | Date },
                             ) => {
-                              const parsedDate = new Date(until ?? "");
-                              const eventEndDate = new Date(end_date ?? "");
-                              if (parsedDate < eventEndDate) {
-                                return "The recurrence end date must be later than the event's end date.";
+                              const untilDay = String(until ?? "").slice(0, 10);
+                              const startDay = String(start_date ?? "").slice(0, 10);
+                              if (untilDay < startDay) {
+                                return "The recurrence end date must be on or after the event's Toronto start date.";
                               }
                               return true;
                             },
@@ -1143,14 +1599,29 @@ export default function EventModal({
                         <input
                           className={INPUT}
                           type="number"
-                          min={2}
+                          min={recurrenceCountMinimum}
                           max={20}
-                          placeholder="2–20"
+                          placeholder={
+                            recurrenceCountMinimum === 1 ? "1–20" : "2–20"
+                          }
                           {...register("recurrence_rule.count", {
+                            valueAsNumber: true,
                             required: {
                               value: isRecurring && recurrenceType === "count",
                               message:
                                 "Please indicate how many occurences you want to generate of this event.",
+                            },
+                            min: {
+                              value: recurrenceCountMinimum,
+                              message:
+                                recurrenceCountMinimum === 1
+                                  ? "The occurrence count must be at least 1."
+                                  : "A recurring series must contain at least 2 occurrences.",
+                            },
+                            max: {
+                              value: 20,
+                              message:
+                                "The occurrence count cannot exceed 20.",
                             },
                           })}
                         />
@@ -1184,6 +1655,7 @@ export default function EventModal({
                 <button
                   type="button"
                   onClick={() => setShowDeleteConfirm(true)}
+                  disabled={isMutationPending}
                   className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-[13px] font-semibold text-coral border border-coral/30 hover:bg-coral/5 transition-colors"
                 >
                   <svg
@@ -1203,19 +1675,11 @@ export default function EventModal({
               {event && (
                 <Link
                   href={`/dashboard/events/${event.id}/posts`}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-[13px] font-semibold text-ink border border-line hover:bg-canvas transition-colors"
-                  onClick={(e) => {
-                    if (
-                      (isDirty || fileChangedRef.current) &&
-                      !globalThis.confirm(
-                        "Unsaved changes will be lost. Continue?",
-                      )
-                    ) {
-                      e.preventDefault();
-                      return;
-                    }
-                    closeModal(false);
+                  aria-disabled={isMutationPending}
+                  onClick={(linkEvent) => {
+                    if (isMutationPending) linkEvent.preventDefault();
                   }}
+                  className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-[13px] font-semibold text-ink border border-line hover:bg-canvas transition-colors ${isMutationPending ? "pointer-events-none opacity-50" : ""}`}
                 >
                   Manage Posts
                 </Link>
@@ -1226,16 +1690,17 @@ export default function EventModal({
               <button
                 type="button"
                 onClick={handleClose}
+                disabled={isMutationPending}
                 className="px-4 py-2 rounded-xl text-[13px] font-semibold text-ink border border-line hover:bg-canvas transition-colors"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                disabled={isSubmitting}
+                disabled={isMutationPending}
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold text-white bg-teal hover:bg-teal-dark disabled:opacity-50 transition-colors shadow-[0_4px_12px_-4px_rgba(15,128,115,.5)]"
               >
-                {isSubmitting ? (
+                {isSubmitting || mutationKind === "updating" ? (
                   <span className="loading loading-spinner loading-xs" />
                 ) : (
                   <svg
@@ -1253,6 +1718,7 @@ export default function EventModal({
               </button>
             </div>
           </div>
+          </fieldset>
         </form>
       </div>
       {getConfirmation && (
@@ -1260,6 +1726,7 @@ export default function EventModal({
           message={message}
           buttons={buttons}
           closeModal={confirmAction}
+          isLoading={mutationKind === "updating"}
         />
       )}
       {showDeleteConfirm && (
@@ -1283,6 +1750,7 @@ export default function EventModal({
                 ]
           }
           closeModal={handleDeleteConfirm}
+          isLoading={mutationKind === "deleting"}
         />
       )}
     </>
