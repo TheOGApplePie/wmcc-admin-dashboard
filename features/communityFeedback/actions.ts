@@ -3,6 +3,7 @@ import { createSafeActionClient } from "next-safe-action";
 import { createClient } from "../../utils/supabase/server";
 import { CommunityFeedback } from "@/app/schemas/communityFeedback";
 import z from "zod";
+import { assertPermission } from "@/features/access/server";
 const actionClient = createSafeActionClient();
 
 export const fetchFeedback = actionClient
@@ -17,6 +18,7 @@ export const fetchFeedback = actionClient
   )
   .action(async ({ parsedInput }) => {
     try {
+      await assertPermission("feedback", "view");
       const supabase = await createClient();
       let query = supabase
         .from("community-feedback")

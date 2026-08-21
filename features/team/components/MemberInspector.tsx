@@ -17,6 +17,7 @@ import {
   presetPerms,
   type MemberRole,
   type PermissionMap,
+  PERMISSION_MODULES,
 } from "@/features/team/permissions";
 import type { Profile } from "@/features/team/types";
 import {
@@ -94,7 +95,20 @@ export function MemberInspector({
   }
 
   function togglePerm(mod: string, act: string) {
-    setPerms((prev) => ({ ...prev, [`${mod}.${act}`]: !prev[`${mod}.${act}`] }));
+    const action = PERMISSION_MODULES.find((item) => item.key === mod)?.actions.find((item) => item.key === act);
+    if (!perms[`${mod}.${act}`] && action?.sensitive && !window.confirm(`Grant the sensitive permission “${action.label}”?`)) return;
+    setPerms((prev) => {
+      const next = { ...prev, [`${mod}.${act}`]: !prev[`${mod}.${act}`] };
+      const permissionModule = PERMISSION_MODULES.find((item) => item.key === mod);
+      if (act === "view" && !next[`${mod}.view`]) {
+        for (const moduleAction of permissionModule?.actions ?? []) {
+          next[`${mod}.${moduleAction.key}`] = false;
+        }
+      } else if (act !== "view" && next[`${mod}.${act}`] && permissionModule?.actions.some((item) => item.key === "view")) {
+        next[`${mod}.view`] = true;
+      }
+      return next;
+    });
   }
 
   async function handleSave() {
@@ -186,13 +200,15 @@ export function MemberInspector({
             <Icon d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z M12 6v6l4 2" size={14} />
             Invite sent {fmtDate(member.created_at)}
           </span>
-          <button
-            onClick={handleResendInvite}
-            disabled={resending}
-            className="font-semibold hover:underline disabled:opacity-60"
-          >
-            {resending ? "Sending…" : "Resend invite"}
-          </button>
+          {viewerCanManage && !isYou && (
+            <button
+              onClick={handleResendInvite}
+              disabled={resending}
+              className="font-semibold hover:underline disabled:opacity-60"
+            >
+              {resending ? "Sending…" : "Resend invite"}
+            </button>
+          )}
         </div>
       )}
 
@@ -212,16 +228,21 @@ export function MemberInspector({
               </button>
             )}
           </div>
-          <div className="grid grid-cols-3 gap-2">
-            {ROLES.map((r) => {
+          {readOnly ? (
+            <div className="rounded-xl border border-line bg-canvas/40 p-3">
+              <span className="block text-[12px] font-bold text-ink">{ROLE_LABELS[role]}</span>
+              <span className="mt-0.5 block text-[10px] leading-snug text-muted">{ROLE_BLURBS[role]}</span>
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-2">
+              {ROLES.map((r) => {
               const on = role === r;
               return (
                 <button
                   key={r}
                   type="button"
                   onClick={() => pickRole(r)}
-                  disabled={readOnly}
-                  className={`rounded-xl border-2 p-2.5 text-left transition-all disabled:cursor-not-allowed ${
+                  className={`rounded-xl border-2 p-2.5 text-left transition-all ${
                     on
                       ? "border-teal bg-teal-soft/40"
                       : "border-line hover:border-stone-300 disabled:hover:border-line"
@@ -234,9 +255,10 @@ export function MemberInspector({
                     {ROLE_BLURBS[r]}
                   </span>
                 </button>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
           <div className="mt-2 text-[11px]">
             {custom ? (
               <span
@@ -301,6 +323,7 @@ export function MemberInspector({
       </div>
 
       {/* ── Footer ──────────────────────────────────────────────────────────── */}
+      {(viewerCanManage || isYou) && (
       <div className="mt-3 flex items-center justify-between border-t border-line pt-4">
         {isYou ? (
           <p className="text-[11px] text-muted">You can&apos;t change your own access.</p>
@@ -309,7 +332,7 @@ export function MemberInspector({
             variant="soft"
             size="sm"
             onClick={handleReactivate}
-            disabled={deactivating || !viewerCanManage}
+            disabled={deactivating}
           >
             <Icon d="M21 12a9 9 0 0 1-15 6.7L3 16 M3 12a9 9 0 0 1 15-6.7L21 8 M21 3v5h-5 M3 21v-5h5" size={14} />
             {deactivating ? "Reactivating…" : "Reactivate"}
@@ -319,7 +342,7 @@ export function MemberInspector({
             variant="danger"
             size="sm"
             onClick={handleDeactivate}
-            disabled={deactivating || !viewerCanManage}
+            disabled={deactivating}
           >
             <Icon d="M3 6h18 M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2 M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6" size={14} />
             {deactivating ? "Deactivating…" : "Deactivate"}
@@ -349,6 +372,7 @@ export function MemberInspector({
           </div>
         )}
       </div>
+      )}
     </Card>
   );
 }

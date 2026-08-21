@@ -14,6 +14,7 @@ import type { PostQueueProps } from "@/features/socialPosts/types";
 import { publishSocialPost } from "@/actions/socialPosts";
 import SocialPostStatusBadge from "./SocialPostStatusBadge";
 import toast from "react-hot-toast";
+import { useCan } from "@/store/hooks";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -85,6 +86,7 @@ function QueueItem({
   onMarkSent: (updated: SocialPost) => void;
 }>) {
   const [marking, setMarking] = useState(false);
+  const canSend = useCan("social.send");
 
   const handleMarkSent = async () => {
     setMarking(true);
@@ -196,7 +198,7 @@ function QueueItem({
       </button>
 
       {/* Mark as sent — sibling of the card button, not nested inside it */}
-      {post.status === "scheduled" && (
+      {post.status === "scheduled" && canSend && (
         <div className="px-3 pb-3">
           <button
             type="button"

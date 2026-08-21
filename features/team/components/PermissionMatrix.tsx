@@ -64,6 +64,7 @@ export function PermissionMatrix({
               const key = `${mod.key}.${act.key}`;
               const on = perms[key] ?? false;
               const changed = preset[key] !== on;
+              const boardOnly = key === "users.manage" || key === "users.delete";
 
               return (
                 <div key={act.key} className="flex items-center gap-2 px-3 py-2">
@@ -74,6 +75,7 @@ export function PermissionMatrix({
                       Sensitive
                     </span>
                   )}
+                  {boardOnly && <span className="text-[9px] font-bold uppercase tracking-wide text-violet">Board only</span>}
 
                   {changed && (
                     <span className="text-[9px] font-bold uppercase tracking-wide text-violet">
@@ -81,11 +83,17 @@ export function PermissionMatrix({
                     </span>
                   )}
 
-                  <Toggle
-                    on={on}
-                    disabled={readOnly}
-                    onClick={() => onToggle(mod.key, act.key)}
-                  />
+                  {readOnly ? (
+                    <span className={`text-[10px] font-semibold ${on ? "text-teal-dark" : "text-muted"}`}>
+                      {on ? "Allowed" : "Not granted"}
+                    </span>
+                  ) : (
+                    <Toggle
+                      on={on}
+                      disabled={boardOnly}
+                      onClick={() => onToggle(mod.key, act.key)}
+                    />
+                  )}
                 </div>
               );
             })}

@@ -21,6 +21,7 @@ import ConfirmationModal from "../../features/announcements/modals/ConfirmationM
 import { formatDateTimeLocal, torontoInputToUtc } from "../utils/date";
 import { Field, INPUT } from "./ui/Field";
 import { useUnsavedChanges } from "@/features/events/hooks/useUnsavedChanges";
+import { useCan } from "@/store/hooks";
 
 const WEEKDAY_ORDER = ["su", "mo", "tu", "we", "th", "fr", "sa"] as const;
 const MONTH_POSITION_ORDER = [1, 2, -2, -1] as const;
@@ -244,6 +245,8 @@ export default function EventModal({
   occurrenceDate,
   closeModal,
 }: Readonly<EventModalProps>) {
+  const canDelete = useCan("events.delete");
+  const canManagePosts = useCan("social.edit");
   const initialState = useMemo(
     () => buildModalInitialState(event, occurrenceDate),
     [event, occurrenceDate],
@@ -1651,7 +1654,7 @@ export default function EventModal({
           {/* Footer */}
           <div className="sticky bottom-0 bg-(--color-base-100) flex items-center justify-between px-6 py-4 border-t border-line">
             <div className="flex items-center gap-2">
-              {event && (
+              {event && canDelete && (
                 <button
                   type="button"
                   onClick={() => setShowDeleteConfirm(true)}
@@ -1672,7 +1675,7 @@ export default function EventModal({
                   Delete
                 </button>
               )}
-              {event && (
+              {event && canManagePosts && (
                 <Link
                   href={`/dashboard/events/${event.id}/posts`}
                   aria-disabled={isMutationPending}

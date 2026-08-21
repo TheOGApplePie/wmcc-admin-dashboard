@@ -3,7 +3,7 @@
 -- Creates the profiles table that backs the Team module: who has access to the
 -- dashboard and exactly what each person can do.
 --
--- Permission model: three role presets (board / management / volunteer) over a
+-- Permission model: three role presets (board / management / general) over a
 -- per-module action matrix, with per-user JSONB overrides applied on top.
 -- The preset definition lives in features/team/permissions.ts (client + server)
 -- and is mirrored here inside has_perm() — keep the two in sync.
@@ -16,7 +16,7 @@
 
 -- ── Enums ─────────────────────────────────────────────────────────────────────
 
-CREATE TYPE member_role   AS ENUM ('board', 'management', 'volunteer');
+CREATE TYPE member_role   AS ENUM ('board', 'management', 'general');
 CREATE TYPE member_status AS ENUM ('invited', 'active', 'inactive');
 
 -- ── Table ─────────────────────────────────────────────────────────────────────
@@ -26,7 +26,7 @@ CREATE TABLE profiles (
   display_name         TEXT          NOT NULL,
   email                TEXT          NOT NULL,
   avatar_path          TEXT,                                  -- Supabase Storage key in 'avatars'
-  role                 member_role   NOT NULL DEFAULT 'volunteer',
+  role                 member_role   NOT NULL DEFAULT 'general',
   status               member_status NOT NULL DEFAULT 'invited',
   area                 TEXT,                                  -- soft label, e.g. "Social Media"
   permission_overrides JSONB         NOT NULL DEFAULT '{}',   -- {"social.send": true, ...}
@@ -80,7 +80,7 @@ BEGIN
       'feedback.view', 'feedback.respond',
       'users.view'
     )
-    WHEN 'volunteer' THEN v_key IN (
+    WHEN 'general' THEN v_key IN (
       'announcements.view', 'announcements.edit',
       'events.view', 'events.edit',
       'social.view', 'social.edit',

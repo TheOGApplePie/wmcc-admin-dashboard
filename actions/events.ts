@@ -12,12 +12,12 @@ import {
   EditEventZod,
   DeleteEventZod,
 } from "@/app/schemas/events";
-import { logAudit } from "@/utils/audit";
 import { resolveStorageUrl } from "@/utils/uploadFiles";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { EVENT_TIME_ZONE, torontoDate } from "@/app/utils/date";
 import { RRule, type Weekday } from "rrule";
 import { Temporal } from "temporal-polyfill";
+import { assertPermission } from "@/features/access/server";
 
 const actionClient = createSafeActionClient();
 
@@ -29,6 +29,7 @@ export const createEvent = actionClient
   .inputSchema(CreateEventZod)
   .action(async ({ parsedInput }) => {
     try {
+      await assertPermission("events", "edit");
       const supabase = await createClient();
       if (
         parsedInput.is_recurring &&
@@ -103,9 +104,6 @@ export const createEvent = actionClient
 
       if (error) throw new Error(error.message);
 
-      if (data)
-        await logAudit(supabase, "event", data.id, "create", parsedInput.title);
-
       return {
         error: "",
         data,
@@ -129,6 +127,7 @@ export const editEvent = actionClient
   .inputSchema(EditEventZod)
   .action(async ({ parsedInput }) => {
     try {
+      await assertPermission("events", "edit");
       const supabase = await createClient();
       const storedEvent = await getStoredEventState(
         supabase,
@@ -185,14 +184,6 @@ export const editEvent = actionClient
           storedSeries.ruleId,
           "detached recurrence rule after converting an event to non-recurring",
         );
-        if (parsedInput.id)
-          await logAudit(
-            supabase,
-            "event",
-            parsedInput.id,
-            "update",
-            "removed recurrence",
-          );
         return {
           error: "",
           data: null,
@@ -559,15 +550,6 @@ export const editEvent = actionClient
         }
       }
 
-      if (parsedInput.id)
-        await logAudit(
-          supabase,
-          "event",
-          parsedInput.id,
-          "update",
-          parsedInput.action ?? "single",
-        );
-
       return {
         error: "",
         data: null,
@@ -591,6 +573,7 @@ export const deleteEvent = actionClient
   .inputSchema(DeleteEventZod)
   .action(async ({ parsedInput }) => {
     try {
+      await assertPermission("events", "delete");
       const supabase = await createClient();
       const storedEvent = await getStoredEventState(
         supabase,
@@ -695,14 +678,6 @@ export const deleteEvent = actionClient
         throwOnSupabaseError(eventDeleteResult);
       }
 
-      await logAudit(
-        supabase,
-        "event",
-        parsedInput.id,
-        "delete",
-        parsedInput.action,
-      );
-
       return {
         error: "",
         data: null,
@@ -731,6 +706,7 @@ export const fetchAllEvents = actionClient
   )
   .action(async ({ parsedInput }) => {
     try {
+      await assertPermission("events", "view");
       const supabase = await createClient();
       const startIso = parsedInput.rangeStart.toISOString();
       const endIso = parsedInput.rangeEnd.toISOString();

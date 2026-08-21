@@ -4,7 +4,7 @@ import type {
   SocialChannel,
   SocialPostType,
   EventOption,
-  AdminUserOption,
+  AssigneeOption,
 } from "@/app/schemas/socialPosts";
 
 // ─── Form ─────────────────────────────────────────────────────────────────────
@@ -29,7 +29,7 @@ export interface PostComposerProps {
   isNew:      boolean;
   events:     EventOption[];
   allPosts:   SocialPost[];
-  adminUsers: AdminUserOption[];
+  adminUsers: AssigneeOption[];
   onSaved:    (post: SocialPost) => void;
   onDeleted:  (id: string) => void;
   onCancel?:  () => void;
@@ -58,5 +58,5 @@ export interface StatCardProps {
 export interface SocialPostsClientProps {
   initialPosts: SocialPost[];
   events:       EventOption[];
-  adminUsers:   AdminUserOption[];
+  adminUsers:   AssigneeOption[];
 }
