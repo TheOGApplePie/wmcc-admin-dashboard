@@ -9,7 +9,7 @@ Internal admin panel for managing the Waterdown Muslim Community Centre's public
 - **Social Posts** — Plan and schedule social media posts across Instagram Feed, Instagram Story, and WhatsApp. Posts flow through an `idea → draft → scheduled → published/failed` lifecycle. Phase 1 is a fully manual workflow: admins compose, schedule, and confirm publication. Phase 2 will integrate live publishing via Instagram Graph API and WhatsApp Business Cloud API.
 - **Community Feedback** — View and filter feedback submitted through the public site, with a fixed full-viewport layout and slide-in detail pane.
 - **Notifications** — In-app notification bell with 60-second polling badge and dropdown preview of recent notifications.
-- **Users Management** — Manage admin user accounts.
+- **Team & Access** — Board-managed invitations, account lifecycle, role presets, and per-member permission overrides with read-only roster access for Management.
 
 ## Tech Stack
 
@@ -23,6 +23,7 @@ Internal admin panel for managing the Waterdown Muslim Community Centre's public
 | Calendar | FullCalendar v7 (daygrid, rrule, interaction) |
 | Forms | react-hook-form + Zod v4 |
 | Server Actions | next-safe-action v8 |
+| Client state | Redux Toolkit v2 + React Redux v9 |
 | Toasts | react-hot-toast |
 | Rate limiting | Upstash Redis |
 
@@ -30,7 +31,7 @@ Internal admin panel for managing the Waterdown Muslim Community Centre's public
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 20+
 - A Supabase project with the required tables (see Database Schema below)
 
 ### Installation
@@ -92,6 +93,57 @@ npm start
 
 > **Note:** Routes that use Supabase auth are server-rendered on demand. Next.js will report them as dynamic during the build — this is expected behaviour.
 
+## Authorization Architecture
+
+PostgreSQL is the authoritative permission boundary. Redux controls UI
+visibility only and is never accepted as proof of authorization.
+
+### Roles
+
+| Role | Default access |
+|---|---|
+| **Board** | Full module access and exclusive Team/access administration |
+| **Management** | Full content operations, feedback responses, and read-only Team roster access |
+| **General** | View and edit content; cannot publish, send, delete, respond, or access Team administration |
+
+Per-member JSON overrides can grant or revoke module permissions. The
+`users.manage` and `users.delete` permissions are always Board-only and cannot
+be delegated. Invited and inactive profiles resolve to no permissions.
+
+### Enforcement layers
+
+1. `private.has_perm()` evaluates the authenticated user's active profile,
+   role preset, and overrides.
+2. Supabase RLS and explicit PostgreSQL grants protect direct table access.
+3. `get_my_access()` returns a caller-scoped DTO used by the Next.js DAL.
+4. Server-rendered pages reject unauthorized direct URLs.
+5. Every Server Action independently authorizes its operation.
+6. A request-scoped Redux store hides unauthorized navigation, widgets, and
+   CTAs. Client state is presentation-only.
+
+Management roster and Social assignee data are returned through limited RPCs;
+they do not expose Supabase Auth user objects, email addresses, notification
+preferences, or permission overrides.
+
+Notifications are personal infrastructure available to every active member and
+remain outside the module permission matrix.
+
+### Access-related database rollout
+
+For an environment where migration 012 has already been applied, run these
+forward migrations in order before deploying the matching application build:
+
+```text
+013_permission_boundary.sql
+014_access_api.sql
+015_audit_hardening.sql
+```
+
+Migration 013 intentionally replaces the final RLS policy set. Apply and verify
+the migrations in staging first. See
+[`supabase/ACCESS_HARDENING_RUNBOOK.md`](supabase/ACCESS_HARDENING_RUNBOOK.md)
+for preflight, verification queries, and the manual role matrix.
+
 ## Social Posts — Phase 1 Architecture
 
 Phase 1 is a **fully manual workflow**. There is no automatic publishing to social media APIs.
@@ -108,7 +160,7 @@ Phase 1 is a **fully manual workflow**. There is no automatic publishing to soci
 | **Media upload** | Required for `ig_feed` and `ig_story` posts; stored in the `social-media` Supabase Storage bucket |
 | **IG aspect ratio** | Feed: enforces standard ratios (1:1, 4:5, 1.91:1). Story: width/height ≤ 0.64 (9:16 target) |
 | **Event linking** | `ANNOUNCEMENT` and `REMINDER` posts must be linked to an event |
-| **Audit trail** | Every create/update/delete/schedule/publish action is logged to `audit_logs` |
+| **Audit trail** | Database triggers record immutable row mutations in `audit_logs` |
 
 ### Phase 2 (planned)
 
@@ -188,8 +240,6 @@ before their related work is implemented:
 - How occurrence and series mutations affect social posts, campaigns, and
   scheduled reminders.
 - The long-term navigation-slug collision and uniqueness strategy.
-- Event permissions by role. Event RLS is enabled, but the detailed permission
-  model belongs to a separate pull request.
 - Add optimistic concurrency for simultaneous edits by multiple administrators.
   Introduce an authoritative `updated_at` or version column, require the
   version read by the modal on every update/delete, return a specific stale
@@ -232,12 +282,6 @@ before their related work is implemented:
   defaults, poster lifecycle, and mutations, and a form-to-action payload
   mapper. Preserve dirty-state semantics and all loading/success/error states
   while adding focused component boundaries.
-- Run and resolve repository-wide lint in its dedicated cleanup PR.
-- Make event audit logging authoritative in the next release. Decide whether
-  authenticated inserts use an `audit_logs` RLS policy constrained to
-  `user_id = auth.uid()` or a server-owned/`SECURITY DEFINER` RPC; stop ignoring
-  insert failures; define whether an audit failure rolls back the mutation;
-  and test authenticated, anonymous, and service-role behavior.
 - Review the product meaning of selecting multiple weekdays together with
   multiple monthly positions. The current implementation follows standard
   RRULE `BYDAY` + `BYSETPOS` semantics; any "first Monday and first Wednesday"
@@ -264,7 +308,10 @@ before their related work is implemented:
 | `created_at` | `timestamptz` | |
 | `updated_at` | `timestamptz` | Auto-updated via trigger |
 
-RLS policies: authenticated users can SELECT/INSERT/UPDATE/DELETE all posts (team collaboration model). INSERT requires `created_by = auth.uid()`.
+RLS policies use the effective permission matrix. `social.view` is required to
+read posts, `social.edit` to create/update, `social.send` for scheduling and
+publishing actions, and `social.delete` to delete. Inserts additionally require
+`created_by = auth.uid()`.
 
 ### `notifications`
 
@@ -291,9 +338,17 @@ RLS policies: authenticated users can SELECT and UPDATE their own rows. INSERT r
 | `user_email` | `text` | Denormalized for display |
 | `entity_type` | `text` | e.g. `social_post`, `event` |
 | `entity_id` | `text` | Supports both UUID and integer entity IDs |
-| `action` | `text` | `create` \| `update` \| `delete` \| `schedule` \| `publish` |
-| `detail` | `text` | Human-readable summary of the change |
+| `action` | `text` | Database operation or validated workflow activity |
+| `detail` | `text` | Optional workflow detail |
+| `changed_fields` | `text[]` | Changed column names for update operations |
+| `metadata` | `jsonb` | Minimal non-content context about the activity |
 | `occurred_at` | `timestamptz` | |
+
+Audit rows are written by protected database triggers. Authenticated clients
+cannot insert, update, or delete audit rows, and only active Board members can
+read them. Service-role maintenance without a user JWT is intentionally not
+attributed to a person; Board-initiated invitation workflows use the narrowly
+validated `record_profile_activity()` RPC.
 
 ## Project Structure
 
@@ -311,6 +366,7 @@ actions/
   events.ts               # Event CRUD actions
   notifications.ts        # Notification read/fetch actions
 features/
+  access/               # Server-only DAL, access DTOs, Redux refresh bridge
   socialPosts/
     components/           # PostComposer, PostQueue, PostPreview, StatsStrip, …
     components/icons.tsx  # Named SVG icon components
@@ -318,13 +374,29 @@ features/
     types.ts              # Shared prop interfaces for all socialPosts components
   communityFeedback/      # Community feedback table with DVH layout and detail pane
 supabase/
-  migrations/             # SQL migration files (run in order, 001 → 011)
+  migrations/             # SQL migrations (run in numeric order, currently 001 → 015)
+  ACCESS_HARDENING_RUNBOOK.md
+store/                    # Request-scoped Redux Toolkit store and typed hooks
 utils/
   actionResponse.ts       # ok() / fail() / clientFail() response envelope helpers
-  audit.ts                # logAudit() helper for the audit_logs table
   supabase/               # Supabase server/client/serviceRole helpers
 ```
 
+## Validation
+
+Before pushing or deploying:
+
+```bash
+npx tsc --noEmit
+npm run lint
+npm run build
+```
+
+Automated role/RLS coverage is intentionally deferred to a dedicated test PR;
+the migration runbook contains the required staging verification matrix.
+
 ## Deployment
 
-The project is deployed on Vercel. Push to `main` to trigger a production deployment.
+The project is deployed on Vercel. Database migrations must be applied and
+verified before deploying an application build that depends on new RPCs. Push
+to `main` only after the Supabase rollout and staging checks are complete.

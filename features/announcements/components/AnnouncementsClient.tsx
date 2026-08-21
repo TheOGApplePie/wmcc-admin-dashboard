@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import Image from "next/image";
 import {
   DndContext,
@@ -21,6 +21,7 @@ import { Announcement } from "@/app/schemas/announcement";
 import { reorderAnnouncements } from "@/features/announcements/actions";
 import { useAnnouncementModal } from "@/features/announcements/modalContext";
 import { Icon } from "@/app/components/ui/Icon";
+import { useCan } from "@/store/hooks";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -252,20 +253,22 @@ function SortableFilmstripCard({
   index,
   selected,
   onSelect,
+  canReorder,
 }: Readonly<{
   announcement: Announcement;
   index: number;
   selected: boolean;
   onSelect: () => void;
+  canReorder: boolean;
 }>) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: announcement.id });
+    useSortable({ id: announcement.id, disabled: !canReorder });
 
   return (
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.45 : 1 }}
-      className={`relative shrink-0 flex flex-col gap-1.5 w-[136px] rounded-xl p-2.5 border-2 cursor-grab active:cursor-grabbing transition-all ${
+      className={`relative shrink-0 flex flex-col gap-1.5 w-[136px] rounded-xl p-2.5 border-2 transition-all ${canReorder ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"} ${
         selected ? "border-teal bg-teal-soft shadow-sm" : "border-line bg-canvas hover:border-teal/40"
       }`}
       {...attributes}
@@ -345,6 +348,7 @@ function InspectorPanel({
   liveIds,
 }: Readonly<{ selected: Announcement | null; liveIds: number[] }>) {
   const { openEdit, openRestore } = useAnnouncementModal();
+  const canEdit = useCan("announcements.edit");
   const expired = selected ? isExpired(selected) : false;
 
   if (!selected) {
@@ -404,7 +408,7 @@ function InspectorPanel({
         <p className="text-[12px] text-ink">{fmtExpiry(selected.expires_at)}</p>
       </div>
 
-      <div className="flex flex-col gap-2 pt-3 border-t border-line">
+      {canEdit && <div className="flex flex-col gap-2 pt-3 border-t border-line">
         {expired ? (
           <button
             onClick={() => openRestore(selected)}
@@ -429,7 +433,7 @@ function InspectorPanel({
             Edit
           </button>
         )}
-      </div>
+      </div>}
     </div>
   );
 }
@@ -445,21 +449,11 @@ export default function AnnouncementsClient({
   currentAnnouncements,
   expiredAnnouncements,
 }: Readonly<AnnouncementsClientProps>) {
+  const canEdit = useCan("announcements.edit");
   const [liveItems, setLiveItems] = useState(currentAnnouncements);
   const [selected, setSelected]   = useState<Announcement | null>(currentAnnouncements[0] ?? null);
   const [isMobile, setIsMobile]   = useState(false);
   const [tab, setTab]             = useState<"live" | "expired">("live");
-
-  // Server actions revalidate this route and send fresh props; re-sync local
-  // state or the filmstrip/inspector keep showing pre-mutation data.
-  useEffect(() => {
-    setLiveItems(currentAnnouncements);
-    setSelected((prev) => {
-      const all = [...currentAnnouncements, ...expiredAnnouncements];
-      const refreshed = prev ? all.find((a) => a.id === prev.id) : undefined;
-      return refreshed ?? currentAnnouncements[0] ?? expiredAnnouncements[0] ?? null;
-    });
-  }, [currentAnnouncements, expiredAnnouncements]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -567,7 +561,7 @@ export default function AnnouncementsClient({
             {tab === "live" ? (
               <>
                 <p className="text-[11px] text-muted mb-3">
-                  Drag to reorder · {liveItems.length} slide{liveItems.length !== 1 ? "s" : ""} · 6s each
+                  {canEdit ? "Drag to reorder · " : ""}{liveItems.length} slide{liveItems.length !== 1 ? "s" : ""} · 6s each
                 </p>
                 {liveItems.length === 0 ? (
                   <p className="text-[13px] text-muted py-3">No active announcements yet.</p>
@@ -582,6 +576,7 @@ export default function AnnouncementsClient({
                             index={i}
                             selected={selected?.id === ann.id}
                             onSelect={() => setSelected(ann)}
+                            canReorder={canEdit}
                           />
                         ))}
                       </div>

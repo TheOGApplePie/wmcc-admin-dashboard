@@ -5,7 +5,7 @@
 // The SQL function has_perm() in supabase/migrations/010_team_profiles.sql
 // mirrors these presets — keep the two in sync.
 
-export type MemberRole = "board" | "management" | "volunteer";
+export type MemberRole = "board" | "management" | "general";
 export type MemberStatus = "invited" | "active" | "inactive";
 
 /** Flat map of "<module>.<action>": granted? */
@@ -27,24 +27,24 @@ export interface PermissionModule {
   actions: ModuleAction[];
 }
 
-export const ROLES: MemberRole[] = ["board", "management", "volunteer"];
+export const ROLES: MemberRole[] = ["board", "management", "general"];
 
 export const ROLE_LABELS: Record<MemberRole, string> = {
   board: "Board of Director",
   management: "Management",
-  volunteer: "Volunteer",
+  general: "General",
 };
 
 export const ROLE_COLOURS: Record<MemberRole, string> = {
   board: "#7A6CD6",
   management: "#0F8073",
-  volunteer: "#3E8EDC",
+  general: "#3E8EDC",
 };
 
 export const ROLE_BLURBS: Record<MemberRole, string> = {
   board: "Full access, including the team and integrations.",
   management: "Runs day-to-day content and publishing. Sees the team, can't change it.",
-  volunteer: "Drafts and views content. Can't publish, delete, or manage people.",
+  general: "Drafts and views content. Can't publish, delete, or manage people.",
 };
 
 const ICONS = {
@@ -127,7 +127,7 @@ const PRESETS: Record<Exclude<MemberRole, "board">, Record<string, string[]>> = 
     users: ["view"],
     integrations: [],
   },
-  volunteer: {
+  general: {
     announcements: ["view", "edit"],
     events: ["view", "edit"],
     social: ["view", "edit"],
@@ -157,7 +157,7 @@ export function effectivePerms(
 ): PermissionMap {
   const out = presetPerms(role);
   for (const [key, value] of Object.entries(overrides ?? {})) {
-    if (key in out) out[key] = value;
+    if (key in out && key !== "users.manage" && key !== "users.delete") out[key] = value;
   }
   return out;
 }

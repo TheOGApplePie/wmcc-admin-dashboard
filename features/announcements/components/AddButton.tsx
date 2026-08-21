@@ -1,8 +1,11 @@
 "use client";
 import { useAnnouncementModal } from "../modalContext";
+import { useCan } from "@/store/hooks";
 
 export default function AddButton() {
   const { openAdd } = useAnnouncementModal();
+  const canEdit = useCan("announcements.edit");
+  if (!canEdit) return null;
   return (
     <button
       className="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-[13px] font-semibold text-white transition-colors bg-teal hover:bg-teal-dark shadow-[0_8px_18px_-8px_rgba(15,128,115,.8)] active:scale-[.98]"

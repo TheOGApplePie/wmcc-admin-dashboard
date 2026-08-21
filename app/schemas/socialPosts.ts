@@ -33,9 +33,9 @@ export interface EventOption {
   start_date: string;
 }
 
-export interface AdminUserOption {
+export interface AssigneeOption {
   id: string;
-  email: string;
+  display_name: string;
 }
 
 // ─── Zod enums ────────────────────────────────────────────────────────────────
@@ -82,7 +82,7 @@ export const PublishSocialPostZod = z.object({
 
 export const GetSocialPostsZod       = z.object({});
 export const FetchEventsForSelectZod = z.object({});
-export const FetchAdminUsersZod      = z.object({});
+export const FetchSocialAssigneesZod = z.object({});
 
 export const UploadSocialPostMediaZod = z.object({
   file: z.file().refine((f) => f.size <= 10 * 1024 * 1024, "Max file size is 10 MB."),

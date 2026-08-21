@@ -7,6 +7,7 @@ import StatsStrip from "./StatsStrip";
 import PostQueue from "./PostQueue";
 import PostComposer from "./PostComposer";
 import type { SocialPostsClientProps } from "@/features/socialPosts/types";
+import { useCan } from "@/store/hooks";
 
 function ChannelIndicator({ label, colour }: Readonly<{ label: string; colour: string }>) {
   return (
@@ -18,6 +19,7 @@ function ChannelIndicator({ label, colour }: Readonly<{ label: string; colour: s
 }
 
 export default function SocialPostsClient({ initialPosts, events, adminUsers }: SocialPostsClientProps) {
+  const canEdit = useCan("social.edit");
   const [posts, setPosts]               = useState<SocialPost[]>(initialPosts);
   const [selectedPost, setSelectedPost] = useState<SocialPost | null>(null);
   const [isNew, setIsNew]               = useState(false);
@@ -73,7 +75,7 @@ export default function SocialPostsClient({ initialPosts, events, adminUsers }: 
           <ChannelIndicator label="WhatsApp" colour={CHANNEL_COLOURS.whatsapp} />
         </div>
 
-        <button
+        {canEdit && <button
           onClick={handleNewPost}
           className="flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-semibold text-white transition-colors active:scale-95 bg-teal hover:bg-teal-dark shadow-[0_8px_18px_-8px_rgba(15,128,115,.8)]"
         >
@@ -82,7 +84,7 @@ export default function SocialPostsClient({ initialPosts, events, adminUsers }: 
             <line x1="5"  y1="12" x2="19" y2="12" />
           </svg>
           New post
-        </button>
+        </button>}
       </div>
 
       {/* Stats strip */}
@@ -118,8 +120,8 @@ export default function SocialPostsClient({ initialPosts, events, adminUsers }: 
             />
           </div>
 
-          {/* Right — composer (2fr) */}
-          <div style={{ flex: "2", minWidth: 300 }}>
+          {/* Right — composer (2fr), only for members who can edit */}
+          {canEdit && <div style={{ flex: "2", minWidth: 300 }}>
             <PostComposer
               post={isNew ? null : selectedPost}
               isNew={isNew}
@@ -130,7 +132,7 @@ export default function SocialPostsClient({ initialPosts, events, adminUsers }: 
               onDeleted={handleDeleted}
               onCancel={handleCancel}
             />
-          </div>
+          </div>}
         </div>
       </ErrorBoundary>
     </div>

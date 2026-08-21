@@ -6,6 +6,7 @@ import AnnouncementModals from "./modals/AnnouncementModals";
 import { deleteAnnouncement } from "./actions";
 import { AnnouncementModalProvider, useAnnouncementModal } from "./modalContext";
 import { PageShell } from "@/app/components/ui/PageShell";
+import { useCan } from "@/store/hooks";
 
 async function confirmDeleteAnnouncement(confirmAction: string, announcementId: number) {
   if (confirmAction === "yes") {
@@ -15,6 +16,7 @@ async function confirmDeleteAnnouncement(confirmAction: string, announcementId: 
 
 function AnnouncementsHeaderActions() {
   const { openAdd } = useAnnouncementModal();
+  const canEdit = useCan("announcements.edit");
   return (
     <div className="flex items-center gap-2">
       <a
@@ -30,7 +32,7 @@ function AnnouncementsHeaderActions() {
         </svg>
         Open site
       </a>
-      <button
+      {canEdit && <button
         onClick={openAdd}
         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[13px] font-semibold text-white transition-colors shadow-[0_4px_12px_-4px_rgba(15,128,115,.5)]"
         style={{ backgroundColor: "#0F8073" }}
@@ -40,7 +42,7 @@ function AnnouncementsHeaderActions() {
           <line x1="5" y1="12" x2="19" y2="12" />
         </svg>
         New announcement
-      </button>
+      </button>}
     </div>
   );
 }

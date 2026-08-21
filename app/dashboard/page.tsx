@@ -8,6 +8,7 @@ import { Badge } from "@/app/components/ui/Badge";
 import { Avatar } from "@/app/components/ui/Avatar";
 import { expandEventsToRange, toEstDay, type Occurrence } from "@/utils/expandEvents";
 import type { Event } from "@/app/schemas/events";
+import { getViewerAccess } from "@/features/access/server";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -283,6 +284,10 @@ function EventsCard({ occs }: Readonly<{ occs: Occurrence[] }>) {
 
 export default async function Dashboard() {
   const supabase = await createClient();
+  const access = await getViewerAccess();
+  const canViewEvents = access.permissions["events.view"] ?? false;
+  const canViewSocial = access.permissions["social.view"] ?? false;
+  const canViewFeedback = access.permissions["feedback.view"] ?? false;
   const { data: { user } } = await supabase.auth.getUser();
 
   const now = new Date();
@@ -299,19 +304,19 @@ export default async function Dashboard() {
 
   const [nonRecurringRes, recurringRes, myPostsRes, feedbackRes, feedbackCountRes] =
     await Promise.all([
-      supabase
+      canViewEvents ? supabase
         .from("events")
         .select(eventSelect)
         .eq("is_recurring", false)
         .gte("start_date", today)
         .lte("start_date", dbWindowEnd)
-        .overrideTypes<Event[]>(),
-      supabase
+        .overrideTypes<Event[]>() : Promise.resolve({ data: [] as Event[] }),
+      canViewEvents ? supabase
         .from("events")
         .select(eventSelect)
         .eq("is_recurring", true)
-        .overrideTypes<Event[]>(),
-      user?.id
+        .overrideTypes<Event[]>() : Promise.resolve({ data: [] as Event[] }),
+      user?.id && canViewSocial
         ? supabase
             .from("social_posts")
             .select("id, title, post_type, time_slot, scheduled_at, status, channels")
@@ -321,14 +326,14 @@ export default async function Dashboard() {
             .order("scheduled_at")
             .limit(5)
         : Promise.resolve({ data: [] }),
-      supabase
+      canViewFeedback ? supabase
         .from("community-feedback")
         .select("id, name, message, created_at")
         .order("created_at", { ascending: false })
-        .limit(4),
-      supabase
+        .limit(4) : Promise.resolve({ data: [] }),
+      canViewFeedback ? supabase
         .from("community-feedback")
-        .select("id", { count: "exact", head: true }),
+        .select("id", { count: "exact", head: true }) : Promise.resolve({ count: 0 }),
     ]);
 
   const allEvents = [...(nonRecurringRes.data ?? []), ...(recurringRes.data ?? [])];
@@ -353,21 +358,21 @@ export default async function Dashboard() {
     <PageShell title="Dashboard" subtitle={dateLabel}>
       {/* KPI strip */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        <Stat label="Upcoming Events"     value={eventCount}    accentColor="#0F8073" />
-        <Stat label="Community Feedback"  value={feedbackCount} accentColor="#7A6CD6" />
-        <Stat label="My Queued Posts"     value={postCount}     accentColor="#E0A53C" />
+        {canViewEvents && <Stat label="Upcoming Events" value={eventCount} accentColor="#0F8073" />}
+        {canViewFeedback && <Stat label="Community Feedback" value={feedbackCount} accentColor="#7A6CD6" />}
+        {canViewSocial && <Stat label="My Queued Posts" value={postCount} accentColor="#E0A53C" />}
       </div>
 
       {/* Bento grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
 
         {/* ── Event spotlight ───────────────────────────────────────────── */}
-        <div className="lg:col-span-2">
+        {canViewEvents && <div className="lg:col-span-2">
           <EventsCard occs={upcomingOccs} />
-        </div>
+        </div>}
 
         {/* ── Community feedback ────────────────────────────────────────── */}
-        <Card>
+        {canViewFeedback && <Card>
           <CardHead
             title="Community Feedback"
             action={
@@ -394,10 +399,10 @@ export default async function Dashboard() {
               ))}
             </ul>
           )}
-        </Card>
+        </Card>}
 
         {/* ── My queued posts ───────────────────────────────────────────── */}
-        <div className="md:col-span-2 lg:col-span-3">
+        {canViewSocial && <div className="md:col-span-2 lg:col-span-3">
           <Card>
             <CardHead
               title="My Next Posts"
@@ -441,7 +446,7 @@ export default async function Dashboard() {
               </div>
             )}
           </Card>
-        </div>
+        </div>}
 
       </div>
     </PageShell>

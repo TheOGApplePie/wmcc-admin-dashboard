@@ -7,21 +7,12 @@ import { createClient } from "@/utils/supabase/server";
 import { createServiceClient } from "@/utils/supabase/serviceRole";
 import { revalidatePath } from "next/cache";
 import z from "zod";
+import { assertBoard } from "@/features/access/server";
 
 const actionClient = createSafeActionClient();
 
-const Role = z.enum(["board", "management", "volunteer"]);
+const Role = z.enum(["board", "management", "general"]);
 const Override = z.record(z.string().regex(/^[a-z]+\.[a-z]+$/), z.boolean());
-
-/** Throws if the current user lacks the given permission. */
-async function requirePerm(module: string, action: string) {
-  const supabase = await createClient();
-  const { data: granted } = await supabase.rpc("has_perm", {
-    p_module: module,
-    p_action: action,
-  });
-  if (!granted) throw new Error(`Permission denied: ${module}.${action}`);
-}
 
 // ── Invite ─────────────────────────────────────────────────────────────────────
 
@@ -34,7 +25,7 @@ export const inviteMember = actionClient
     }),
   )
   .action(async ({ parsedInput }) => {
-    await requirePerm("users", "manage");
+    await assertBoard();
 
     const serviceClient = createServiceClient();
 
@@ -72,7 +63,22 @@ export const inviteMember = actionClient
     });
 
     if (profileError) {
+      await serviceClient.auth.admin.deleteUser(user.id);
       return { error: profileError.message };
+    }
+    const actorClient = await createClient();
+    const { error: auditError } = await actorClient.rpc("record_profile_activity", {
+      p_profile_id: user.id,
+      p_action: "invite",
+      p_detail: parsedInput.role,
+    });
+    if (auditError) {
+      const { error: cleanupError } = await serviceClient.auth.admin.deleteUser(user.id);
+      return {
+        error: cleanupError
+          ? `Invite setup and cleanup failed: ${auditError.message}; ${cleanupError.message}`
+          : `Invite setup could not be recorded: ${auditError.message}`,
+      };
     }
 
     revalidatePath("/dashboard/users-management");
@@ -90,7 +96,11 @@ export const updateMember = actionClient
     }),
   )
   .action(async ({ parsedInput }) => {
-    await requirePerm("users", "manage");
+    const viewer = await assertBoard();
+    if (parsedInput.id === viewer.profile!.id) throw new Error("You can't change your own access.");
+    if ("users.manage" in parsedInput.permission_overrides || "users.delete" in parsedInput.permission_overrides) {
+      throw new Error("Team administration permissions cannot be delegated through overrides.");
+    }
 
     const supabase = await createClient();
     const { error } = await supabase
@@ -111,7 +121,8 @@ export const updateMember = actionClient
 export const resetToPreset = actionClient
   .inputSchema(z.object({ id: z.string().uuid() }))
   .action(async ({ parsedInput }) => {
-    await requirePerm("users", "manage");
+    const viewer = await assertBoard();
+    if (parsedInput.id === viewer.profile!.id) throw new Error("You can't change your own access.");
 
     const supabase = await createClient();
     const { error } = await supabase
@@ -128,7 +139,8 @@ export const resetToPreset = actionClient
 export const deactivateMember = actionClient
   .inputSchema(z.object({ id: z.string().uuid() }))
   .action(async ({ parsedInput }) => {
-    await requirePerm("users", "delete");
+    const viewer = await assertBoard();
+    if (parsedInput.id === viewer.profile!.id) throw new Error("You can't deactivate yourself.");
 
     const supabase = await createClient();
     const { error } = await supabase
@@ -143,7 +155,8 @@ export const deactivateMember = actionClient
 export const reactivateMember = actionClient
   .inputSchema(z.object({ id: z.string().uuid() }))
   .action(async ({ parsedInput }) => {
-    await requirePerm("users", "manage");
+    const viewer = await assertBoard();
+    if (parsedInput.id === viewer.profile!.id) throw new Error("You can't change your own status.");
 
     const supabase = await createClient();
     const { error } = await supabase
@@ -160,7 +173,7 @@ export const reactivateMember = actionClient
 export const resendInvite = actionClient
   .inputSchema(z.object({ email: z.string().email() }))
   .action(async ({ parsedInput }) => {
-    await requirePerm("users", "manage");
+    await assertBoard();
 
     const serviceClient = createServiceClient();
     const { error } = await serviceClient.auth.admin.inviteUserByEmail(
@@ -171,4 +184,18 @@ export const resendInvite = actionClient
     );
 
     if (error) return { error: error.message };
+
+    const actorClient = await createClient();
+    const { data: profile } = await actorClient
+      .from("profiles")
+      .select("id")
+      .eq("email", parsedInput.email)
+      .maybeSingle();
+    if (!profile) return { error: "The invited profile could not be found." };
+    const { error: auditError } = await actorClient.rpc("record_profile_activity", {
+      p_profile_id: profile.id,
+      p_action: "resend_invite",
+      p_detail: null,
+    });
+    if (auditError) return { error: auditError.message };
   });

@@ -1,5 +1,6 @@
 import { Btn } from "@/app/components/ui/Btn";
 import { useCalendarController } from "@fullcalendar/react";
+import { useCan } from "@/store/hooks";
 
 type CalendarController = ReturnType<typeof useCalendarController>;
 
@@ -13,6 +14,7 @@ export function CalendarToolbar({
   onAdd,
 }: Readonly<CalendarToolbarProps>) {
   const buttons = controller.getButtonState();
+  const canEdit = useCan("events.edit");
 
   return (
     <div className="flex justify-between py-4">
@@ -49,9 +51,7 @@ export function CalendarToolbar({
         </Btn>
       </div>
       <div className="toolbar-title">{controller.view?.title}</div>
-      <Btn className="btn border-0" onClick={onAdd}>
-        Add Event
-      </Btn>
+      {canEdit && <Btn className="btn border-0" onClick={onAdd}>Add Event</Btn>}
     </div>
   );
 }

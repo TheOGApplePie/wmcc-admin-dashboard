@@ -4,7 +4,6 @@ import { useState } from "react";
 import { PageShell } from "@/app/components/ui/PageShell";
 import { Icon } from "@/app/components/ui/Icon";
 import { Btn } from "@/app/components/ui/Btn";
-import { hasPerm } from "@/features/team/permissions";
 import type { Profile } from "@/features/team/types";
 import { TeamRoster } from "./components/TeamRoster";
 import { MemberInspector } from "./components/MemberInspector";
@@ -48,9 +47,7 @@ export function TeamPage({ profiles, currentUserId }: Readonly<TeamPageProps>) {
   const [showInvite, setShowInvite] = useState(false);
 
   const currentProfile = profiles.find((p) => p.id === currentUserId) ?? null;
-  const viewerCanManage = currentProfile
-    ? hasPerm(currentProfile.role, currentProfile.permission_overrides, "users", "manage")
-    : false;
+  const viewerCanManage = currentProfile?.role === "board" && currentProfile.status === "active";
 
   const selectedMember = profiles.find((p) => p.id === selectedId) ?? profiles[0] ?? null;
 
@@ -71,7 +68,7 @@ export function TeamPage({ profiles, currentUserId }: Readonly<TeamPageProps>) {
     <>
       <PageShell
         title="Team"
-        subtitle="Manage who has access and what they can do"
+        subtitle={viewerCanManage ? "Manage who has access and what they can do" : "View the team roster"}
         actions={
           viewerCanManage ? (
             <Btn variant="primary" size="md" onClick={() => setShowInvite(true)}>

@@ -16,6 +16,7 @@ import { useMediaUpload } from "@/features/socialPosts/hooks/useMediaUpload";
 import PostPreview from "./PostPreview";
 import { AnnouncementIcon, GeneralIcon, ReminderIcon } from "./icons";
 import type { PostComposerProps } from "@/features/socialPosts/types";
+import { useCan } from "@/store/hooks";
 
 const CHANNELS: SocialChannel[]       = ["ig_feed", "ig_story", "whatsapp"];
 const TIME_SLOTS: TimeSlot[]          = ["morning", "afternoon", "evening"];
@@ -58,8 +59,10 @@ function EmptyComposer() {
 export default function PostComposer({
   post, isNew, events, allPosts, adminUsers, onSaved, onDeleted, onCancel,
 }: PostComposerProps) {
+  const canDelete = useCan("social.delete");
+  const canSend = useCan("social.send");
   const form = usePostForm({ post, isNew, allPosts, onSaved, onDeleted });
-  const media = useMediaUpload({
+  const { uploadError, uploading, fileInputRef, handleFileChange, clearUploadError } = useMediaUpload({
     channels:   form.watchedChannels,
     onUploaded: (url) => form.setValue("media_url", url, { shouldDirty: true }),
   });
@@ -142,7 +145,7 @@ export default function PostComposer({
             Cancel
           </button>
         )}
-        {!isNew && post && !isReadOnly && (
+        {!isNew && post && !isReadOnly && canDelete && (
           <button
             type="button"
             onClick={handleDelete}
@@ -315,7 +318,7 @@ export default function PostComposer({
                   type="button"
                   onClick={() => {
                     setValue("media_url", "", { shouldDirty: true });
-                    media.clearUploadError();
+                    clearUploadError();
                   }}
                   className="absolute top-2 right-2 rounded-full w-6 h-6 flex items-center justify-center text-white text-[11px]"
                   style={{ backgroundColor: "rgba(0,0,0,.5)" }}
@@ -327,8 +330,8 @@ export default function PostComposer({
           ) : (
             <button
               type="button"
-              disabled={media.uploading || isReadOnly}
-              onClick={() => media.fileInputRef.current?.click()}
+              disabled={uploading || isReadOnly}
+              onClick={() => fileInputRef.current?.click()}
               className="w-full rounded-xl border py-3 flex flex-col items-center gap-1 transition-colours"
               style={{
                 borderColor:     igSelected && !watchedMediaUrl ? "var(--sp-coral)" : "var(--sp-hairline)",
@@ -336,7 +339,7 @@ export default function PostComposer({
                 backgroundColor: "var(--sp-canvas)",
               }}
             >
-              {media.uploading
+              {uploading
                 ? <span className="loading loading-spinner loading-xs" />
                 : (
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--sp-muted)" strokeWidth="2">
@@ -346,20 +349,20 @@ export default function PostComposer({
                   </svg>
                 )}
               <span className="text-[11px]" style={{ color: "var(--sp-muted)" }}>
-                {media.uploading ? "Uploading…" : "Add image or video"}
+                {uploading ? "Uploading…" : "Add image or video"}
               </span>
             </button>
           )}
 
           <input
-            ref={media.fileInputRef}
+            ref={fileInputRef}
             type="file"
             accept="image/jpeg,image/jpg,image/png,image/webp,video/mp4"
             className="hidden"
-            onChange={media.handleFileChange}
+            onChange={handleFileChange}
           />
 
-          {media.uploadError && (
+          {uploadError && (
             <div
               className="flex items-start gap-2 mt-2 px-3 py-2 rounded-xl text-[12px]"
               style={{ backgroundColor: "#FEE2E0", color: "#B91C1C" }}
@@ -369,10 +372,10 @@ export default function PostComposer({
                 <line x1="12" y1="8" x2="12" y2="12" />
                 <line x1="12" y1="16" x2="12.01" y2="16" />
               </svg>
-              <span>{media.uploadError}</span>
+              <span>{uploadError}</span>
             </div>
           )}
-          {mediaDimHint && !watchedMediaUrl && !media.uploadError && (
+          {mediaDimHint && !watchedMediaUrl && !uploadError && (
             <p className="text-[10px] mt-1" style={{ color: "var(--sp-muted)", opacity: 0.65 }}>{mediaDimHint}</p>
           )}
         </div>
@@ -506,7 +509,7 @@ export default function PostComposer({
             >
               <option value="">Unassigned</option>
               {adminUsers.map((u) => (
-                <option key={u.id} value={u.id}>{u.email}</option>
+                <option key={u.id} value={u.id}>{u.display_name}</option>
               ))}
             </select>
           </div>
@@ -556,7 +559,7 @@ export default function PostComposer({
               >
                 {saving ? <span className="loading loading-spinner loading-xs" /> : "Save draft"}
               </button>
-              <button
+              {canSend && <button
                 type="button"
                 onClick={handleSchedule}
                 disabled={!canSchedule || saving || scheduling}
@@ -567,7 +570,7 @@ export default function PostComposer({
                 }}
               >
                 {scheduling ? <span className="loading loading-spinner loading-xs" /> : "Schedule"}
-              </button>
+              </button>}
             </div>
           )}
         </div>
