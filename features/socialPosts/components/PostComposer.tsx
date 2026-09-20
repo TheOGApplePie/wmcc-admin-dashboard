@@ -57,6 +57,7 @@ function EmptyComposer() {
 
 export default function PostComposer({
   post, isNew, events, allPosts, adminUsers, onSaved, onDeleted, onCancel,
+  canEdit, canSchedule: hasSchedulePermission, canDelete,
 }: PostComposerProps) {
   const form = usePostForm({ post, isNew, allPosts, onSaved, onDeleted });
   const media = useMediaUpload({
@@ -84,6 +85,7 @@ export default function PostComposer({
     ? watchedHashtags.split(",").filter((h) => h.trim().length > 0).length
     : 0;
   const canSchedule   =
+    hasSchedulePermission &&
     watchedChannels.length > 0 &&
     (!igSelected || !!watchedMediaUrl) &&
     !!watchedPostDate &&
@@ -142,7 +144,7 @@ export default function PostComposer({
             Cancel
           </button>
         )}
-        {!isNew && post && !isReadOnly && (
+        {!isNew && post && !isReadOnly && canEdit && canDelete && (
           <button
             type="button"
             onClick={handleDelete}
@@ -514,7 +516,7 @@ export default function PostComposer({
       </div>
 
       {/* ── Footer ────────────────────────────────────────────────────────── */}
-      {!isReadOnly && (
+      {!isReadOnly && canEdit && (
         <div className="flex flex-col gap-2 px-5 py-4 border-t shrink-0" style={{ borderColor: "var(--sp-hairline)" }}>
           {requiresEvent && !watchedEventId && (
             <p className="text-[11px] text-centre" style={{ color: "var(--sp-amber)" }}>
@@ -525,7 +527,7 @@ export default function PostComposer({
           {isScheduled ? (
             /* Two-button UX for scheduled posts */
             <div className="flex gap-2">
-              <button
+              {hasSchedulePermission && <button
                 type="button"
                 onClick={handleSaveDraft}
                 disabled={saving || scheduling}
@@ -533,8 +535,8 @@ export default function PostComposer({
                 style={{ borderColor: "var(--sp-amber)", color: "#92400E", backgroundColor: "#FEF3C7" }}
               >
                 {saving ? <span className="loading loading-spinner loading-xs" /> : "Save & unschedule"}
-              </button>
-              <button
+              </button>}
+              {hasSchedulePermission && <button
                 type="button"
                 onClick={handleSaveKeepScheduled}
                 disabled={saving || scheduling}
@@ -542,7 +544,7 @@ export default function PostComposer({
                 style={{ backgroundColor: "var(--sp-teal)", color: "var(--sp-surface)" }}
               >
                 {saving ? <span className="loading loading-spinner loading-xs" /> : "Save changes"}
-              </button>
+              </button>}
             </div>
           ) : (
             /* Standard draft / schedule buttons */
@@ -556,7 +558,7 @@ export default function PostComposer({
               >
                 {saving ? <span className="loading loading-spinner loading-xs" /> : "Save draft"}
               </button>
-              <button
+              {hasSchedulePermission && <button
                 type="button"
                 onClick={handleSchedule}
                 disabled={!canSchedule || saving || scheduling}
@@ -567,7 +569,7 @@ export default function PostComposer({
                 }}
               >
                 {scheduling ? <span className="loading loading-spinner loading-xs" /> : "Schedule"}
-              </button>
+              </button>}
             </div>
           )}
         </div>

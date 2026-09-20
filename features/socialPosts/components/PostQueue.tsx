@@ -78,11 +78,13 @@ function QueueItem({
   selected,
   onSelect,
   onMarkSent,
+  canSend,
 }: Readonly<{
   post:       SocialPost;
   selected:   boolean;
   onSelect:   () => void;
   onMarkSent: (updated: SocialPost) => void;
+  canSend:    boolean;
 }>) {
   const [marking, setMarking] = useState(false);
 
@@ -196,7 +198,7 @@ function QueueItem({
       </button>
 
       {/* Mark as sent — sibling of the card button, not nested inside it */}
-      {post.status === "scheduled" && (
+      {post.status === "scheduled" && canSend && (
         <div className="px-3 pb-3">
           <button
             type="button"
@@ -242,7 +244,7 @@ function EmptyState() {
 
 // ─── Main queue ───────────────────────────────────────────────────────────────
 
-export default function PostQueue({ posts, selectedId, onSelect, onMarkSent }: PostQueueProps) {
+export default function PostQueue({ posts, selectedId, onSelect, onMarkSent, canSend }: PostQueueProps) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [pageSize, setPageSize]         = useState<PageSize>(10);
   const [page, setPage]                 = useState(1);
@@ -320,6 +322,7 @@ export default function PostQueue({ posts, selectedId, onSelect, onMarkSent }: P
               selected={selectedId === p.id}
               onSelect={() => onSelect(p)}
               onMarkSent={onMarkSent}
+              canSend={canSend}
             />
           ))}
         </div>

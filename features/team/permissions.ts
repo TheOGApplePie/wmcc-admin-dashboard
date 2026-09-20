@@ -86,7 +86,9 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     actions: [
       { key: "view", label: "View" },
       { key: "edit", label: "Create / Update" },
+      { key: "schedule", label: "Schedule", sensitive: true },
       { key: "send", label: "Send / Broadcast", sensitive: true },
+      { key: "override", label: "Approve exceptions", sensitive: true },
       { key: "delete", label: "Delete", sensitive: true },
     ],
   },
@@ -122,7 +124,7 @@ const PRESETS: Record<Exclude<MemberRole, "board">, Record<string, string[]>> = 
   management: {
     announcements: ["view", "edit", "publish", "delete"],
     events: ["view", "edit", "publish", "delete"],
-    social: ["view", "edit", "send", "delete"],
+    social: ["view", "edit", "schedule", "send", "override", "delete"],
     feedback: ["view", "respond"],
     users: ["view"],
     integrations: [],

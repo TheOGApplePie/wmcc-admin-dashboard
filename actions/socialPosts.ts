@@ -1,11 +1,11 @@
 "use server";
 
 import { createSafeActionClient } from "next-safe-action";
-import { createClient } from "../utils/supabase/server";
 import { createServiceClient } from "../utils/supabase/serviceRole";
 import { revalidatePath } from "next/cache";
 import { ok, fail, clientFail } from "@/utils/actionResponse";
 import { logAudit } from "@/utils/audit";
+import { requirePermission } from "@/utils/permissions";
 import {
   CreateSocialPostZod,
   UpdateSocialPostZod,
@@ -41,7 +41,7 @@ export const getSocialPosts = actionClient
   .inputSchema(GetSocialPostsZod)
   .action(async () => {
     try {
-      const supabase = await createClient();
+      const { supabase } = await requirePermission("social", "view");
 
       const { data, error } = await supabase
         .from("social_posts")
@@ -63,7 +63,7 @@ export const fetchEventsForSelect = actionClient
   .inputSchema(FetchEventsForSelectZod)
   .action(async () => {
     try {
-      const supabase = await createClient();
+      const { supabase } = await requirePermission("social", "view");
 
       const threeMonthsAgo = new Date();
       threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
@@ -89,9 +89,11 @@ export const createSocialPost = actionClient
   .inputSchema(CreateSocialPostZod)
   .action(async ({ parsedInput }) => {
     try {
-      const supabase = await createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated.");
+      const { supabase, user } = await requirePermission("social", "edit");
+
+      if (parsedInput.status === "scheduled" || parsedInput.status === "published" || parsedInput.status === "failed") {
+        return clientFail("New posts must be saved as an idea or draft before scheduling.");
+      }
 
       const { data, error } = await supabase
         .from("social_posts")
@@ -131,7 +133,7 @@ export const updateSocialPost = actionClient
   .inputSchema(UpdateSocialPostZod)
   .action(async ({ parsedInput }) => {
     try {
-      const supabase = await createClient();
+      const { supabase } = await requirePermission("social", "edit");
 
       const { data: existing } = await supabase
         .from("social_posts")
@@ -141,6 +143,13 @@ export const updateSocialPost = actionClient
 
       if (existing?.status === "published") {
         return clientFail("Cannot edit a published post.", "Post is published.");
+      }
+
+      if (parsedInput.status === "published" || parsedInput.status === "failed") {
+        return clientFail("Delivery status must be changed through the delivery action.");
+      }
+      if (parsedInput.status === "scheduled" || existing?.status === "scheduled") {
+        await requirePermission("social", "schedule");
       }
 
       const { data, error } = await supabase
@@ -181,9 +190,7 @@ export const deleteSocialPost = actionClient
   .inputSchema(DeleteSocialPostZod)
   .action(async ({ parsedInput }) => {
     try {
-      const supabase = await createClient();
-
-      await logAudit(supabase, "social_post", parsedInput.id, "delete");
+      const { supabase } = await requirePermission("social", "delete");
 
       const { error } = await supabase
         .from("social_posts")
@@ -191,6 +198,8 @@ export const deleteSocialPost = actionClient
         .eq("id", parsedInput.id);
 
       if (error) throw new Error(error.message);
+
+      await logAudit(supabase, "social_post", parsedInput.id, "delete");
 
       revalidatePath(REVALIDATE);
 
@@ -206,7 +215,7 @@ export const scheduleSocialPost = actionClient
   .inputSchema(ScheduleSocialPostZod)
   .action(async ({ parsedInput }) => {
     try {
-      const supabase = await createClient();
+      const { supabase } = await requirePermission("social", "schedule");
 
       const scheduledAt = new Date(parsedInput.scheduled_at);
       if (scheduledAt <= new Date()) {
@@ -258,7 +267,7 @@ export const publishSocialPost = actionClient
   .inputSchema(PublishSocialPostZod)
   .action(async ({ parsedInput }) => {
     try {
-      const supabase = await createClient();
+      const { supabase } = await requirePermission("social", "send");
 
       const { data, error } = await supabase
         .from("social_posts")
@@ -287,6 +296,7 @@ export const fetchAdminUsers = actionClient
   .inputSchema(FetchAdminUsersZod)
   .action(async () => {
     try {
+      await requirePermission("social", "edit");
       const supabase = createServiceClient();
       const { data: authData } = await supabase.auth.admin.listUsers();
       const users: AdminUserOption[] = (authData?.users ?? [])
@@ -304,7 +314,7 @@ export const uploadSocialPostMedia = actionClient
   .inputSchema(UploadSocialPostMediaZod)
   .action(async ({ parsedInput }) => {
     try {
-      const supabase = await createClient();
+      const { supabase } = await requirePermission("social", "edit");
 
       const file     = parsedInput.file;
       const ext      = file.name.split(".").pop() ?? "jpg";

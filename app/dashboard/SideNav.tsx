@@ -63,8 +63,9 @@ function NavIcon({ d }: Readonly<{ d: string }>) {
   );
 }
 
-export default function SideNav() {
+export default function SideNav({ canViewSocial = false }: Readonly<{ canViewSocial?: boolean }>) {
   const pathname = usePathname();
+  const visibleNav = NAV.filter((item) => item.href !== "/dashboard/posts" || canViewSocial);
 
   return (
     <aside className="fixed inset-y-0 left-0 z-40 flex w-[68px] flex-col items-center border-r border-line bg-surface py-4 gap-1">
@@ -73,7 +74,7 @@ export default function SideNav() {
         W
       </div>
 
-      {NAV.map(({ href, label, icon, exact }) => {
+      {visibleNav.map(({ href, label, icon, exact }) => {
         const active = exact ? pathname === href : pathname.startsWith(href);
         return (
           <Link

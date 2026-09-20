@@ -33,6 +33,9 @@ export interface PostComposerProps {
   onSaved:    (post: SocialPost) => void;
   onDeleted:  (id: string) => void;
   onCancel?:  () => void;
+  canEdit:     boolean;
+  canSchedule: boolean;
+  canDelete:   boolean;
 }
 
 export interface PostQueueProps {
@@ -40,6 +43,7 @@ export interface PostQueueProps {
   selectedId: string | null;
   onSelect:   (post: SocialPost) => void;
   onMarkSent: (updated: SocialPost) => void;
+  canSend:    boolean;
 }
 
 export interface PostPreviewProps {
@@ -59,4 +63,10 @@ export interface SocialPostsClientProps {
   initialPosts: SocialPost[];
   events:       EventOption[];
   adminUsers:   AdminUserOption[];
+  permissions: {
+    edit: boolean;
+    schedule: boolean;
+    send: boolean;
+    delete: boolean;
+  };
 }
