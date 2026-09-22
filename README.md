@@ -6,7 +6,7 @@ Internal admin panel for managing the Waterdown Muslim Community Centre's public
 
 - **Events** — FullCalendar month view with full recurring-event support (daily, weekly, monthly). Create, edit (all / this + future / this occurrence), and delete (all / this + future / this occurrence) events. Supports poster image upload, call-to-action links, and gallery URLs.
 - **Announcements** — Create, edit, and expire announcements shown on the public site.
-- **Social Posts** — Plan and schedule social media posts across Instagram Feed, Instagram Story, and WhatsApp. Posts flow through an `idea → draft → scheduled → published/failed` lifecycle. Phase 1 is a fully manual workflow: admins compose, schedule, and confirm publication. Phase 2 will integrate live publishing via Instagram Graph API and WhatsApp Business Cloud API.
+- **Social Campaigns** — Create campaigns and platform-specific posts for Instagram Feed, Instagram Story, Instagram Reel, WhatsApp, and TikTok. Includes a combined calendar, manual post CRUD, event/RRULE-driven proposals, review workflows, collision-safe scheduling, Instagram carousels, and permission-aware campaign management.
 - **Community Feedback** — View and filter feedback submitted through the public site, with a fixed full-viewport layout and slide-in detail pane.
 - **Notifications** — In-app notification bell with 60-second polling badge and dropdown preview of recent notifications.
 - **Users Management** — Manage admin user accounts.
@@ -18,7 +18,7 @@ Internal admin panel for managing the Waterdown Muslim Community Centre's public
 | Framework | Next.js 16 (App Router, Server Actions) |
 | Language | TypeScript |
 | Database & Auth | Supabase (PostgreSQL + SSR auth) |
-| Storage | Supabase Storage (event posters, social post media) |
+| Storage | Supabase Storage (event posters and externally accessible social media URLs) |
 | UI | Tailwind CSS v4 + DaisyUI v5 |
 | Calendar | FullCalendar v7 (daygrid, rrule, interaction) |
 | Forms | react-hook-form + Zod v4 |
@@ -30,7 +30,7 @@ Internal admin panel for managing the Waterdown Muslim Community Centre's public
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 20.9+
 - A Supabase project with the required tables (see Database Schema below)
 
 ### Installation
@@ -73,6 +73,16 @@ UPSTASH_REDIS_REST_TOKEN=
 
 # Cron authentication (must match Vercel cron secret)
 CRON_SECRET=
+
+# Automated social publishing
+META_GRAPH_API_VERSION=
+INSTAGRAM_ACCOUNT_ID=
+INSTAGRAM_ACCESS_TOKEN=
+WHATSAPP_ENDPOINT_URL=
+WHATSAPP_DESTINATION=
+WHATSAPP_API_TOKEN=
+TIKTOK_ACCESS_TOKEN=
+TIKTOK_BRAND_ORGANIC=false
 ```
 
 ### Development
@@ -92,27 +102,74 @@ npm start
 
 > **Note:** Routes that use Supabase auth are server-rendered on demand. Next.js will report them as dynamic during the build — this is expected behaviour.
 
-## Social Posts — Phase 1 Architecture
+## Social Campaigns
 
-Phase 1 is a **fully manual workflow**. There is no automatic publishing to social media APIs.
+Social content is organized into campaigns. A campaign is a container for posts and may
+optionally belong to one event; each event may have at most one campaign. Recurring-event
+campaigns continue to reference the parent event and derive future proposals from its RRULE.
 
-| Concept | Detail |
-|---|---|
-| **Channels** | `ig_feed`, `ig_story`, `whatsapp` |
-| **Post types** | `ANNOUNCEMENT`, `GENERAL`, `REMINDER` |
-| **Status lifecycle** | `idea → draft → scheduled → published / failed` |
-| **Time slots** | `morning` (9 am), `afternoon` (1 pm), `evening` (6 pm) — one post per slot per day |
-| **"Schedule" action** | Admin locks a date/slot; post is marked `scheduled` |
-| **"Save & unschedule"** | Saves edits and reverts the post to `draft` |
-| **"Save changes"** | Saves edits to a `scheduled` post without changing its status |
-| **Media upload** | Required for `ig_feed` and `ig_story` posts; stored in the `social-media` Supabase Storage bucket |
-| **IG aspect ratio** | Feed: enforces standard ratios (1:1, 4:5, 1.91:1). Story: width/height ≤ 0.64 (9:16 target) |
-| **Event linking** | `ANNOUNCEMENT` and `REMINDER` posts must be linked to an event |
-| **Audit trail** | Every create/update/delete/schedule/publish action is logged to `audit_logs` |
+Each CMS post currently targets exactly one platform format:
 
-### Phase 2 (planned)
+- Instagram Feed, Story, or Reel
+- WhatsApp
+- TikTok Reel
 
-Live publishing via Instagram Graph API and WhatsApp Business Cloud API. The `publishSocialPost` server action is a stub seam — Phase 2 replaces its body without touching the rest of the codebase.
+Users with the appropriate permissions can create, edit, schedule, cancel, and delete posts
+from either the campaign list or calendar. Incomplete content may remain a draft. Scheduling
+requires valid platform content, a posting date, and a future slot. Deleting a CMS record never
+deletes content from an external platform.
+
+### Scheduling contract
+
+- Each platform has three daily slots. Instagram formats share one Instagram schedule.
+- Posting dates resolve to fixed UTC instants: morning at `14:00Z`, afternoon at `19:00Z`,
+  and evening at `00:00Z` the following day. These remain fixed year-round.
+- The calendar displays those instants in `America/Toronto`: 9 AM/2 PM/7 PM during EST and
+  10 AM/3 PM/8 PM during EDT.
+- Proposed, scheduled, due, processing, and retryable-failed deliveries reserve capacity.
+- Only one reserving delivery may occupy a platform/date/slot combination.
+- Drafts, cancelled deliveries, sent history, skipped deliveries, and terminal failures do
+  not reserve future capacity.
+- Standalone campaigns may use no more than two distinct posting dates in a Monday-to-Sunday
+  week, with at least three calendar days between dates. Distributing one occurrence to
+  several platforms on the same date counts once.
+- Campaign start/end boundaries, cadence rules, future-only scheduling, and slot uniqueness
+  are enforced by PostgreSQL as well as the application.
+
+### Event-generated proposals
+
+Event-linked campaigns can propose an initial Instagram Feed + WhatsApp post and reminders
+at 14, 7, 2, 1, and 0 days before an event. Reminders use Instagram Stories + WhatsApp.
+After the first occurrence of a recurring event, only reminders are generated. Proposals
+reserve their suggested slots but are not executable until an authorized user reviews and
+schedules them.
+
+Changing an event date or RRULE flags its campaign for review. Reviewers can keep individual
+posts, keep all affected posts, regenerate individual posts, or regenerate the schedule.
+Already-sent deliveries remain immutable. Open-ended RRULEs keep the campaign end date null.
+
+### Automation status
+
+Four authenticated Vercel cron routes are configured:
+
+| Route | UTC schedule | Responsibility |
+|---|---:|---|
+| `/api/cron/generation` | Monday `12:00` | Extend eligible event campaign proposals |
+| `/api/cron/morning` | Daily `14:00` | Claim the morning delivery slot |
+| `/api/cron/afternoon` | Daily `19:00` | Claim the afternoon delivery slot |
+| `/api/cron/evening` | Daily `00:00` | Claim the evening delivery slot |
+
+Delivery claiming, retry state, terminal-failure notification, and provider adapter scaffolding
+exist in the codebase. Live publishing must not be considered production-ready until the
+Instagram, WhatsApp, and TikTok credentials, account permissions, payloads, and provider
+acceptance tests have been completed. Scheduling can be validated independently of publishing.
+
+> **Scheduling-only rollout:** the three delivery routes actively claim due records. Do not
+> enable their Vercel cron entries in an environment containing real scheduled deliveries until
+> the corresponding provider adapters are approved. Missing provider configuration is recorded
+> as a terminal delivery failure; it is not treated as a harmless dry run.
+
+See [`docs/social-campaigns.md`](docs/social-campaigns.md) for the detailed acceptance rules.
 
 ## Database Schema
 
@@ -185,8 +242,6 @@ One row per recurring series.
 The following event concerns are intentionally deferred and must be revisited
 before their related work is implemented:
 
-- How occurrence and series mutations affect social posts, campaigns, and
-  scheduled reminders.
 - The long-term navigation-slug collision and uniqueness strategy.
 - Event permissions by role. Event RLS is enabled, but the detailed permission
   model belongs to a separate pull request.
@@ -243,28 +298,37 @@ before their related work is implemented:
   RRULE `BYDAY` + `BYSETPOS` semantics; any "first Monday and first Wednesday"
   interpretation needs a separately specified recurrence model.
 
-### `social_posts`
+### Social data model
 
-| Column | Type | Notes |
-|---|---|---|
-| `id` | `uuid` | Primary key (`gen_random_uuid()`) |
-| `title` | `text` | Max 120 chars |
-| `caption` | `text` | Max 1,000 chars |
-| `hashtags` | `text[]` | Max 30 tags |
-| `channels` | `social_channel[]` | `ig_feed`, `ig_story`, `whatsapp` |
-| `status` | `social_post_status` | `idea` \| `draft` \| `scheduled` \| `published` \| `failed` |
-| `post_type` | `text` | `ANNOUNCEMENT` \| `GENERAL` \| `REMINDER` |
-| `time_slot` | `text` | `morning` \| `afternoon` \| `evening` |
-| `scheduled_at` | `timestamptz` | Resolved slot datetime |
-| `media_url` | `text` | Supabase Storage public URL |
-| `event_id` | `int8` | FK → `events.id` ON DELETE SET NULL |
-| `assigned_to` | `uuid` | FK → `auth.users.id` |
-| `last_notified_at` | `timestamptz` | When the assignee was last notified |
-| `created_by` | `uuid` | FK → `auth.users.id` ON DELETE CASCADE |
-| `created_at` | `timestamptz` | |
-| `updated_at` | `timestamptz` | Auto-updated via trigger |
+The social module separates editorial content from platform delivery state:
 
-RLS policies: authenticated users can SELECT/INSERT/UPDATE/DELETE all posts (team collaboration model). INSERT requires `created_by = auth.uid()`.
+| Table | Responsibility |
+|---|---|
+| `social_campaigns` | Campaign settings, optional event relationship, generation state, review flag, and default channels/assignee |
+| `social_campaign_occurrences` | Generated or manual campaign occurrence and milestone metadata |
+| `social_posts` | Shared editorial record and parent lifecycle state |
+| `social_post_variants` | Platform format, caption, hashtags, CTA, configuration, and ordered media items |
+| `social_deliveries` | Platform schedule, resolved UTC instant, delivery state, retry state, consent, and provider result |
+| `social_campaign_reviews` | Current event-change or scheduling review for a campaign |
+| `social_post_review_items` | Individual affected/suppressed posts and reviewer decisions |
+
+Relevant enums include:
+
+- `social_variant_channel`: `instagram_feed`, `instagram_story`, `instagram_reel`,
+  `whatsapp`, `tiktok_reel`
+- `social_schedule_platform`: `instagram`, `whatsapp`, `tiktok`
+- `social_delivery_status`: `draft`, `proposed`, `scheduled`, `due`, `processing`,
+  `sent`, `failed`, `skipped`, `cancelled`
+- `social_campaign_status`: `draft`, `active`, `paused`, `completed`, `archived`
+
+Instagram Feed variants accept an ordered `media_items` JSON array containing up to ten
+HTTPS image URLs and their required alt text. Other formats accept at most one media item;
+WhatsApp requires a caption and treats media as optional.
+
+Social tables use row-level security backed by `has_perm(module, action)`. Board members have
+all social permissions. Management and general members receive preset permissions plus any
+per-user overrides. Review verdicts require `social.review`; scheduling requires
+`social.schedule`; deletion requires `social.delete`.
 
 ### `notifications`
 
@@ -299,26 +363,26 @@ RLS policies: authenticated users can SELECT and UPDATE their own rows. INSERT r
 
 ```
 app/
-  api/                    # API routes (cron handler)
+  api/cron/               # Weekly generation and three daily delivery routes
   components/             # Shared UI components (NotificationBell, EventModal, …)
   dashboard/
-    posts/                # Social Posts page (/dashboard/posts)
+    posts/                # Social campaign calendar, list, and campaign detail pages
     events/               # Events page and calendar
   enums/                  # Shared TypeScript enums (ResponseCodes, …)
   schemas/                # Zod schemas and TypeScript interfaces
 actions/
-  socialPosts.ts          # CRUD, schedule, publish, upload actions for social posts
+  socialCampaigns.ts      # Campaign/post CRUD, proposals, reviews, and scheduling
   events.ts               # Event CRUD actions
   notifications.ts        # Notification read/fetch actions
 features/
-  socialPosts/
-    components/           # PostComposer, PostQueue, PostPreview, StatsStrip, …
-    components/icons.tsx  # Named SVG icon components
-    hooks/                # usePostForm, useMediaUpload
-    types.ts              # Shared prop interfaces for all socialPosts components
+  socialCampaigns/
+    components/           # Campaign cards/settings, calendar, reviews, post modal
+    scheduling/           # Dates, slots, event milestones, cadence, RRULE expansion
+    generation/           # Rolling event-campaign proposal generation
+    delivery/             # Provider adapter boundary
   communityFeedback/      # Community feedback table with DVH layout and detail pane
 supabase/
-  migrations/             # SQL migration files (run in order, 001 → 011)
+  migrations/             # SQL migration files (run in numeric order)
 utils/
   actionResponse.ts       # ok() / fail() / clientFail() response envelope helpers
   audit.ts                # logAudit() helper for the audit_logs table
@@ -328,3 +392,15 @@ utils/
 ## Deployment
 
 The project is deployed on Vercel. Push to `main` to trigger a production deployment.
+
+Before enabling social delivery in production:
+
+1. Apply all pending Supabase migrations in numeric order. In particular, run migration
+   `020` before `021`.
+2. Confirm role presets and user overrides for `social.view`, `social.edit`,
+   `social.schedule`, `social.review`, `social.send`, and `social.delete`.
+3. Exercise campaign CRUD, post CRUD, proposal review, slot collisions, standalone cadence,
+   and Toronto calendar rendering against the production schema.
+4. Configure `CRON_SECRET` and verify Vercel invokes all four cron routes in UTC.
+5. Configure and acceptance-test each provider independently before allowing its deliveries
+   to be claimed from live accounts.

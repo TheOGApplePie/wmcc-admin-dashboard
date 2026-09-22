@@ -1,9 +1,11 @@
+// Event recurrence and user-facing schedule times use Toronto local time.
+// Delivery instants remain fixed in UTC; see scheduledAtFor().
 export const SOCIAL_TIME_ZONE = "America/Toronto";
 
 export const SOCIAL_SLOT_TIMES = {
-  morning: "09:00:00",
-  afternoon: "14:00:00",
-  evening: "19:00:00",
+  morning: "14:00:00",
+  afternoon: "19:00:00",
+  evening: "00:00:00",
 } as const;
 
 export type SocialTimeSlot = keyof typeof SOCIAL_SLOT_TIMES;
@@ -44,4 +46,3 @@ export interface OccupiedSlot {
 export interface SlotOption extends OccupiedSlot {
   scheduledAt: string;
 }
-

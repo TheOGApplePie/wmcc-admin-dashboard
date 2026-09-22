@@ -1,93 +1,53 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/utils/supabase/serviceRole";
-import { SupabaseClient } from "@supabase/supabase-js";
+import { publishDelivery, type ClaimedDelivery } from "@/features/socialCampaigns/delivery/publishers";
 
-// Finds overdue social_posts and creates in-app notifications for the
-// assigned admin (or all admins if unassigned).
-// Rate-limited to once per 48 hours per post; ignores posts older than 1 month.
-
-function verifyVercelCron(req: NextRequest): boolean {
-  const auth = req.headers.get("authorization");
-  return auth === `Bearer ${process.env.CRON_SECRET}`;
+function authorized(req: NextRequest): boolean {
+  const secret = process.env.CRON_SECRET;
+  return Boolean(secret && req.headers.get("authorization") === `Bearer ${secret}`);
 }
 
-type AdminUser = { id: string; email: string };
-
-type OverdueSocialPost = {
-  id: string;           // UUID
-  title: string;
-  post_type: string;
-  time_slot: string | null;
-  scheduled_at: string;
-  assigned_to: string | null; // UUID FK → auth.users
-};
-
-async function notifySocialPosts(
-  supabase: SupabaseClient,
-  now: string,
-  oneMonthAgo: string,
-  fortyEightHoursAgo: string,
-  allAdminIds: string[],
-): Promise<{ count: number; error?: string }> {
-  const { data, error } = await supabase
-    .from("social_posts")
-    .select("id, title, post_type, time_slot, scheduled_at, assigned_to")
-    .eq("status", "scheduled")
-    .lt("scheduled_at", now)
-    .gt("scheduled_at", oneMonthAgo)
-    .or(`last_notified_at.is.null,last_notified_at.lt.${fortyEightHoursAgo}`);
-
-  if (error) return { count: 0, error: error.message };
-
-  let count = 0;
-  for (const sp of (data ?? []) as OverdueSocialPost[]) {
-    const recipientIds = sp.assigned_to ? [sp.assigned_to] : allAdminIds;
-    if (recipientIds.length === 0) continue;
-
-    const dateLabel = sp.scheduled_at.split("T")[0];
-    const slotLabel = sp.time_slot ?? "unspecified slot";
-    const body = `Social post "${sp.title}" scheduled for ${dateLabel} (${slotLabel}) has not been marked as sent.`;
-    await supabase.from("notifications").insert(
-      recipientIds.map((userId) => ({
-        user_id: userId,
-        type: "post_overdue",
-        title: "Social post overdue",
-        body,
-        entity_type: "social_post",
-        entity_id: sp.id,
-      })),
-    );
-    await supabase.from("social_posts").update({ last_notified_at: now }).eq("id", sp.id);
-    count++;
-  }
-  return { count };
+async function notifyTerminalFailure(delivery: ClaimedDelivery, error: string) {
+  const supabase = createServiceClient();
+  const { data: profiles } = await supabase.from("profiles").select("id, role, permission_overrides").eq("status", "active");
+  const recipients = (profiles ?? []).filter((profile) =>
+    profile.role === "board" || profile.role === "management" || profile.permission_overrides?.["social.send"] === true,
+  );
+  if (!recipients.length) return;
+  await supabase.from("notifications").insert(recipients.map((profile) => ({
+    user_id: profile.id,
+    type: "social_delivery_failed",
+    title: "Social post needs attention",
+    body: `${delivery.platform} delivery failed after ${delivery.attempt_number} attempts: ${error}`,
+    entity_type: "social_delivery",
+    entity_id: delivery.delivery_id,
+  })));
 }
 
 export async function runCronSlot(req: NextRequest, slot: string): Promise<NextResponse> {
-  if (!verifyVercelCron(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+  if (!authorized(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const supabase = createServiceClient();
-  const now = new Date().toISOString();
-  const oneMonthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-  const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await supabase.rpc("claim_social_deliveries", { p_limit: 20 });
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const { data: authData } = await supabase.auth.admin.listUsers();
-  const adminUsers: AdminUser[] = (authData?.users ?? [])
-    .filter((u) => !!u.email)
-    .map((u) => ({ id: u.id, email: u.email! }));
-
-  const allAdminIds = adminUsers.map((u) => u.id);
-
-  const { count, error } = await notifySocialPosts(
-    supabase, now, oneMonthAgo, fortyEightHoursAgo, allAdminIds,
-  );
-
-  if (error) {
-    console.error(`[cron/${slot}] social_posts error`, error);
-    return NextResponse.json({ error }, { status: 500 });
+  const results = [];
+  for (const delivery of (data ?? []) as ClaimedDelivery[]) {
+    const result = await publishDelivery(delivery);
+    const { error: completionError } = await supabase.rpc("complete_social_delivery_attempt", {
+      p_delivery_id: delivery.delivery_id,
+      p_success: result.success,
+      p_provider_post_id: result.providerId ?? null,
+      p_external_url: result.externalUrl ?? null,
+      p_error: result.error ?? null,
+      p_retryable: result.retryable ?? false,
+    });
+    if (completionError) {
+      results.push({ id: delivery.delivery_id, ok: false, error: completionError.message });
+      continue;
+    }
+    const terminalFailure = !result.success && (!result.retryable || delivery.attempt_number >= 3);
+    if (terminalFailure) await notifyTerminalFailure(delivery, result.error ?? "Unknown provider failure.");
+    results.push({ id: delivery.delivery_id, platform: delivery.platform, ok: result.success, retrying: !result.success && !terminalFailure });
   }
-
-  return NextResponse.json({ slot, notified: count });
+  return NextResponse.json({ slot, claimed: results.length, results });
 }

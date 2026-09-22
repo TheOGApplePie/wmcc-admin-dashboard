@@ -1,4 +1,4 @@
-import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
+import { formatInTimeZone } from "date-fns-tz";
 import {
   SOCIAL_SLOT_TIMES,
   SOCIAL_TIME_ZONE,
@@ -16,7 +16,13 @@ export function schedulePlatformFor(channel: SocialChannel): SchedulePlatform {
 }
 
 export function scheduledAtFor(date: string, slot: SocialTimeSlot): string {
-  return fromZonedTime(`${date}T${SOCIAL_SLOT_TIMES[slot]}`, SOCIAL_TIME_ZONE).toISOString();
+  const instant = new Date(`${date}T${SOCIAL_SLOT_TIMES[slot]}Z`);
+  if (slot === "evening") instant.setUTCDate(instant.getUTCDate() + 1);
+  return instant.toISOString();
+}
+
+export function localSlotLabel(date: string, slot: SocialTimeSlot): string {
+  return formatInTimeZone(scheduledAtFor(date, slot), SOCIAL_TIME_ZONE, "h:mm a zzz");
 }
 
 export function availableSlots(
@@ -38,4 +44,3 @@ export function availableSlots(
     .map((slot) => ({ schedulePlatform, date, slot, scheduledAt: scheduledAtFor(date, slot) }))
     .filter((option) => eventDate !== date || eventInstant === null || Date.parse(option.scheduledAt) < eventInstant);
 }
-

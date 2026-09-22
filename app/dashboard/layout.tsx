@@ -16,7 +16,7 @@ export default async function DashboardLayout({
     <div className="flex min-h-dvh bg-canvas">
       <NotificationInit />
       <SideNav canViewSocial={Boolean(canViewSocial)} />
-      <div className="ml-[68px] flex flex-1 flex-col min-h-dvh">
+      <div className="ml-17 flex flex-1 flex-col min-h-dvh">
         <main className="flex-1 flex flex-col">{children}</main>
       </div>
     </div>

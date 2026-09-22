@@ -3,3 +3,4 @@ export * from "./dates";
 export * from "./event";
 export * from "./standalone";
 export * from "./slots";
+export * from "./recurrence";

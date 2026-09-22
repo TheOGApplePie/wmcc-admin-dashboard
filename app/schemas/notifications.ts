@@ -1,4 +1,4 @@
-export type NotificationType = "post_overdue" | "post_assigned";
+export type NotificationType = "post_overdue" | "post_assigned" | "social_delivery_failed";
 
 export interface Notification {
   id: number;
@@ -7,7 +7,7 @@ export interface Notification {
   title: string;
   body: string;
   entity_type: string;
-  entity_id: number;
+  entity_id: string;
   read_at: string | null;
   created_at: string;
 }
