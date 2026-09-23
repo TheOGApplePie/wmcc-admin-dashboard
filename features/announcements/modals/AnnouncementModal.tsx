@@ -1,6 +1,6 @@
 "use client";
 
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import Image from "next/image";
 import { useRef, useState } from "react";
 import toast from "react-hot-toast";
@@ -10,6 +10,7 @@ import { useAnnouncementModal } from "@/features/announcements/modalContext";
 import { FIVE_MB } from "@/app/constants/general";
 import { formatDateTimeLocal } from "@/app/utils/date";
 import { Field, INPUT } from "@/app/components/ui/Field";
+import { useCan } from "@/store/hooks";
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
 
@@ -20,6 +21,7 @@ interface AnnouncementModalProps {
 
 export function AnnouncementModal({ announcement, closeModal }: Readonly<AnnouncementModalProps>) {
   const { openDelete } = useAnnouncementModal();
+  const canDelete = useCan("announcements.delete");
   const isEdit = announcement !== null;
   const isExpired = isEdit && new Date(announcement.expires_at) < new Date();
 
@@ -29,7 +31,8 @@ export function AnnouncementModal({ announcement, closeModal }: Readonly<Announc
     formState: { errors, isSubmitting },
     setError,
     reset,
-    watch,
+    control,
+    getValues,
   } = useForm<Announcement>({
     mode: "onChange",
     defaultValues: isEdit
@@ -49,7 +52,7 @@ export function AnnouncementModal({ announcement, closeModal }: Readonly<Announc
 
   const [previewUrl, setPreviewUrl] = useState<string | null>(announcement?.poster_url ?? null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const watchedCaption = watch("call_to_action_caption");
+  const watchedCaption = useWatch({ control, name: "call_to_action_caption" });
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -69,7 +72,7 @@ export function AnnouncementModal({ announcement, closeModal }: Readonly<Announc
 
   function clearPoster() {
     setPreviewUrl(null);
-    reset({ ...watch(), poster_file: [], poster_url: null, poster_alt: "" });
+    reset({ ...getValues(), poster_file: [], poster_url: null, poster_alt: "" });
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
@@ -284,7 +287,7 @@ export function AnnouncementModal({ announcement, closeModal }: Readonly<Announc
 
         {/* Footer */}
         <div className="flex items-center justify-between px-6 py-4 border-t border-line">
-          {isEdit ? (
+          {isEdit && canDelete ? (
             <button
               type="button"
               onClick={handleDelete}

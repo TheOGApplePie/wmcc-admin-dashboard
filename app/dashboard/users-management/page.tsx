@@ -1,20 +1,11 @@
-import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
 import { TeamPage } from "@/features/team";
 import type { Profile } from "@/features/team/types";
+import { requireViewerPermission } from "@/features/access/server";
 
 export default async function UsersManagement() {
+  await requireViewerPermission("users", "view");
   const supabase = await createClient();
-
-  // Gate: only users with users.view can see the roster
-  const { data: canView } = await supabase.rpc("has_perm", {
-    p_module: "users",
-    p_action: "view",
-  });
-
-  if (!canView) {
-    redirect("/dashboard");
-  }
 
   const {
     data: { user },

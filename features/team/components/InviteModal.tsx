@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import toast from "react-hot-toast";
 import { createPortal } from "react-dom";
 import { Field, INPUT } from "@/app/components/ui/Field";
@@ -27,14 +27,14 @@ export function InviteModal({ onClose }: Readonly<InviteModalProps>) {
   const {
     register,
     handleSubmit,
-    watch,
+    control,
     setValue,
     formState: { errors, isSubmitting },
   } = useForm<InviteForm>({
     defaultValues: { email: "", role: "general", area: "" },
   });
 
-  const selectedRole = watch("role");
+  const selectedRole = useWatch({ control, name: "role" });
 
   useEffect(() => {
     dialogRef.current?.showModal();

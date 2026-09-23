@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import Image from "next/image";
 import {
   DndContext,
@@ -21,6 +21,7 @@ import { Announcement } from "@/app/schemas/announcement";
 import { reorderAnnouncements } from "@/features/announcements/actions";
 import { useAnnouncementModal } from "@/features/announcements/modalContext";
 import { Icon } from "@/app/components/ui/Icon";
+import { useCan } from "@/store/hooks";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -343,8 +344,10 @@ function ExpiredRow({
 function InspectorPanel({
   selected,
   liveIds,
-}: Readonly<{ selected: Announcement | null; liveIds: number[] }>) {
-  const { openEdit, openRestore } = useAnnouncementModal();
+  canEdit,
+}: Readonly<{ selected: Announcement | null; liveIds: number[]; canEdit: boolean }>) {
+  const { openEdit, openRestore, openDelete } = useAnnouncementModal();
+  const canDelete = useCan("announcements.delete");
   const expired = selected ? isExpired(selected) : false;
 
   if (!selected) {
@@ -404,8 +407,8 @@ function InspectorPanel({
         <p className="text-[12px] text-ink">{fmtExpiry(selected.expires_at)}</p>
       </div>
 
-      <div className="flex flex-col gap-2 pt-3 border-t border-line">
-        {expired ? (
+      {(canEdit || canDelete) && <div className="flex flex-col gap-2 pt-3 border-t border-line">
+        {canEdit && (expired ? (
           <button
             onClick={() => openRestore(selected)}
             className="inline-flex items-center justify-center gap-1.5 w-full px-4 py-2.5 rounded-xl text-[13px] font-semibold text-white transition-colors"
@@ -428,8 +431,15 @@ function InspectorPanel({
             </svg>
             Edit
           </button>
-        )}
-      </div>
+        ))}
+        {canDelete && <button
+          type="button"
+          onClick={() => openDelete(selected)}
+          className="inline-flex w-full items-center justify-center rounded-xl border border-coral/30 px-4 py-2.5 text-[13px] font-semibold text-coral transition-colors hover:bg-coral/5"
+        >
+          Delete
+        </button>}
+      </div>}
     </div>
   );
 }
@@ -445,27 +455,18 @@ export default function AnnouncementsClient({
   currentAnnouncements,
   expiredAnnouncements,
 }: Readonly<AnnouncementsClientProps>) {
+  const canEdit = useCan("announcements.edit");
   const [liveItems, setLiveItems] = useState(currentAnnouncements);
   const [selected, setSelected]   = useState<Announcement | null>(currentAnnouncements[0] ?? null);
   const [isMobile, setIsMobile]   = useState(false);
   const [tab, setTab]             = useState<"live" | "expired">("live");
-
-  // Server actions revalidate this route and send fresh props; re-sync local
-  // state or the filmstrip/inspector keep showing pre-mutation data.
-  useEffect(() => {
-    setLiveItems(currentAnnouncements);
-    setSelected((prev) => {
-      const all = [...currentAnnouncements, ...expiredAnnouncements];
-      const refreshed = prev ? all.find((a) => a.id === prev.id) : undefined;
-      return refreshed ?? currentAnnouncements[0] ?? expiredAnnouncements[0] ?? null;
-    });
-  }, [currentAnnouncements, expiredAnnouncements]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
 
   const handleDragEnd = useCallback(async (event: DragEndEvent) => {
+    if (!canEdit) return;
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     const oldIndex = liveItems.findIndex((a) => a.id === active.id);
@@ -473,7 +474,7 @@ export default function AnnouncementsClient({
     const reordered = arrayMove(liveItems, oldIndex, newIndex);
     setLiveItems(reordered);
     await reorderAnnouncements({ ids: reordered.map((a) => a.id) });
-  }, [liveItems]);
+  }, [canEdit, liveItems]);
 
   function handleTabChange(newTab: "live" | "expired") {
     setTab(newTab);
@@ -567,12 +568,12 @@ export default function AnnouncementsClient({
             {tab === "live" ? (
               <>
                 <p className="text-[11px] text-muted mb-3">
-                  Drag to reorder · {liveItems.length} slide{liveItems.length !== 1 ? "s" : ""} · 6s each
+                  {canEdit ? "Drag to reorder" : "Live rotation"} · {liveItems.length} slide{liveItems.length !== 1 ? "s" : ""} · 6s each
                 </p>
                 {liveItems.length === 0 ? (
                   <p className="text-[13px] text-muted py-3">No active announcements yet.</p>
                 ) : (
-                  <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                  <DndContext sensors={canEdit ? sensors : []} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                     <SortableContext items={liveItems.map((a) => a.id)} strategy={horizontalListSortingStrategy}>
                       <div className="flex gap-3 overflow-x-auto pb-2">
                         {liveItems.map((ann, i) => (
@@ -617,7 +618,7 @@ export default function AnnouncementsClient({
       {/* ── Right: inspector ───────────────────────────────────────────── */}
       <div className="w-full lg:w-72 shrink-0">
         <div className="bg-surface border border-line rounded-2xl p-5 sticky top-[73px]">
-          <InspectorPanel selected={selected} liveIds={liveItems.map((a) => a.id)} />
+          <InspectorPanel selected={selected} liveIds={liveItems.map((a) => a.id)} canEdit={canEdit} />
         </div>
       </div>
 

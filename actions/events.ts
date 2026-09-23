@@ -18,6 +18,8 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import { EVENT_TIME_ZONE, torontoDate } from "@/app/utils/date";
 import { RRule, type Weekday } from "rrule";
 import { Temporal } from "temporal-polyfill";
+import { requirePermission } from "@/utils/permissions";
+import { createServiceClient } from "@/utils/supabase/serviceRole";
 
 const actionClient = createSafeActionClient();
 
@@ -29,7 +31,7 @@ export const createEvent = actionClient
   .inputSchema(CreateEventZod)
   .action(async ({ parsedInput }) => {
     try {
-      const supabase = await createClient();
+      const { supabase } = await requirePermission("events", "edit");
       if (
         parsedInput.is_recurring &&
         parsedInput.recurrence_rule &&
@@ -129,7 +131,7 @@ export const editEvent = actionClient
   .inputSchema(EditEventZod)
   .action(async ({ parsedInput }) => {
     try {
-      const supabase = await createClient();
+      const { supabase } = await requirePermission("events", "edit");
       const storedEvent = await getStoredEventState(
         supabase,
         parsedInput.id,
@@ -591,7 +593,7 @@ export const deleteEvent = actionClient
   .inputSchema(DeleteEventZod)
   .action(async ({ parsedInput }) => {
     try {
-      const supabase = await createClient();
+      const { supabase } = await requirePermission("events", "delete");
       const storedEvent = await getStoredEventState(
         supabase,
         parsedInput.id,
@@ -920,12 +922,12 @@ interface StoredEventState {
 }
 
 async function bestEffortDelete(
-  supabase: SupabaseClient,
+  _supabase: SupabaseClient,
   table: "events" | "recurrence_rule",
   id: number,
   label: string,
 ): Promise<void> {
-  const result = await supabase
+  const result = await createServiceClient()
     .from(table)
     .delete()
     .eq("id", id)
@@ -940,12 +942,12 @@ async function bestEffortDelete(
 }
 
 async function bestEffortRestoreRule(
-  supabase: SupabaseClient,
+  _supabase: SupabaseClient,
   ruleId: number,
   rule: RecurrenceRule,
   failedOperation: string,
 ): Promise<void> {
-  const result = await supabase
+  const result = await createServiceClient()
     .from("recurrence_rule")
     .update({
       frequency: rule.frequency,

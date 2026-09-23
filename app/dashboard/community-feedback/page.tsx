@@ -1,8 +1,10 @@
 import { CommunityFeedbackPage } from "@/features/communityFeedback";
 import { fetchFeedback } from "@/features/communityFeedback/actions";
 import { PageShell } from "@/app/components/ui/PageShell";
+import { requireViewerPermission } from "@/features/access/server";
 
 export default async function CommunityFeedback() {
+  await requireViewerPermission("feedback", "view");
   const raw = await fetchFeedback({ currentPage: 1, pageSize: 10, search: "" });
   const feedback = raw.data?.feedback ?? [];
 

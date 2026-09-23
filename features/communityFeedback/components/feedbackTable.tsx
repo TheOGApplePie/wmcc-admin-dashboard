@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { fetchFeedback } from "../actions";
+import { useCan } from "@/store/hooks";
 
 type FilterForm = {
   search: string;
@@ -48,6 +49,7 @@ export default function FeedbackTable({
   feedback: CommunityFeedback[];
   count: number;
 }>) {
+  const canRespond = useCan("feedback.respond");
   const {
     register,
     handleSubmit,
@@ -293,7 +295,7 @@ export default function FeedbackTable({
                   </div>
                 </div>
 
-                <Link
+                {canRespond && <Link
                   href={`mailto:${selected.email}?subject=RE: ${encodeURIComponent(selected.message.substring(0, 40))}`}
                   className="mt-auto inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-[13px] font-semibold text-white bg-teal hover:bg-teal-dark shadow-[0_8px_18px_-8px_rgba(15,128,115,.8)] transition-colors"
                 >
@@ -302,7 +304,7 @@ export default function FeedbackTable({
                     <polyline points="22,6 12,13 2,6" />
                   </svg>
                   Email Back
-                </Link>
+                </Link>}
               </div>
             </>
           ) : (

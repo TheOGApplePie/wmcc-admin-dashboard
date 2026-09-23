@@ -1,8 +1,8 @@
 "use server";
 import { createSafeActionClient } from "next-safe-action";
-import { createClient } from "../../utils/supabase/server";
 import { CommunityFeedback } from "@/app/schemas/communityFeedback";
 import z from "zod";
+import { requirePermission } from "@/utils/permissions";
 const actionClient = createSafeActionClient();
 
 export const fetchFeedback = actionClient
@@ -17,7 +17,7 @@ export const fetchFeedback = actionClient
   )
   .action(async ({ parsedInput }) => {
     try {
-      const supabase = await createClient();
+      const { supabase } = await requirePermission("feedback", "view");
       let query = supabase
         .from("community-feedback")
         .select("*", { count: "exact" })
@@ -40,9 +40,10 @@ export const fetchFeedback = actionClient
         const endDate = new Date(parsedInput.endDate).toDateString();
         query = query.lte("created_at", endDate);
       }
-      const { data: feedback, count } = await query.overrideTypes<
+      const { data: feedback, count, error } = await query.overrideTypes<
         CommunityFeedback[]
       >();
+      if (error) throw new Error(error.message);
       return { feedback, count };
     } catch (error) {
       console.error(error);
