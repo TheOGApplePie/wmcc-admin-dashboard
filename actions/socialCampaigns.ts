@@ -9,6 +9,7 @@ import {
   CreateManualSocialPostZod,
   DeleteSocialDeliveryZod,
   GenerateCampaignProposalZod,
+  ListSocialStorageZod,
   ReviewVerdictZod,
   UpdateSocialDeliveryZod,
   UpdateCampaignZod,
@@ -26,9 +27,9 @@ import { formatInTimeZone } from "date-fns-tz";
 import {
   SOCIAL_TIME_ZONE,
   addCalendarDays,
-  availableSlots,
   expandCampaignOccurrences,
   nextCampaignOccurrence,
+  planProposalSlots,
   proposeEventSchedule,
   schedulePlatformFor,
   scheduledAtFor,
@@ -42,6 +43,39 @@ import {
 const actionClient = createSafeActionClient();
 const REVALIDATE = "/dashboard/posts";
 const SELECT = "*, events(title, start_date, is_recurring)";
+
+export const listSocialStorageMedia = actionClient
+  .inputSchema(ListSocialStorageZod)
+  .action(async ({ parsedInput }) => {
+    try {
+      await requirePermission("social", "edit");
+      const service = createServiceClient();
+      const { data, error } = await service.storage
+        .from(parsedInput.bucket)
+        .list(parsedInput.prefix, {
+          limit: 60,
+          offset: parsedInput.offset,
+          sortBy: { column: "name", order: "asc" },
+        });
+      if (error) throw new Error(error.message);
+
+      const entries = (data ?? []).map((entry) => {
+        const path = parsedInput.prefix ? `${parsedInput.prefix}/${entry.name}` : entry.name;
+        const isFolder = entry.id === null;
+        return {
+          name: entry.name,
+          path,
+          isFolder,
+          mimeType: isFolder ? null : String(entry.metadata?.mimetype ?? ""),
+          size: isFolder ? null : Number(entry.metadata?.size ?? 0),
+          url: isFolder ? null : service.storage.from(parsedInput.bucket).getPublicUrl(path).data.publicUrl,
+        };
+      });
+      return ok({ entries, hasMore: entries.length === 60 });
+    } catch (error) {
+      return fail(error instanceof Error ? error.message : String(error), "Failed to browse social media.");
+    }
+  });
 
 type GenerationEvent = {
   id: number;
@@ -66,6 +100,53 @@ type PersistedProposal = ScheduleProposal & {
   callToActionCaption: string | null;
   suggestions: Partial<Record<SocialChannel, { date: string; slot: SocialTimeSlot }>>;
 };
+
+type SocialMediaItemInput = { url: string; alt_text: string };
+
+const IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const VIDEO_MIME_TYPES = new Set(["video/mp4", "video/quicktime", "video/webm"]);
+
+async function assertSocialMediaSelection(
+  channel: SocialChannel,
+  mediaItems: SocialMediaItemInput[],
+) {
+  if (!mediaItems.length) return;
+  const service = createServiceClient();
+  const storageOrigin = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!).origin;
+
+  for (const item of mediaItems) {
+    const url = new URL(item.url);
+    if (url.origin !== storageOrigin) throw new Error("Social media must come from this project's Supabase Storage.");
+    const match = url.pathname.match(/^\/storage\/v1\/object\/public\/(event-posters|videos)\/(.+)$/);
+    if (!match) throw new Error("Select media from the event-posters or videos bucket.");
+    const bucket = match[1] as "event-posters" | "videos";
+    const path = decodeURIComponent(match[2]);
+    const slash = path.lastIndexOf("/");
+    const folder = slash >= 0 ? path.slice(0, slash) : "";
+    const name = slash >= 0 ? path.slice(slash + 1) : path;
+    const { data, error } = await service.storage.from(bucket).list(folder, { limit: 100, search: name });
+    if (error) throw new Error(`Unable to verify selected media: ${error.message}`);
+    const object = data?.find((entry) => entry.name === name && entry.id !== null);
+    if (!object) throw new Error("A selected media object no longer exists in Storage.");
+    const mimeType = String(object.metadata?.mimetype ?? "").toLowerCase();
+    const requiresVideo = channel === "instagram_reel" || channel === "tiktok_reel";
+    const requiresImage = channel === "instagram_feed" || channel === "instagram_story";
+    const allowedVideo = channel === "instagram_reel"
+      ? new Set(["video/mp4", "video/quicktime"]).has(mimeType)
+      : VIDEO_MIME_TYPES.has(mimeType);
+    if (requiresVideo && (bucket !== "videos" || !allowedVideo)) {
+      throw new Error(channel === "instagram_reel"
+        ? "Instagram Reel requires an MP4 or MOV video from the videos bucket."
+        : "TikTok requires an MP4, MOV, or WebM video from the videos bucket.");
+    }
+    if (requiresImage && (bucket !== "event-posters" || mimeType !== "image/jpeg")) {
+      throw new Error("Instagram image publishing requires a JPEG from the event-posters bucket.");
+    }
+    if (channel === "whatsapp" && !IMAGE_MIME_TYPES.has(mimeType) && !VIDEO_MIME_TYPES.has(mimeType)) {
+      throw new Error("WhatsApp media must be a supported image or video.");
+    }
+  }
+}
 
 async function getEventSnapshot(
   supabase: Awaited<ReturnType<typeof requirePermission>>["supabase"],
@@ -174,8 +255,7 @@ export const updateSocialDelivery = actionClient
   .inputSchema(UpdateSocialDeliveryZod)
   .action(async ({ parsedInput }) => {
     try {
-      const { supabase, user } = await requirePermission("social", "edit");
-      if (parsedInput.status === "sent") await requirePermission("social", "send");
+      const { supabase } = await requirePermission("social", "edit");
 
       const { data: existing, error: existingError } = await supabase
         .from("social_deliveries")
@@ -217,46 +297,25 @@ export const updateSocialDelivery = actionClient
       if (parsedInput.status === "scheduled" && scheduledAt && Date.parse(scheduledAt) <= Date.now()) {
         return clientFail("Choose a future time slot before scheduling.");
       }
-      const { error: postError } = await supabase.from("social_posts").update({
-          title: parsedInput.title,
-          description: parsedInput.description,
-          media_url: parsedInput.media_url || null,
-          hashtags: parsedInput.hashtags,
-          call_to_action_link: parsedInput.call_to_action_link || null,
-          call_to_action_caption: parsedInput.call_to_action_caption || null,
-        }).eq("id", parsedInput.post_id);
-      if (postError) throw new Error(postError.message);
-      const { error: variantError } = await supabase.from("social_post_variants").update({
-          channel: parsedInput.channel,
-          caption: parsedInput.caption,
-          description: parsedInput.description,
-          media_url: parsedInput.media_url || null,
-          media_items: parsedInput.media_items,
-          hashtags: parsedInput.hashtags,
-          call_to_action_link: parsedInput.call_to_action_link || null,
-          call_to_action_caption: parsedInput.call_to_action_caption || null,
-        }).eq("id", parsedInput.variant_id);
-      if (variantError) throw new Error(variantError.message);
-      if (scheduleChanged || parsedInput.status !== "draft") {
-        const { error: deliveryError } = await supabase.from("social_deliveries").update({
-            schedule_platform: schedulePlatform,
-            scheduled_date: parsedInput.scheduled_date,
-            time_slot: parsedInput.time_slot,
-            scheduled_at: scheduledAt,
-            status: parsedInput.status,
-            sent_at: parsedInput.status === "sent" ? new Date().toISOString() : null,
-            sent_by: parsedInput.status === "sent" ? user.id : null,
-            publication_consented_at: parsedInput.status === "scheduled" ? new Date().toISOString() : null,
-            publication_consented_by: parsedInput.status === "scheduled" ? user.id : null,
-            ...(parsedInput.status === "scheduled" ? {
-              attempt_count: 0,
-              retryable: true,
-              provider_error: null,
-              external_id: null,
-            } : {}),
-          }).eq("id", parsedInput.id);
-        if (deliveryError) throw new Error(deliveryError.message);
+      if (parsedInput.status === "scheduled") {
+        await assertSocialMediaSelection(parsedInput.channel, parsedInput.media_items);
       }
+      const { error: updateError } = await supabase.rpc("update_social_delivery_post", {
+        p_delivery_id: parsedInput.id,
+        p_title: parsedInput.title,
+        p_description: parsedInput.description,
+        p_caption: parsedInput.caption,
+        p_media_url: parsedInput.media_url,
+        p_media_items: parsedInput.media_items,
+        p_hashtags: parsedInput.hashtags,
+        p_call_to_action_link: parsedInput.call_to_action_link,
+        p_call_to_action_caption: parsedInput.call_to_action_caption,
+        p_channel: parsedInput.channel,
+        p_mode: parsedInput.status,
+        p_scheduled_date: parsedInput.status === "scheduled" ? parsedInput.scheduled_date : null,
+        p_time_slot: parsedInput.status === "scheduled" ? parsedInput.time_slot : null,
+      });
+      if (updateError) throw new Error(updateError.message);
 
       await logAudit(supabase, "social_delivery", parsedInput.id, "update", `${schedulePlatform}:${parsedInput.scheduled_date}:${parsedInput.time_slot}`);
       revalidatePath(REVALIDATE);
@@ -292,6 +351,9 @@ export const createManualSocialPost = actionClient
       if (parsedInput.mode === "scheduled" && parsedInput.scheduled_date && parsedInput.time_slot) {
         const scheduledAt = scheduledAtFor(parsedInput.scheduled_date, parsedInput.time_slot);
         if (Date.parse(scheduledAt) <= Date.now()) return clientFail("Choose a future time slot before scheduling.");
+      }
+      if (parsedInput.mode === "scheduled") {
+        await assertSocialMediaSelection(parsedInput.variants[0].channel, parsedInput.variants[0].media_items);
       }
       const { data, error } = await supabase.rpc("create_manual_social_post", {
         p_campaign_id: parsedInput.campaign_id,
@@ -515,6 +577,7 @@ export const generateCampaignProposal = actionClient
         .eq("id", parsedInput.id)
         .single();
       if (campaignError || !campaign) throw new Error(campaignError?.message ?? "Campaign not found.");
+      if (campaign.status !== "active") return clientFail("Activate the campaign before generating its schedule.");
       if (campaign.needs_review) return clientFail("Resolve the open campaign review before generating a replacement schedule.");
       if (!campaign.event_id || !campaign.generation_enabled) {
         return clientFail("Standalone campaigns do not generate event proposals.");
@@ -574,33 +637,6 @@ export const generateCampaignProposal = actionClient
         isFirstOccurrence: launchOccurrenceAt === eventOccurrenceAt,
       })).filter((proposal) => proposal.targetDate >= coverageStart && proposal.targetDate <= coverageEnd);
 
-      const retained: ScheduleProposal[] = [];
-      const suppressed: Array<Record<string, unknown>> = [];
-      const reminderKeys = new Map<string, ScheduleProposal>();
-      for (const proposal of raw) {
-        if (proposal.kind !== "reminder") {
-          retained.push(proposal);
-          continue;
-        }
-        const channels = proposal.channels.filter((channel) => {
-          const key = `${proposal.targetDate}:${channel}`;
-          const owner = reminderKeys.get(key);
-          if (!owner) {
-            reminderKeys.set(key, proposal);
-            return true;
-          }
-          suppressed.push({
-            channel,
-            targetDate: proposal.targetDate,
-            suppressedGenerationKey: proposal.generationKey,
-            retainedGenerationKey: owner.generationKey,
-            eventOccurrenceAt: proposal.eventOccurrenceAt,
-          });
-          return false;
-        });
-        if (channels.length) retained.push({ ...proposal, channels });
-      }
-
       const { data: occupiedRows, error: occupiedError } = await supabase
         .from("social_deliveries")
         .select("schedule_platform, scheduled_date, time_slot, status, retryable")
@@ -616,20 +652,8 @@ export const generateCampaignProposal = actionClient
           slot: row.time_slot,
         })) as OccupiedSlot[];
 
-      const proposals: PersistedProposal[] = retained.map((proposal, sequence) => {
-        const suggestions: PersistedProposal["suggestions"] = {};
-        for (const channel of proposal.channels) {
-          let candidateDate = proposal.targetDate;
-          while (candidateDate >= today) {
-            const option = availableSlots(channel, candidateDate, occupied, proposal.eventOccurrenceAt)[0];
-            if (option) {
-              suggestions[channel] = { date: option.date, slot: option.slot };
-              occupied.push({ schedulePlatform: schedulePlatformFor(channel), date: option.date, slot: option.slot });
-              break;
-            }
-            candidateDate = addCalendarDays(candidateDate, -1);
-          }
-        }
+      const { planned, suppressed } = planProposalSlots(raw, occupied, today);
+      const proposals: PersistedProposal[] = planned.map((proposal, sequence) => {
         const label = proposal.kind === "initial" ? "Initial post" : `${proposal.milestoneDays}-day reminder`;
         return {
           ...proposal,
@@ -640,7 +664,6 @@ export const generateCampaignProposal = actionClient
           mediaUrl: event.poster_url,
           callToActionLink: event.call_to_action_link,
           callToActionCaption: event.call_to_action_caption,
-          suggestions,
         };
       });
 

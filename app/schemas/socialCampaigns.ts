@@ -61,8 +61,6 @@ export const CampaignMediaLinkZod = z.object({
 
 export const UpdateSocialDeliveryZod = z.object({
   id: z.uuid(),
-  post_id: z.uuid(),
-  variant_id: z.uuid(),
   title: z.string().trim().min(1).max(120),
   caption: z.string().max(2_200),
   description: z.string().max(2_000),
@@ -74,7 +72,7 @@ export const UpdateSocialDeliveryZod = z.object({
   channel: VariantChannelZod,
   scheduled_date: z.iso.date().nullable(),
   time_slot: z.enum(["morning", "afternoon", "evening"]).nullable(),
-  status: z.enum(["draft", "proposed", "scheduled", "sent", "failed", "cancelled"]),
+  status: z.enum(["draft", "scheduled"]),
 }).superRefine((data, ctx) => {
   const mediaCount = data.media_items.length || (data.media_url ? 1 : 0);
   if (data.channel !== "instagram_feed" && mediaCount > 1) {
@@ -83,13 +81,19 @@ export const UpdateSocialDeliveryZod = z.object({
   if (!["draft", "cancelled"].includes(data.status)) {
     if (!data.scheduled_date) ctx.addIssue({ code: "custom", path: ["scheduled_date"], message: "Date is required." });
     if (!data.time_slot) ctx.addIssue({ code: "custom", path: ["time_slot"], message: "Time slot is required." });
-    if (data.channel.startsWith("instagram_") && data.media_items.some((item) => !item.alt_text.trim())) {
+    if (data.channel.startsWith("instagram_") && data.channel !== "instagram_reel" && data.media_items.some((item) => !item.alt_text.trim())) {
       ctx.addIssue({ code: "custom", path: ["media_items"], message: "Alt text is required for every Instagram image." });
     }
   }
 });
 
 export const DeleteSocialDeliveryZod = z.object({ id: z.uuid() });
+
+export const ListSocialStorageZod = z.object({
+  bucket: z.enum(["event-posters", "videos"]),
+  prefix: z.string().max(500).regex(/^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[^\\]*$/, "Invalid storage folder.").default(""),
+  offset: z.number().int().min(0).max(10_000).default(0),
+});
 
 export const CreateManualSocialPostZod = z.object({
   campaign_id: z.uuid(),
@@ -122,7 +126,7 @@ export const CreateManualSocialPostZod = z.object({
       const mediaCount = variant.media_items.length || (variant.media_url ? 1 : 0);
       if (!variant.caption.trim()) ctx.addIssue({ code: "custom", path: ["variants", index, "caption"], message: "Caption is required to schedule." });
       if (variant.channel !== "whatsapp" && mediaCount === 0) ctx.addIssue({ code: "custom", path: ["variants", index, "media_items"], message: "Media is required for this platform." });
-      if (variant.channel.startsWith("instagram_") && variant.media_items.some((item) => !item.alt_text.trim())) ctx.addIssue({ code: "custom", path: ["variants", index, "media_items"], message: "Alt text is required for every Instagram image." });
+      if (variant.channel.startsWith("instagram_") && variant.channel !== "instagram_reel" && variant.media_items.some((item) => !item.alt_text.trim())) ctx.addIssue({ code: "custom", path: ["variants", index, "media_items"], message: "Alt text is required for every Instagram image." });
     });
   }
 });
@@ -131,7 +135,7 @@ export type CampaignStatus = z.infer<typeof CampaignStatusZod>;
 export type VariantChannel = z.infer<typeof VariantChannelZod>;
 
 export type SocialDeliveryStatus =
-  | "draft" | "proposed" | "scheduled" | "due" | "processing"
+  | "draft" | "proposed" | "scheduled" | "due" | "processing" | "provider_processing"
   | "sent" | "failed" | "skipped" | "cancelled";
 
 export interface SocialCalendarDelivery {
@@ -196,6 +200,7 @@ export interface SocialReviewItem {
   decision: "unresolved" | "kept" | "regenerated" | "suppression_accepted" | "cancelled";
   detail: string | null;
   previous_state: { title?: string; status?: string };
+  proposed_state: Record<string, unknown>;
 }
 
 export interface SocialCampaignReview {

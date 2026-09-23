@@ -1,10 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { formatInTimeZone } from "date-fns-tz";
 import {
-  SOCIAL_TIME_ZONE, addCalendarDays, availableSlots, expandCampaignOccurrences,
-  nextCampaignOccurrence, proposeEventSchedule, schedulePlatformFor,
-  type CampaignRecurrenceRule, type OccupiedSlot, type ScheduleProposal,
-  type SocialChannel, type SocialTimeSlot,
+  SOCIAL_TIME_ZONE, addCalendarDays, expandCampaignOccurrences,
+  nextCampaignOccurrence, planProposalSlots, proposeEventSchedule,
+  type CampaignRecurrenceRule, type OccupiedSlot,
 } from "@/features/socialCampaigns/scheduling";
 
 type GenerationEvent = {
@@ -38,38 +37,15 @@ export async function runCampaignGeneration(supabase: SupabaseClient, campaignId
   const launchOccurrenceAt = campaign.launch_occurrence_at ?? (!event.is_recurring || actualFirstOccurrence ? nextOccurrence : null);
   const raw = occurrences.flatMap((eventOccurrenceAt) => proposeEventSchedule({ campaignId, campaignCreatedOn: campaign.starts_on ?? formatInTimeZone(campaign.created_at, SOCIAL_TIME_ZONE, "yyyy-MM-dd"), eventOccurrenceAt, today, isFirstOccurrence: launchOccurrenceAt === eventOccurrenceAt })).filter((proposal) => proposal.targetDate >= coverageStart && proposal.targetDate <= coverageEnd);
 
-  const retained: ScheduleProposal[] = [];
-  const suppressed: Array<Record<string, unknown>> = [];
-  const reminderKeys = new Map<string, ScheduleProposal>();
-  for (const proposal of raw) {
-    if (proposal.kind !== "reminder") { retained.push(proposal); continue; }
-    const channels = proposal.channels.filter((channel) => {
-      const key = `${proposal.targetDate}:${channel}`;
-      const owner = reminderKeys.get(key);
-      if (!owner) { reminderKeys.set(key, proposal); return true; }
-      suppressed.push({ channel, targetDate: proposal.targetDate, suppressedGenerationKey: proposal.generationKey, retainedGenerationKey: owner.generationKey, eventOccurrenceAt: proposal.eventOccurrenceAt });
-      return false;
-    });
-    if (channels.length) retained.push({ ...proposal, channels });
-  }
-
   const { data: occupiedRows, error: occupiedError } = await supabase.from("social_deliveries").select("schedule_platform, scheduled_date, time_slot, status, retryable").in("status", ["proposed", "scheduled", "due", "processing", "failed"]).gte("scheduled_date", today).lte("scheduled_date", coverageEnd);
   if (occupiedError) throw new Error(occupiedError.message);
   const occupied = (occupiedRows ?? [])
     .filter((row) => row.status !== "failed" || row.retryable)
     .map((row) => ({ schedulePlatform: row.schedule_platform, date: row.scheduled_date, slot: row.time_slot })) as OccupiedSlot[];
-  const proposals = retained.map((proposal, sequence) => {
-    const suggestions: Partial<Record<SocialChannel, { date: string; slot: SocialTimeSlot }>> = {};
-    for (const channel of proposal.channels) {
-      let candidateDate = proposal.targetDate;
-      while (candidateDate >= today) {
-        const option = availableSlots(channel, candidateDate, occupied, proposal.eventOccurrenceAt)[0];
-        if (option) { suggestions[channel] = { date: option.date, slot: option.slot }; occupied.push({ schedulePlatform: schedulePlatformFor(channel), date: option.date, slot: option.slot }); break; }
-        candidateDate = addCalendarDays(candidateDate, -1);
-      }
-    }
+  const { planned, suppressed } = planProposalSlots(raw, occupied, today);
+  const proposals = planned.map((proposal, sequence) => {
     const label = proposal.kind === "initial" ? "Initial post" : `${proposal.milestoneDays}-day reminder`;
-    return { ...proposal, sequence, title: `${label}: ${event.title}`, caption: event.description, description: event.description, mediaUrl: event.poster_url, callToActionLink: event.call_to_action_link, callToActionCaption: event.call_to_action_caption, suggestions };
+    return { ...proposal, sequence, title: `${label}: ${event.title}`, caption: event.description, description: event.description, mediaUrl: event.poster_url, callToActionLink: event.call_to_action_link, callToActionCaption: event.call_to_action_caption };
   });
   const { data: inserted, error: persistError } = await supabase.rpc("persist_social_campaign_proposals", { p_campaign_id: campaignId, p_proposals: proposals, p_suppressed: suppressed, p_generated_through: coverageEnd, p_launch_occurrence_at: launchOccurrenceAt, p_launch_decision_made: Boolean(campaign.launch_decision_made || !event.is_recurring || actualFirstOccurrence) });
   if (persistError) throw new Error(persistError.message);

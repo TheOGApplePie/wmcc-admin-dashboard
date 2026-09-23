@@ -8,7 +8,7 @@ This document is the acceptance specification for the social campaign module.
 - Event behavior determines generation: a linked RRULE drives recurring proposals; campaigns do not declare a separate type.
 - A campaign contains posts. Each CMS post targets exactly one platform format.
 - Supported channels are Instagram Feed, Instagram Story, Instagram Reel, WhatsApp, and TikTok Reel.
-- Media is supplied by HTTPS URL; this module does not upload media. Instagram Feed supports one image or an ordered carousel of up to ten images; other formats use at most one media URL. Every Instagram image requires alt text before scheduling.
+- Media is selected from the approved `event-posters` or `videos` Supabase Storage buckets; the selected public HTTPS URLs are persisted with the post. The editor does not upload media. Instagram Feed supports one image or an ordered carousel of up to ten images; other formats use at most one media URL. Every Instagram image requires alt text before scheduling.
 - Incomplete content may be saved as a draft, but invalid selected variants cannot be scheduled.
 
 ## Schedule
@@ -48,7 +48,7 @@ If an event date or recurrence rule changes, its campaign is flagged for review 
 
 ## Delivery and permissions
 
-All deliveries are automated. Delivery records retain provider IDs, attempts, errors, and idempotency keys so each platform adapter can retry safely and notify authorized staff when delivery fails.
+All deliveries are automated. Delivery records retain provider IDs, attempts, errors, and idempotency keys so each platform adapter can retry safely and notify authorized staff when delivery fails. Asynchronous Instagram/TikTok work uses `provider_processing`; status polling does not consume a failure retry.
 
 The initial attempt and at most two retries are claimed atomically by the three daily delivery jobs. Accepted asynchronous provider jobs retain their provider ID so a retry checks the existing job rather than publishing a duplicate. A terminal failure creates an in-app notification for board members and members with social-send responsibility.
 
