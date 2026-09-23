@@ -1,5 +1,6 @@
 import { type Event } from "@/app/schemas/events";
 import { Badge } from "@/app/components/ui/Badge";
+import { useCan } from "@/store/hooks";
 
 const DISPLAY_TIME_ZONE = "America/Toronto";
 
@@ -32,6 +33,7 @@ export function EventDetailsPanel({
   events,
   onEdit,
 }: Readonly<EventDetailsPanelProps>) {
+  const canEdit = useCan("events.edit");
   if (!events.length) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 py-12 opacity-40">
@@ -67,9 +69,9 @@ export function EventDetailsPanel({
             <DetailRow label="End" value={formatDateTime(event.end_date)} />
             {event.description && <p className="leading-relaxed text-ink/80">{excerpt(event.description)}</p>}
           </div>
-          <button type="button" className="inline-flex w-full items-center justify-center rounded-xl bg-teal-soft px-4 py-2 text-[13px] font-semibold text-teal-dark transition-colors hover:bg-teal/20" onClick={() => onEdit(event)}>
+          {canEdit && <button type="button" className="inline-flex w-full items-center justify-center rounded-xl bg-teal-soft px-4 py-2 text-[13px] font-semibold text-teal-dark transition-colors hover:bg-teal/20" onClick={() => onEdit(event)}>
             Edit / Manage
-          </button>
+          </button>}
         </article>
       ))}
     </div>

@@ -67,12 +67,14 @@ interface MemberInspectorProps {
   member: Profile;
   currentUserId: string | null;
   viewerCanManage: boolean;
+  viewerCanDelete: boolean;
 }
 
 export function MemberInspector({
   member,
   currentUserId,
   viewerCanManage,
+  viewerCanDelete,
 }: Readonly<MemberInspectorProps>) {
   const isYou = member.id === currentUserId;
   const readOnly = !viewerCanManage || isYou || member.status === "inactive";
@@ -301,30 +303,30 @@ export function MemberInspector({
       </div>
 
       {/* ── Footer ──────────────────────────────────────────────────────────── */}
-      <div className="mt-3 flex items-center justify-between border-t border-line pt-4">
+      {(isYou || viewerCanManage || viewerCanDelete) && <div className="mt-3 flex items-center justify-between border-t border-line pt-4">
         {isYou ? (
           <p className="text-[11px] text-muted">You can&apos;t change your own access.</p>
-        ) : member.status === "inactive" ? (
+        ) : member.status === "inactive" && viewerCanManage ? (
           <Btn
             variant="soft"
             size="sm"
             onClick={handleReactivate}
-            disabled={deactivating || !viewerCanManage}
+            disabled={deactivating}
           >
             <Icon d="M21 12a9 9 0 0 1-15 6.7L3 16 M3 12a9 9 0 0 1 15-6.7L21 8 M21 3v5h-5 M3 21v-5h5" size={14} />
             {deactivating ? "Reactivating…" : "Reactivate"}
           </Btn>
-        ) : (
+        ) : member.status !== "inactive" && viewerCanDelete ? (
           <Btn
             variant="danger"
             size="sm"
             onClick={handleDeactivate}
-            disabled={deactivating || !viewerCanManage}
+            disabled={deactivating}
           >
             <Icon d="M3 6h18 M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2 M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6" size={14} />
             {deactivating ? "Deactivating…" : "Deactivate"}
           </Btn>
-        )}
+        ) : <span />}
 
         {!isYou && member.status !== "inactive" && viewerCanManage && (
           <div className="flex gap-2">
@@ -348,7 +350,7 @@ export function MemberInspector({
             </Btn>
           </div>
         )}
-      </div>
+      </div>}
     </Card>
   );
 }

@@ -1,8 +1,10 @@
 import { AnnouncementPage } from "@/features/announcements";
 import { fetchAnnouncements } from "../../../features/announcements/actions";
 import type { Announcement } from "@/app/schemas/announcement";
+import { requireViewerPermission } from "@/features/access/server";
 
 export default async function Announcements() {
+  await requireViewerPermission("announcements", "view");
   const announcements: Announcement[] = (await fetchAnnouncements()).data ?? [];
   const now = new Date();
   const currentAnnouncements = announcements.filter((a) => new Date(a.expires_at) >= now);

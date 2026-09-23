@@ -5,14 +5,19 @@ import { createClient } from "../../utils/supabase/server";
 import z from "zod";
 import { revalidatePath } from "next/cache";
 import { resolveStorageUrl } from "@/utils/uploadFiles";
+import { requirePermission } from "@/utils/permissions";
 
 const actionClient = createSafeActionClient();
+
+function throwOnSupabaseError(result: { error: { message: string } | null }) {
+  if (result.error) throw new Error(result.error.message);
+}
 
 export const createAnnouncement = actionClient
   .inputSchema(AnnouncementZod)
   .action(async ({ parsedInput }) => {
     try {
-      const supabase = await createClient();
+      const { supabase } = await requirePermission("announcements", "edit");
       const storageUrl = await resolveStorageUrl(
         supabase,
         parsedInput.poster_file,
@@ -20,7 +25,7 @@ export const createAnnouncement = actionClient
         parsedInput.title,
       );
 
-      await supabase.from("announcements").insert({
+      const insertResult = await supabase.from("announcements").insert({
         title: parsedInput.title,
         description: parsedInput.description,
         poster_url: storageUrl,
@@ -29,6 +34,7 @@ export const createAnnouncement = actionClient
         call_to_action_caption: parsedInput.call_to_action_caption,
         expires_at: new Date(parsedInput.expires_at),
       });
+      throwOnSupabaseError(insertResult);
       revalidatePath("/dashboard/announcements");
     } catch (error) {
       console.error(error);
@@ -40,14 +46,14 @@ export const editAnnouncement = actionClient
   .inputSchema(AnnouncementZod)
   .action(async ({ parsedInput }) => {
     try {
-      const supabase = await createClient();
+      const { supabase } = await requirePermission("announcements", "edit");
       const storageUrl = await resolveStorageUrl(
         supabase,
         parsedInput.poster_file,
         parsedInput.poster_url,
         parsedInput.title,
       );
-      await supabase
+      const updateResult = await supabase
         .from("announcements")
         .update({
           title: parsedInput.title,
@@ -59,6 +65,7 @@ export const editAnnouncement = actionClient
           expires_at: new Date(parsedInput.expires_at),
         })
         .eq("id", parsedInput.id);
+      throwOnSupabaseError(updateResult);
       revalidatePath("/dashboard/announcements");
     } catch (error) {
       console.error(error);
@@ -70,8 +77,9 @@ export const deleteAnnouncement = actionClient
   .inputSchema(z.object({ id: z.coerce.number() }))
   .action(async ({ parsedInput }) => {
     try {
-      const supabase = await createClient();
-      await supabase.from("announcements").delete().eq("id", parsedInput.id);
+      const { supabase } = await requirePermission("announcements", "delete");
+      const deleteResult = await supabase.from("announcements").delete().eq("id", parsedInput.id);
+      throwOnSupabaseError(deleteResult);
       revalidatePath("/dashboard/announcements");
     } catch (error) {
       console.error(error);
@@ -83,12 +91,13 @@ export const fetchAnnouncements = actionClient.action(async () => {
   try {
     const supabase = await createClient();
 
-    const { data: announcements } = await supabase
+    const { data: announcements, error } = await supabase
       .from("announcements")
       .select()
       .order("display_order", { ascending: true, nullsFirst: false })
       .order("id", { ascending: true })
       .overrideTypes<Announcement[]>();
+    if (error) throw new Error(error.message);
     return announcements;
   } catch (error) {
     console.error(error);
@@ -100,8 +109,8 @@ export const reorderAnnouncements = actionClient
   .inputSchema(z.object({ ids: z.array(z.number()) }))
   .action(async ({ parsedInput }) => {
     try {
-      const supabase = await createClient();
-      await Promise.all(
+      const { supabase } = await requirePermission("announcements", "edit");
+      const results = await Promise.all(
         parsedInput.ids.map((id, index) =>
           supabase
             .from("announcements")
@@ -109,6 +118,7 @@ export const reorderAnnouncements = actionClient
             .eq("id", id),
         ),
       );
+      results.forEach(throwOnSupabaseError);
       revalidatePath("/dashboard/announcements");
     } catch (error) {
       console.error(error);
@@ -120,11 +130,12 @@ export const restoreAnnouncement = actionClient
   .inputSchema(z.object({ id: z.coerce.number(), expires_at: z.coerce.date() }))
   .action(async ({ parsedInput }) => {
     try {
-      const supabase = await createClient();
-      await supabase
+      const { supabase } = await requirePermission("announcements", "edit");
+      const restoreResult = await supabase
         .from("announcements")
         .update({ expires_at: parsedInput.expires_at })
         .eq("id", parsedInput.id);
+      throwOnSupabaseError(restoreResult);
       revalidatePath("/dashboard/announcements");
     } catch (error) {
       console.error(error);

@@ -2,10 +2,12 @@ import { getCampaignEventOptions, getSocialAdminUsers, getSocialCalendarDeliveri
 import { PageShell } from "@/app/components/ui/PageShell";
 import CampaignsClient from "@/features/socialCampaigns/components/CampaignsClient";
 import { requirePermission } from "@/utils/permissions";
+import { requireViewerPermission } from "@/features/access/server";
 
 export const dynamic = "force-dynamic";
 
 export default async function SocialCampaignsPage() {
+  await requireViewerPermission("social", "view");
   const { supabase } = await requirePermission("social", "view");
   const [{ data: campaignResult }, { data: calendarResult }, { data: eventResult }, { data: userResult }, editPerm, schedulePerm, sendPerm, deletePerm] = await Promise.all([
     getSocialCampaigns(),

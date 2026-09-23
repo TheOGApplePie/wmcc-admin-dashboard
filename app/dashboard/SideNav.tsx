@@ -1,8 +1,9 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useCan } from "@/store/hooks";
 
-type NavItem = { href: string; label: string; icon: string; exact?: boolean };
+type NavItem = { href: string; label: string; icon: string; exact?: boolean; permission?: string };
 
 const NAV: NavItem[] = [
   {
@@ -14,21 +15,25 @@ const NAV: NavItem[] = [
   {
     href: "/dashboard/announcements",
     label: "Announcements",
+    permission: "announcements.view",
     icon: "M3 11v2a1 1 0 0 0 1 1h2l9 5V5L6 10H4a1 1 0 0 0-1 1Z M18 8a4 4 0 0 1 0 8",
   },
   {
     href: "/dashboard/events",
     label: "Events",
+    permission: "events.view",
     icon: "M7 3v3M17 3v3M4 8h16M5 6h14a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1Z",
   },
   {
     href: "/dashboard/posts",
     label: "Social Posts",
+    permission: "social.view",
     icon: "M22 2 11 13 M22 2l-7 20-4-9-9-4Z",
   },
   {
     href: "/dashboard/community-feedback",
     label: "Community Feedback",
+    permission: "feedback.view",
     icon: "M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z",
   },
   {
@@ -39,6 +44,7 @@ const NAV: NavItem[] = [
   {
     href: "/dashboard/users-management",
     label: "User Management",
+    permission: "users.view",
     icon: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M22 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75",
   },
 ];
@@ -63,13 +69,23 @@ function NavIcon({ d }: Readonly<{ d: string }>) {
   );
 }
 
-export default function SideNav({
-  canViewSocial = false,
-}: Readonly<{ canViewSocial?: boolean }>) {
+export default function SideNav() {
   const pathname = usePathname();
-  const visibleNav = NAV.filter(
-    (item) => item.href !== "/dashboard/posts" || canViewSocial,
-  );
+  // Hooks cannot be called inside the filter callback, so resolve the finite
+  // navigation permission set unconditionally on every render.
+  const canViewAnnouncements = useCan("announcements.view");
+  const canViewEvents = useCan("events.view");
+  const canViewSocial = useCan("social.view");
+  const canViewFeedback = useCan("feedback.view");
+  const canViewUsers = useCan("users.view");
+  const allowed: Record<string, boolean> = {
+    "announcements.view": canViewAnnouncements,
+    "events.view": canViewEvents,
+    "social.view": canViewSocial,
+    "feedback.view": canViewFeedback,
+    "users.view": canViewUsers,
+  };
+  const visibleNav = NAV.filter((item) => !item.permission || allowed[item.permission]);
 
   return (
     <aside className="fixed inset-y-0 left-0 z-40 flex w-17 flex-col items-center border-r border-line bg-surface py-4 gap-1">
@@ -78,7 +94,7 @@ export default function SideNav({
         W
       </div>
 
-      {NAV.map(({ href, label, icon, exact }) => {
+      {visibleNav.map(({ href, label, icon, exact }) => {
         const active = exact ? pathname === href : pathname.startsWith(href);
         return (
           <Link

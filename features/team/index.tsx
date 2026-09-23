@@ -4,8 +4,8 @@ import { useState } from "react";
 import { PageShell } from "@/app/components/ui/PageShell";
 import { Icon } from "@/app/components/ui/Icon";
 import { Btn } from "@/app/components/ui/Btn";
-import { hasPerm } from "@/features/team/permissions";
 import type { Profile } from "@/features/team/types";
+import { useCan } from "@/store/hooks";
 import { TeamRoster } from "./components/TeamRoster";
 import { MemberInspector } from "./components/MemberInspector";
 import { InviteModal } from "./components/InviteModal";
@@ -42,15 +42,16 @@ interface TeamPageProps {
 }
 
 export function TeamPage({ profiles, currentUserId }: Readonly<TeamPageProps>) {
+  const canManageFromAccess = useCan("users.manage");
+  const canDeleteFromAccess = useCan("users.delete");
   const [selectedId, setSelectedId] = useState<string | null>(
     profiles[0]?.id ?? null,
   );
   const [showInvite, setShowInvite] = useState(false);
 
   const currentProfile = profiles.find((p) => p.id === currentUserId) ?? null;
-  const viewerCanManage = currentProfile
-    ? hasPerm(currentProfile.role, currentProfile.permission_overrides, "users", "manage")
-    : false;
+  const viewerCanManage = Boolean(currentProfile && canManageFromAccess);
+  const viewerCanDelete = Boolean(currentProfile && canDeleteFromAccess);
 
   const selectedMember = profiles.find((p) => p.id === selectedId) ?? profiles[0] ?? null;
 
@@ -109,6 +110,7 @@ export function TeamPage({ profiles, currentUserId }: Readonly<TeamPageProps>) {
                 member={selectedMember}
                 currentUserId={currentUserId}
                 viewerCanManage={viewerCanManage}
+                viewerCanDelete={viewerCanDelete}
               />
             ) : (
               <div className="flex h-full items-center justify-center rounded-2xl border border-line bg-surface text-center text-muted">
