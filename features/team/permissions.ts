@@ -5,7 +5,7 @@
 // The SQL function has_perm() in supabase/migrations/010_team_profiles.sql
 // mirrors these presets — keep the two in sync.
 
-export type MemberRole = "board" | "management" | "volunteer";
+export type MemberRole = "board" | "management" | "general";
 export type MemberStatus = "invited" | "active" | "inactive";
 
 /** Flat map of "<module>.<action>": granted? */
@@ -27,32 +27,36 @@ export interface PermissionModule {
   actions: ModuleAction[];
 }
 
-export const ROLES: MemberRole[] = ["board", "management", "volunteer"];
+export const ROLES: MemberRole[] = ["board", "management", "general"];
 
 export const ROLE_LABELS: Record<MemberRole, string> = {
   board: "Board of Director",
   management: "Management",
-  volunteer: "Volunteer",
+  general: "General",
 };
 
 export const ROLE_COLOURS: Record<MemberRole, string> = {
   board: "#7A6CD6",
   management: "#0F8073",
-  volunteer: "#3E8EDC",
+  general: "#3E8EDC",
 };
 
 export const ROLE_BLURBS: Record<MemberRole, string> = {
   board: "Full access, including the team and integrations.",
-  management: "Runs day-to-day content and publishing. Sees the team, can't change it.",
-  volunteer: "Drafts and views content. Can't publish, delete, or manage people.",
+  management:
+    "Runs day-to-day content and publishing. Sees the team, can't change it.",
+  general: "Drafts and views content. Can't publish, delete, or manage people.",
 };
 
 const ICONS = {
-  megaphone: "M3 11v2a1 1 0 0 0 1 1h2l9 5V5L6 10H4a1 1 0 0 0-1 1Z M18 8a4 4 0 0 1 0 8",
-  calendar: "M7 3v3M17 3v3M4 8h16M5 6h14a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1Z",
+  megaphone:
+    "M3 11v2a1 1 0 0 0 1 1h2l9 5V5L6 10H4a1 1 0 0 0-1 1Z M18 8a4 4 0 0 1 0 8",
+  calendar:
+    "M7 3v3M17 3v3M4 8h16M5 6h14a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1Z",
   send: "M22 2 11 13 M22 2l-7 20-4-9-9-4Z",
   feedback: "M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z",
-  users: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M22 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75",
+  users:
+    "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M22 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75",
   sync: "M21 12a9 9 0 0 1-15 6.7L3 16 M3 12a9 9 0 0 1 15-6.7L21 8 M21 3v5h-5 M3 21v-5h5",
 };
 
@@ -86,7 +90,10 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     actions: [
       { key: "view", label: "View" },
       { key: "edit", label: "Create / Update" },
+      { key: "schedule", label: "Schedule", sensitive: true },
       { key: "send", label: "Send / Broadcast", sensitive: true },
+      { key: "review", label: "Render schedule verdicts", sensitive: true },
+      { key: "override", label: "Approve exceptions", sensitive: true },
       { key: "delete", label: "Delete", sensitive: true },
     ],
   },
@@ -118,16 +125,19 @@ export const PERMISSION_MODULES: PermissionModule[] = [
 ];
 
 // Role presets: which actions each role's preset grants. Board = everything.
-const PRESETS: Record<Exclude<MemberRole, "board">, Record<string, string[]>> = {
+const PRESETS: Record<
+  Exclude<MemberRole, "board">,
+  Record<string, string[]>
+> = {
   management: {
     announcements: ["view", "edit", "publish", "delete"],
     events: ["view", "edit", "publish", "delete"],
-    social: ["view", "edit", "send", "delete"],
+    social: ["view", "edit", "schedule", "send", "review", "override", "delete"],
     feedback: ["view", "respond"],
     users: ["view"],
     integrations: [],
   },
-  volunteer: {
+  general: {
     announcements: ["view", "edit"],
     events: ["view", "edit"],
     social: ["view", "edit"],
@@ -156,6 +166,7 @@ export function effectivePerms(
   overrides: PermissionOverrides | null | undefined,
 ): PermissionMap {
   const out = presetPerms(role);
+  if (role === "board") return out;
   for (const [key, value] of Object.entries(overrides ?? {})) {
     if (key in out) out[key] = value;
   }

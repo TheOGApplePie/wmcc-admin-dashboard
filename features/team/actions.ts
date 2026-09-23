@@ -10,7 +10,7 @@ import z from "zod";
 
 const actionClient = createSafeActionClient();
 
-const Role = z.enum(["board", "management", "volunteer"]);
+const Role = z.enum(["board", "management", "general"]);
 const Override = z.record(z.string().regex(/^[a-z]+\.[a-z]+$/), z.boolean());
 
 /** Throws if the current user lacks the given permission. */

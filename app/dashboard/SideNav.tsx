@@ -63,11 +63,16 @@ function NavIcon({ d }: Readonly<{ d: string }>) {
   );
 }
 
-export default function SideNav() {
+export default function SideNav({
+  canViewSocial = false,
+}: Readonly<{ canViewSocial?: boolean }>) {
   const pathname = usePathname();
+  const visibleNav = NAV.filter(
+    (item) => item.href !== "/dashboard/posts" || canViewSocial,
+  );
 
   return (
-    <aside className="fixed inset-y-0 left-0 z-40 flex w-[68px] flex-col items-center border-r border-line bg-surface py-4 gap-1">
+    <aside className="fixed inset-y-0 left-0 z-40 flex w-17 flex-col items-center border-r border-line bg-surface py-4 gap-1">
       {/* W logo */}
       <div className="mb-3 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-teal text-[14px] font-extrabold text-white shadow-[0_8px_20px_-6px_rgba(15,128,115,.7)]">
         W

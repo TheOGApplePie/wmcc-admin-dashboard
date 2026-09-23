@@ -31,7 +31,7 @@ export function InviteModal({ onClose }: Readonly<InviteModalProps>) {
     setValue,
     formState: { errors, isSubmitting },
   } = useForm<InviteForm>({
-    defaultValues: { email: "", role: "volunteer", area: "" },
+    defaultValues: { email: "", role: "general", area: "" },
   });
 
   const selectedRole = watch("role");
@@ -72,7 +72,9 @@ export function InviteModal({ onClose }: Readonly<InviteModalProps>) {
             <span className="grid h-9 w-9 place-items-center rounded-xl bg-teal-soft text-teal">
               <Icon d="M12 5v14M5 12h14" size={18} />
             </span>
-            <h3 className="text-[16px] font-bold text-ink">Invite a team member</h3>
+            <h3 className="text-[16px] font-bold text-ink">
+              Invite a team member
+            </h3>
           </div>
           <button
             type="button"
@@ -85,7 +87,10 @@ export function InviteModal({ onClose }: Readonly<InviteModalProps>) {
 
         {/* Body */}
         <form onSubmit={handleSubmit(onSubmit)}>
-          <div className="flex flex-col gap-4 overflow-y-auto px-6 py-5" style={{ maxHeight: "calc(100dvh - 200px)" }}>
+          <div
+            className="flex flex-col gap-4 overflow-y-auto px-6 py-5"
+            style={{ maxHeight: "calc(100dvh - 200px)" }}
+          >
             <Field label="Email address" error={errors.email?.message}>
               <input
                 type="email"
@@ -104,7 +109,9 @@ export function InviteModal({ onClose }: Readonly<InviteModalProps>) {
 
             {/* Role selector */}
             <div>
-              <label className="mb-2 block text-[12px] font-semibold text-ink">Role</label>
+              <label className="mb-2 block text-[12px] font-semibold text-ink">
+                Role
+              </label>
               <div className="grid grid-cols-3 gap-2">
                 {ROLES.map((r) => {
                   const on = selectedRole === r;
@@ -135,7 +142,9 @@ export function InviteModal({ onClose }: Readonly<InviteModalProps>) {
               <input
                 className={INPUT}
                 placeholder="e.g. Events, Social Media"
-                {...register("area", { maxLength: { value: 60, message: "Max 60 characters." } })}
+                {...register("area", {
+                  maxLength: { value: 60, message: "Max 60 characters." },
+                })}
               />
             </Field>
 
@@ -147,9 +156,9 @@ export function InviteModal({ onClose }: Readonly<InviteModalProps>) {
                 className="mt-0.5 shrink-0 text-teal"
               />
               <span>
-                They&apos;ll get an email invite to set a password. Permissions follow the{" "}
-                <strong>{ROLE_LABELS[selectedRole]}</strong> preset — you can fine-tune them after
-                they join.
+                They&apos;ll get an email invite to set a password. Permissions
+                follow the <strong>{ROLE_LABELS[selectedRole]}</strong> preset —
+                you can fine-tune them after they join.
               </span>
             </div>
           </div>
@@ -163,7 +172,12 @@ export function InviteModal({ onClose }: Readonly<InviteModalProps>) {
             >
               Cancel
             </button>
-            <Btn type="submit" variant="primary" size="md" disabled={isSubmitting}>
+            <Btn
+              type="submit"
+              variant="primary"
+              size="md"
+              disabled={isSubmitting}
+            >
               {isSubmitting ? (
                 <span className="loading loading-spinner loading-xs" />
               ) : (
