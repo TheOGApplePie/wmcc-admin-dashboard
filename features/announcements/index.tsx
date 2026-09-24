@@ -10,7 +10,10 @@ import { useCan } from "@/store/hooks";
 
 async function confirmDeleteAnnouncement(confirmAction: string, announcementId: number) {
   if (confirmAction === "yes") {
-    await deleteAnnouncement({ id: announcementId });
+    const result = await deleteAnnouncement({ id: announcementId });
+    if (!result?.data?.success) {
+      throw new Error("Unable to delete the announcement. Please try again.");
+    }
   }
 }
 
@@ -50,13 +53,14 @@ function AnnouncementsHeaderActions() {
 export function AnnouncementPage({
   currentAnnouncements,
   expiredAnnouncements,
+  scheduledAnnouncements,
 }: Readonly<{
   currentAnnouncements: Announcement[];
   expiredAnnouncements: Announcement[];
+  scheduledAnnouncements: Announcement[];
 }>) {
-  const announcementStateKey = [...currentAnnouncements, ...expiredAnnouncements]
-    .map((announcement) => `${announcement.id}:${announcement.expires_at}:${announcement.display_order ?? ""}`)
-    .join("|");
+  // Include groups so crossing a publication/expiry boundary resets the preview.
+  const announcementStateKey = JSON.stringify({ currentAnnouncements, expiredAnnouncements, scheduledAnnouncements });
   return (
     <AnnouncementModalProvider>
       <PageShell
@@ -68,6 +72,7 @@ export function AnnouncementPage({
           key={announcementStateKey}
           currentAnnouncements={currentAnnouncements}
           expiredAnnouncements={expiredAnnouncements}
+          scheduledAnnouncements={scheduledAnnouncements}
         />
         <AnnouncementModals confirmDeleteAnnouncement={confirmDeleteAnnouncement} />
       </PageShell>

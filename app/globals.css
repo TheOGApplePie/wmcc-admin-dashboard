@@ -97,3 +97,8 @@ html, body {
   --sp-status-failed-bg:    #FBE7E5;
   --sp-status-failed-text:  #a8443c;
 }
+
+/* Shared background for announcement previews and poster placeholders. */
+.announcement-slide-bg {
+  background: linear-gradient(135deg, #08101a 0%, #1e3a5f 100%);
+}

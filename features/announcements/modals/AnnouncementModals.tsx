@@ -1,4 +1,8 @@
-import ConfirmationModal from "./ConfirmationModal";
+"use client";
+
+import { useRef, useState } from "react";
+import toast from "react-hot-toast";
+import ConfirmationModal from "@/app/components/ui/ConfirmationModal";
 import { AnnouncementModal } from "./AnnouncementModal";
 import { RestoreModal } from "./RestoreModal";
 import { useAnnouncementModal } from "../modalContext";
@@ -10,10 +14,28 @@ export default function AnnouncementModals({
   confirmDeleteAnnouncement(confirmAction: string, announcementId: number): Promise<void>;
 }>) {
   const { modal, close } = useAnnouncementModal();
+  const [deleting, setDeleting] = useState(false);
+  const deletingRef = useRef(false);
+  async function handleDelete(action: string) {
+    if (modal.type !== "DELETE" || deletingRef.current) return;
+    if (action !== "yes") { close(); return; }
+    deletingRef.current = true;
+    setDeleting(true);
+    try {
+      await confirmDeleteAnnouncement(action, modal.entity.id);
+      toast.success("Announcement deleted.");
+      close();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to delete the announcement.");
+    } finally {
+      deletingRef.current = false;
+      setDeleting(false);
+    }
+  }
   if (modal.type === "NONE") return null;
 
   return (
-    <Modal>
+    <Modal onClose={close} busy={deleting}>
       {modal.type === "EDIT" && (
         <AnnouncementModal announcement={modal.entity} closeModal={close} />
       )}
@@ -24,10 +46,8 @@ export default function AnnouncementModals({
             { value: "yes", label: "Delete", variant: "danger" },
             { value: "no",  label: "Cancel" },
           ]}
-          closeModal={(action) => {
-            confirmDeleteAnnouncement(action, modal.entity.id);
-            close();
-          }}
+          isLoading={deleting}
+          closeModal={handleDelete}
         />
       )}
       {modal.type === "RESTORE" && (

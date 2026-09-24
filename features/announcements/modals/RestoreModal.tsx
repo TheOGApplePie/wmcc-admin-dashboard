@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { useModalDismissGuard } from "./Modal";
 import toast from "react-hot-toast";
 import { Announcement } from "@/app/schemas/announcement";
 import { restoreAnnouncement } from "@/features/announcements/actions";
-import { formatDateTimeLocal } from "@/app/utils/date";
+import { formatDateTimeLocal, torontoInputToUtc } from "@/app/utils/date";
 
 interface RestoreModalProps {
   announcement: Announcement;
@@ -17,20 +18,26 @@ export function RestoreModal({ announcement, closeModal }: Readonly<RestoreModal
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  useModalDismissGuard(() => !saving);
+
   async function handleRestore() {
-    const chosen = new Date(expiresAt);
-    if (isNaN(chosen.getTime()) || chosen <= new Date()) {
-      setError("Please choose a future date and time.");
-      return;
-    }
     setSaving(true);
-    const result = await restoreAnnouncement({ id: announcement.id, expires_at: chosen });
-    setSaving(false);
-    if (result?.data?.error) {
-      toast.error(result.data.error as string);
-    } else {
+    setError(null);
+    try {
+      const chosen = torontoInputToUtc(expiresAt);
+      if (isNaN(chosen.getTime()) || chosen <= new Date()) {
+        setError("Please choose a future Toronto date and time.");
+        return;
+      }
+      const result = await restoreAnnouncement({ id: announcement.id, expires_at: chosen });
+      if (!result?.data?.success && !result?.data?.error) throw new Error("Unable to restore the announcement. Check the end date and try again.");
+      if (result.data?.error) throw new Error(result.data.error);
       toast.success("Announcement restored to live rotation!");
       closeModal();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Unable to restore the announcement.");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -46,8 +53,10 @@ export function RestoreModal({ announcement, closeModal }: Readonly<RestoreModal
 
       {/* Body */}
       <div className="px-6 py-5 flex flex-col gap-3">
-        <label className="text-[12px] font-semibold text-ink">New end date</label>
+        <label htmlFor="restore-end-date" className="text-[12px] font-semibold text-ink">New end date</label>
         <input
+          disabled={saving}
+          id="restore-end-date"
           type="datetime-local"
           min={minDate}
           value={expiresAt}
@@ -55,7 +64,7 @@ export function RestoreModal({ announcement, closeModal }: Readonly<RestoreModal
           suppressHydrationWarning
           className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-[13px] text-ink outline-none focus:border-teal transition-colors"
         />
-        {error && <p className="text-[11px] text-coral">{error}</p>}
+        {error && <p role="alert" className="text-[11px] text-coral">{error}</p>}
         <p className="text-[11px] text-muted">
           After this date it will auto-archive again.
         </p>
@@ -65,6 +74,7 @@ export function RestoreModal({ announcement, closeModal }: Readonly<RestoreModal
       <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-line">
         <button
           type="button"
+          disabled={saving}
           onClick={closeModal}
           className="px-4 py-2 rounded-xl text-[13px] font-semibold text-ink border border-line hover:bg-canvas transition-colors"
         >

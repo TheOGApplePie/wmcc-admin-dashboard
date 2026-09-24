@@ -2,6 +2,7 @@ import { z } from "zod";
 import { FIVE_MB } from "../constants/general";
 export interface Announcement {
   id: number;
+  publish_at: Date | string | null;
   title: string;
   description: string;
   poster_url: string | null;
@@ -19,10 +20,11 @@ export interface Announcement {
 export const AnnouncementZod = z
   .object({
     id: z.coerce.number().optional(),
+    publish_at: z.coerce.date().nullable(),
     title: z.string().trim().max(50).min(3),
-    description: z.string().trim().max(100).min(20),
+    description: z.string().trim().max(200).min(20),
     poster_url: z.nullable(z.url()),
-    poster_alt: z.nullable(z.string().max(100)),
+    poster_alt: z.nullable(z.string().max(200)),
     poster_file: z.array(z.file()),
     call_to_action_link: z.nullable(z.string()),
     call_to_action_caption: z.nullable(z.string().max(20)),
@@ -30,6 +32,9 @@ export const AnnouncementZod = z
     created_at: z.optional(z.coerce.date()),
   })
   .superRefine((data, ctx) => {
+    if (data.publish_at && data.publish_at >= data.expires_at) {
+      ctx.addIssue({ code: "custom", message: "End date must be after the go-live time.", path: ["expires_at"] });
+    }
     if (data.poster_file?.length) {
       const image = data.poster_file[0];
       if (image.size > FIVE_MB) {
@@ -83,3 +88,10 @@ export const AnnouncementZod = z
       });
     }
   });
+
+export const ReorderAnnouncementsZod = z.object({
+  ids: z.array(z.number().int().positive()).min(1).refine(
+    (ids) => new Set(ids).size === ids.length,
+    "Announcement IDs must be unique.",
+  ),
+});
