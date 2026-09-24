@@ -9,7 +9,6 @@ import {
   CreateManualSocialPostZod,
   DeleteSocialDeliveryZod,
   GenerateCampaignProposalZod,
-  ListSocialStorageZod,
   ReviewVerdictZod,
   UpdateSocialDeliveryZod,
   UpdateCampaignZod,
@@ -43,39 +42,6 @@ import {
 const actionClient = createSafeActionClient();
 const REVALIDATE = "/dashboard/posts";
 const SELECT = "*, events(title, start_date, is_recurring)";
-
-export const listSocialStorageMedia = actionClient
-  .inputSchema(ListSocialStorageZod)
-  .action(async ({ parsedInput }) => {
-    try {
-      await requirePermission("social", "edit");
-      const service = createServiceClient();
-      const { data, error } = await service.storage
-        .from(parsedInput.bucket)
-        .list(parsedInput.prefix, {
-          limit: 60,
-          offset: parsedInput.offset,
-          sortBy: { column: "name", order: "asc" },
-        });
-      if (error) throw new Error(error.message);
-
-      const entries = (data ?? []).map((entry) => {
-        const path = parsedInput.prefix ? `${parsedInput.prefix}/${entry.name}` : entry.name;
-        const isFolder = entry.id === null;
-        return {
-          name: entry.name,
-          path,
-          isFolder,
-          mimeType: isFolder ? null : String(entry.metadata?.mimetype ?? ""),
-          size: isFolder ? null : Number(entry.metadata?.size ?? 0),
-          url: isFolder ? null : service.storage.from(parsedInput.bucket).getPublicUrl(path).data.publicUrl,
-        };
-      });
-      return ok({ entries, hasMore: entries.length === 60 });
-    } catch (error) {
-      return fail(error instanceof Error ? error.message : String(error), "Failed to browse social media.");
-    }
-  });
 
 type GenerationEvent = {
   id: number;

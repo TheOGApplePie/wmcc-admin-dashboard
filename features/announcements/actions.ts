@@ -1,5 +1,5 @@
 "use server";
-import { Announcement, AnnouncementZod } from "@/app/schemas/announcement";
+import { Announcement, AnnouncementZod, ReorderAnnouncementsZod } from "@/app/schemas/announcement";
 import { createSafeActionClient } from "next-safe-action";
 import { createClient } from "../../utils/supabase/server";
 import z from "zod";
@@ -26,6 +26,7 @@ export const createAnnouncement = actionClient
       );
 
       const insertResult = await supabase.from("announcements").insert({
+        publish_at: parsedInput.publish_at,
         title: parsedInput.title,
         description: parsedInput.description,
         poster_url: storageUrl,
@@ -33,17 +34,18 @@ export const createAnnouncement = actionClient
         call_to_action_link: parsedInput.call_to_action_link,
         call_to_action_caption: parsedInput.call_to_action_caption,
         expires_at: new Date(parsedInput.expires_at),
-      });
+      }).select("id").single();
       throwOnSupabaseError(insertResult);
       revalidatePath("/dashboard/announcements");
+      return { success: true };
     } catch (error) {
       console.error(error);
-      return { error };
+      return { error: error instanceof Error ? error.message : "Unable to update announcements. Please try again." };
     }
   });
 
 export const editAnnouncement = actionClient
-  .inputSchema(AnnouncementZod)
+  .inputSchema(AnnouncementZod.safeExtend({ id: z.number().int().positive() }))
   .action(async ({ parsedInput }) => {
     try {
       const { supabase } = await requirePermission("announcements", "edit");
@@ -56,6 +58,7 @@ export const editAnnouncement = actionClient
       const updateResult = await supabase
         .from("announcements")
         .update({
+          publish_at: parsedInput.publish_at,
           title: parsedInput.title,
           description: parsedInput.description,
           poster_url: storageUrl,
@@ -64,12 +67,13 @@ export const editAnnouncement = actionClient
           call_to_action_caption: parsedInput.call_to_action_caption,
           expires_at: new Date(parsedInput.expires_at),
         })
-        .eq("id", parsedInput.id);
+        .eq("id", parsedInput.id).select("id").single();
       throwOnSupabaseError(updateResult);
       revalidatePath("/dashboard/announcements");
+      return { success: true };
     } catch (error) {
       console.error(error);
-      return { error };
+      return { error: error instanceof Error ? error.message : "Unable to update announcements. Please try again." };
     }
   });
 
@@ -78,9 +82,10 @@ export const deleteAnnouncement = actionClient
   .action(async ({ parsedInput }) => {
     try {
       const { supabase } = await requirePermission("announcements", "delete");
-      const deleteResult = await supabase.from("announcements").delete().eq("id", parsedInput.id);
+      const deleteResult = await supabase.from("announcements").delete().eq("id", parsedInput.id).select("id").single();
       throwOnSupabaseError(deleteResult);
       revalidatePath("/dashboard/announcements");
+      return { success: true };
     } catch (error) {
       console.error(error);
       throw error;
@@ -106,23 +111,17 @@ export const fetchAnnouncements = actionClient.action(async () => {
 });
 
 export const reorderAnnouncements = actionClient
-  .inputSchema(z.object({ ids: z.array(z.number()) }))
+  .inputSchema(ReorderAnnouncementsZod)
   .action(async ({ parsedInput }) => {
     try {
       const { supabase } = await requirePermission("announcements", "edit");
-      const results = await Promise.all(
-        parsedInput.ids.map((id, index) =>
-          supabase
-            .from("announcements")
-            .update({ display_order: index + 1 })
-            .eq("id", id),
-        ),
-      );
-      results.forEach(throwOnSupabaseError);
+      const result = await supabase.rpc("reorder_announcements", { p_ids: parsedInput.ids });
+      throwOnSupabaseError(result);
       revalidatePath("/dashboard/announcements");
+      return { success: true };
     } catch (error) {
       console.error(error);
-      return { error };
+      return { error: error instanceof Error ? error.message : "Unable to update announcements. Please try again." };
     }
   });
 
@@ -133,12 +132,13 @@ export const restoreAnnouncement = actionClient
       const { supabase } = await requirePermission("announcements", "edit");
       const restoreResult = await supabase
         .from("announcements")
-        .update({ expires_at: parsedInput.expires_at })
-        .eq("id", parsedInput.id);
+        .update({ expires_at: parsedInput.expires_at, publish_at: null })
+        .eq("id", parsedInput.id).select("id").single();
       throwOnSupabaseError(restoreResult);
       revalidatePath("/dashboard/announcements");
+      return { success: true };
     } catch (error) {
       console.error(error);
-      return { error };
+      return { error: error instanceof Error ? error.message : "Unable to update announcements. Please try again." };
     }
   });

@@ -15,9 +15,9 @@ import Image from "next/image";
 import Link from "next/link";
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createEvent, editEvent, deleteEvent } from "@/actions/events";
-import { FIVE_MB } from "../constants/general";
+import StorageMediaPicker from "./ui/StorageMediaPicker";
 import toast from "react-hot-toast";
-import ConfirmationModal from "../../features/announcements/modals/ConfirmationModal";
+import ConfirmationModal from "@/app/components/ui/ConfirmationModal";
 import { formatDateTimeLocal, torontoInputToUtc } from "../utils/date";
 import { Field, INPUT } from "./ui/Field";
 import { useUnsavedChanges } from "@/features/events/hooks/useUnsavedChanges";
@@ -255,7 +255,6 @@ export default function EventModal({
     register,
     handleSubmit,
     formState: { errors, isDirty, isSubmitting },
-    setError,
     clearErrors,
     reset,
     setValue,
@@ -300,7 +299,7 @@ export default function EventModal({
   const [buttons, setButtons] = useState<{ label: string; value: string }[]>(
     [],
   );
-  const [useFile, setUseFile] = useState<boolean>(!event?.poster_url?.length);
+  const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
   const [updatedEvent, setUpdatedEvent] = useState<Event | null>(null);
   const [getConfirmation, setGetConfirmation] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -311,7 +310,6 @@ export default function EventModal({
   const wasRecurring = event?.is_recurring ?? false;
   const recurrenceCountMinimum =
     event?.is_recurring && event.recurrence_rule?.count === 1 ? 1 : 2;
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const recurrenceDraftRef = useRef<Event["recurrence_rule"]>(
     initialState.recurrenceRule,
   );
@@ -333,82 +331,17 @@ export default function EventModal({
     name: "recurrence_rule.by_month_day",
   });
 
-  const restorePersistedPoster = () => {
-    const persistedUrl = event?.poster_url ?? null;
-    const persistedPreview = safePosterPreviewUrl(persistedUrl);
-    const persistedAlt = persistedUrl ? (event?.poster_alt ?? "") : "";
-    setValue("poster_url", persistedUrl, {
-      shouldDirty: true,
-      shouldValidate: true,
-    });
-    setValue("poster_alt", persistedAlt, {
-      shouldDirty: true,
-      shouldValidate: true,
-    });
-    setImageUrl(persistedPreview);
-    setImagePreviewError(null);
-    setIsImageLoading(Boolean(persistedPreview));
-  };
-
-  const handlePosterFileChange = (
-    changeEvent: ChangeEvent<HTMLInputElement>,
-  ) => {
-    const file = changeEvent.target.files?.[0];
-    if (!file) return;
-
-    if (file.size > FIVE_MB) {
-      setValue("poster_file", null, { shouldDirty: true });
-      changeEvent.target.value = "";
-      restorePersistedPoster();
-      setError("poster_file", {
-        message:
-          "This file is too big. Please select an image file less than 5MB.",
-      });
-      return;
-    }
-
-    if (!["image/png", "image/jpeg", "image/jpg"].includes(file.type)) {
-      setValue("poster_file", null, { shouldDirty: true });
-      changeEvent.target.value = "";
-      restorePersistedPoster();
-      setError("poster_file", {
-        message:
-          "This is an unsupported file type. Please upload a JPG/JPEG or PNG image.",
-      });
-      return;
-    }
-
-    setValue("poster_file", file, {
-      shouldDirty: true,
-      shouldTouch: true,
-      shouldValidate: true,
-    });
-    setValue("poster_url", null, { shouldDirty: true });
-    clearErrors(["poster_file", "poster_url"]);
-    setImagePreviewError(null);
-    setIsImageLoading(true);
-    setImageUrl(URL.createObjectURL(file));
-  };
-
-  const handlePosterUrlChange = (url: string) => {
+  const selectPoster = (urls: string[]) => {
+    const url = urls[0] ?? null;
     setValue("poster_file", null, { shouldDirty: true });
-    if (!url) {
-      setValue("poster_alt", "", {
-        shouldDirty: true,
-        shouldValidate: true,
-      });
-    }
-    if (fileInputRef.current) fileInputRef.current.value = "";
-    const previewUrl = safePosterPreviewUrl(url);
+    setValue("poster_url", url, { shouldDirty: true, shouldValidate: true });
+    if (!url) setValue("poster_alt", "", { shouldDirty: true });
+    clearErrors(["poster_file", "poster_url"]);
+    setImageUrl(safePosterPreviewUrl(url));
     setImagePreviewError(null);
-    setIsImageLoading(Boolean(previewUrl));
-    setImageUrl(previewUrl);
-    clearErrors("poster_file");
-    if (!url || previewUrl) clearErrors("poster_url");
+    setIsImageLoading(Boolean(url));
   };
 
-  // FileList stays at the DOM boundary; form and server state use File | null.
-  const fileRegistration = register("poster_file");
   const handleRecurrenceToggle = (changeEvent: ChangeEvent<HTMLInputElement>) => {
     if (changeEvent.target.checked && !getValues("recurrence_rule")) {
       const nextRule = recurrenceDraftRef.current ?? {
@@ -434,13 +367,6 @@ export default function EventModal({
     }
   };
 
-  const togglePosterSource = () => {
-    setValue("poster_file", null, { shouldDirty: true });
-    if (fileInputRef.current) fileInputRef.current.value = "";
-    restorePersistedPoster();
-    clearErrors(["poster_file", "poster_url"]);
-    setUseFile((current) => !current);
-  };
   async function confirmAction(action?: string) {
     if (!action || action === "no" || !updatedEvent) {
       showConfirmationModal(false);
@@ -689,7 +615,6 @@ export default function EventModal({
     setValue("poster_file", null, { shouldDirty: true });
     setValue("poster_url", null, { shouldDirty: true });
     setValue("poster_alt", "", { shouldDirty: true });
-    if (fileInputRef.current) fileInputRef.current.value = "";
     setImagePreviewError(null);
     setIsImageLoading(false);
     setImageUrl(null);
@@ -711,6 +636,8 @@ export default function EventModal({
   };
   return (
     <>
+      {mediaPickerOpen && <StorageMediaPicker context="events" mediaKind="image" maximum={1}
+        selectedUrls={imageUrl ? [imageUrl] : []} onChange={selectPoster} onClose={() => setMediaPickerOpen(false)} />}
       <div className="modal-box p-0 rounded-2xl max-w-2xl w-full shadow-xl">
         {/* Header */}
         <div className="sticky top-0 bg-(--color-base-100) flex items-center justify-between px-6 py-4 border-b border-line">
@@ -1027,46 +954,7 @@ export default function EventModal({
                   Poster{" "}
                   <span className="font-normal text-muted">· optional</span>
                 </p>
-                <button
-                  type="button"
-                  onClick={togglePosterSource}
-                  className="text-[11px] font-semibold text-teal hover:text-teal-dark transition-colors"
-                >
-                  {useFile ? "Use image URL instead" : "Upload a file instead"}
-                </button>
               </div>
-
-              {!useFile && (
-                <Controller
-                  control={control}
-                  name="poster_url"
-                  rules={{
-                    validate: (value) =>
-                      !value ||
-                      Boolean(safePosterPreviewUrl(value)) ||
-                      "Use a secure poster URL from this site's Supabase project.",
-                  }}
-                  render={({ field }) => (
-                    <input
-                      type="url"
-                      className={INPUT}
-                      placeholder="https://… (image URL)"
-                      {...field}
-                      value={field.value ?? ""}
-                      onChange={(changeEvent) => {
-                        const value = changeEvent.target.value;
-                        field.onChange(value || null);
-                        handlePosterUrlChange(value);
-                      }}
-                    />
-                  )}
-                />
-              )}
-              {!useFile && errors.poster_url && (
-                <p className="text-[11px] text-coral">
-                  {errors.poster_url.message}
-                </p>
-              )}
 
               {imageUrl ? (
                 <div className="relative rounded-xl border border-line overflow-hidden bg-canvas">
@@ -1093,10 +981,10 @@ export default function EventModal({
                     />
                   </div>
                   <div className="absolute top-2 right-2 flex gap-1.5">
-                    {useFile && (
+                    {(
                       <button
                         type="button"
-                        onClick={() => fileInputRef.current?.click()}
+                        onClick={() => setMediaPickerOpen(true)}
                         className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-surface/90 backdrop-blur-sm text-ink border border-line hover:border-teal hover:text-teal transition-colors"
                       >
                         Replace
@@ -1112,10 +1000,10 @@ export default function EventModal({
                   </div>
                 </div>
               ) : (
-                useFile && (
+                (
                   <button
                     type="button"
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={() => setMediaPickerOpen(true)}
                     className="flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-line py-6 text-[12px] text-muted hover:border-teal/40 hover:text-teal transition-colors"
                   >
                     <svg
@@ -1130,31 +1018,13 @@ export default function EventModal({
                       <polyline points="17 8 12 3 7 8" />
                       <line x1="12" y1="3" x2="12" y2="15" />
                     </svg>
-                    Upload poster image
+                    Choose poster from storage
                   </button>
                 )
               )}
               {imagePreviewError && (
                 <p role="alert" className="text-[11px] text-coral">
                   {imagePreviewError}
-                </p>
-              )}
-
-              <input
-                type="file"
-                accept="image/png, image/jpeg, image/jpg"
-                className="hidden"
-                ref={(el) => {
-                  fileRegistration.ref(el);
-                  fileInputRef.current = el;
-                }}
-                name={fileRegistration.name}
-                onBlur={fileRegistration.onBlur}
-                onChange={handlePosterFileChange}
-              />
-              {errors.poster_file && (
-                <p className="text-[11px] text-coral">
-                  {errors.poster_file.message as string}
                 </p>
               )}
 

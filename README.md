@@ -126,3 +126,43 @@ Before a production release:
 4. Complete the relevant manual acceptance cases.
 5. Verify all four cron routes authenticate successfully.
 6. Keep social delivery disabled until provider integrations are approved for live use.
+
+## Scheduled announcements
+
+Choose **Go live now** or **Schedule for later** when creating or editing an announcement.
+Scheduling requires a future go-live date and time in Toronto time; it stays hidden until
+that instant. You can switch a scheduled announcement to live now, or move a live one
+back to a future schedule. Changes take effect when you save. The end date must follow
+the go-live time.
+The Scheduled tab previews upcoming announcements; the dashboard refreshes every 30 seconds.
+
+Apply `supabase/migrations/026_scheduled_announcements.sql` after migration 025
+and before deploying. It adds `publish_at` and checks the publication window on each
+public database read; no cron job is needed. Existing announcements have no scheduled
+go-live time and retain their current publication behavior.
+
+The public website is maintained separately. Its queries must filter
+`publish_at IS NULL OR publish_at <= current time` and `expires_at > current time` if
+using a service-role client or authenticated staff session, which can read hidden rows.
+Public-site caches must refresh or expire at the scheduled time for visitors to see the
+announcement then. Database eligibility alone cannot refresh a cached page.
+
+Announcement reordering also requires `supabase/migrations/027_atomic_announcement_order.sql`.
+It updates the entire submitted order in one transaction and rejects missing or inaccessible rows.
+
+## Shared media picker
+
+Announcements, events, and social posts share a storage browser with folder navigation,
+filtering of loaded items, pagination, and uploads. Browsing and upload authorization
+use the current module's edit permission.
+
+Image-only contexts open `event-posters/public`; video-only contexts open `videos/public`.
+Uploads go to the current bucket and folder using a signed upload URL and unique filenames:
+
+- Images: up to 5 MB; JPEG/JPG/PNG. Instagram image selection remains JPEG-only.
+- Videos: up to 50 MB; MP4 only.
+
+Uploads are saved immediately, even if the picker is cancelled. They are selected automatically
+when the selection limit permits. **Use selected media** requires a non-empty selection and
+is disabled during loading/uploading or after a listing error. Listing failures offer retry;
+upload success and failure messages appear inside the picker.

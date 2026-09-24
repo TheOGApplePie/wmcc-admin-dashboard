@@ -6,7 +6,7 @@ import toast from "react-hot-toast";
 import { createManualSocialPost, deleteSocialDelivery, getSocialCalendarDeliveries, updateSocialDelivery } from "@/actions/socialCampaigns";
 import type { SocialCalendarDelivery, SocialCampaign, VariantChannel } from "@/app/schemas/socialCampaigns";
 import { localSlotLabel, scheduledAtFor } from "@/features/socialCampaigns/scheduling/slots";
-import SocialMediaPicker from "./SocialMediaPicker";
+import StorageMediaPicker from "@/app/components/ui/StorageMediaPicker";
 
 type VariantDraft = { channel: VariantChannel; caption: string; media_url: string; hashtags: string; call_to_action_link: string; call_to_action_caption: string };
 const EMPTY = (channel: VariantChannel): VariantDraft => ({ channel, caption: "", media_url: "", hashtags: "", call_to_action_link: "", call_to_action_caption: "" });
@@ -137,6 +137,6 @@ export default function ManualPostModal({ campaigns = [], initialCampaignId, ini
       {!campaignCanSchedule && campaignId && <p className="mt-4 text-xs text-amber-700">Activate this campaign before scheduling its posts.</p>}
       <div className="mt-6 flex flex-wrap justify-between gap-2"><div>{delivery && canDelete && <button type="button" disabled={saving} onClick={remove} className="rounded-xl border border-red-300 px-4 py-2 text-sm font-semibold text-red-700">Delete post</button>}</div><div className="flex gap-2">{canEdit && !locked && <><button type="button" disabled={saving} onClick={() => submit("draft")} className="rounded-xl border border-line px-4 py-2 text-sm font-semibold text-ink disabled:opacity-50">Save draft</button>{canSchedule && <button type="button" disabled={saving || !campaignCanSchedule || (delivery?.status === "sent" && !canSend)} onClick={() => submit("scheduled")} className="rounded-xl bg-teal px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Schedule post</button>}</>}</div></div>
     </section>
-    {mediaPickerOpen && <SocialMediaPicker selectedUrls={selectedMediaUrls} maximum={selectedChannel === "instagram_feed" ? 10 : 1} mediaKind={mediaKindFor(selectedChannel as VariantChannel)} onChange={setSelectedMediaUrls} onClose={() => setMediaPickerOpen(false)} />}
+    {mediaPickerOpen && <StorageMediaPicker context="social" selectedUrls={selectedMediaUrls} maximum={selectedChannel === "instagram_feed" ? 10 : 1} mediaKind={mediaKindFor(selectedChannel as VariantChannel)} onChange={setSelectedMediaUrls} onClose={() => setMediaPickerOpen(false)} />}
   </div>;
 }
