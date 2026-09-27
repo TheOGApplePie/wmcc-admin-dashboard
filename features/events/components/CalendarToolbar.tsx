@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Btn } from "@/app/components/ui/Btn";
 import { useCalendarController } from "@fullcalendar/react";
 import { useCan } from "@/store/hooks";
@@ -51,7 +52,16 @@ export function CalendarToolbar({
         </Btn>
       </div>
       <div className="toolbar-title">{controller.view?.title}</div>
-      {canEdit && <Btn className="btn border-0" onClick={onAdd}>Add Event</Btn>}
+      <div className="flex items-center gap-3">
+        <Link href="/dashboard/events/library" className="text-sm underline">
+          All events
+        </Link>
+        {canEdit && (
+          <Btn className="btn border-0" onClick={onAdd}>
+            Add Event
+          </Btn>
+        )}
+      </div>
     </div>
   );
 }

@@ -1,74 +1,50 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
 import { type Event } from "@/app/schemas/events";
-import EventModal from "./eventModal";
+import { torontoDate } from "@/app/utils/date";
+import { CalendarToolbar } from "@/features/events/components/CalendarToolbar";
+import { EmptyCalendarState } from "@/features/events/components/EmptyCalendarState";
+import { useCalendarEvents } from "@/features/events/hooks/useCalendarEvents";
+import {
+  eventFromCalendarApi,
+  eventFromCalendarClick,
+} from "@/features/events/lib/calendarEventAdapter";
+import luxonFormatPlugin from "@fullcalendar/format-luxon3";
 import FullCalendar, {
   type EventApi,
   type EventClickInfo,
   useCalendarController,
 } from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/react/daygrid";
-import themePlugin from "@fullcalendar/react/themes/classic";
-import luxonFormatPlugin from "@fullcalendar/format-luxon3";
-import rrulePlugin from "@fullcalendar/rrule";
 import interactionPlugin from "@fullcalendar/react/interaction";
 import "@fullcalendar/react/skeleton.css";
+import themePlugin from "@fullcalendar/react/themes/classic";
 import "@fullcalendar/react/themes/classic/theme.css";
-import { CalendarToolbar } from "@/features/events/components/CalendarToolbar";
-import { EventDetailsPanel } from "@/features/events/components/EventDetailsPanel";
-import { EmptyCalendarState } from "@/features/events/components/EmptyCalendarState";
-import { useCalendarEvents } from "@/features/events/hooks/useCalendarEvents";
-import { eventFromCalendarApi, eventFromCalendarClick } from "@/features/events/lib/calendarEventAdapter";
 import { fromZonedTime } from "date-fns-tz";
-import { torontoDate } from "@/app/utils/date";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { EventDetailsPanel } from "../../features/events/components/EventDetailsPanel";
+import styles from "./EventsCalendar.module.css";
+import { CALENDAR_VISIBLE_EVENTS_PER_DAY } from "@/features/events/constants";
 
 const CALENDAR_PLUGINS = [
   themePlugin,
   dayGridPlugin,
   luxonFormatPlugin,
-  rrulePlugin,
   interactionPlugin,
 ];
 
 export default function EventsCalendar() {
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [calendarOccurrences, setCalendarOccurrences] = useState<Event[]>([]);
-  const [eventBeingEdited, setEventBeingEdited] = useState<Event>();
-  const [editedOccurrenceDate, setEditedOccurrenceDate] = useState<Date>();
-  const [modalSession, setModalSession] = useState(0);
+  const router = useRouter();
   const [isCalendarReady, setIsCalendarReady] = useState(false);
-  const modalRef = useRef<HTMLDialogElement>(null);
   const controller = useCalendarController();
   const { events, error, isLoading, changeRange, reload } = useCalendarEvents();
 
-  const openEditModal = (event: Event) => {
-    setModalSession((session) => session + 1);
-    setEventBeingEdited(event);
-    setEditedOccurrenceDate(new Date(event.start_date));
-    modalRef.current?.showModal();
-  };
-
-  const openAddModal = () => {
-    setModalSession((session) => session + 1);
-    setEventBeingEdited(undefined);
-    setEditedOccurrenceDate(undefined);
-    modalRef.current?.showModal();
-  };
-
-  const closeModal = (
-    shouldReload: boolean,
-    focusDate?: Date,
-    clearSelection = false,
-  ) => {
-    modalRef.current?.close();
-    if (clearSelection) setSelectedDay(null);
-    if (focusDate) controller.gotoDate(focusDate);
-    if (shouldReload) {
-      setIsCalendarReady(false);
-      reload();
-    }
-  };
+  const openEditModal = (event: Event) =>
+    router.push(`/dashboard/events/${event.id}`);
+  const openAddModal = () => router.push("/dashboard/events/new");
 
   const selectEvent = (info: EventClickInfo) => {
     const event = eventFromCalendarClick(info);
@@ -89,7 +65,10 @@ export default function EventsCalendar() {
         const eventEnd = new Date(event.end_date);
         return eventStart < end && eventEnd > start;
       })
-      .sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime());
+      .sort(
+        (a, b) =>
+          new Date(a.start_date).getTime() - new Date(b.start_date).getTime(),
+      );
   }, [calendarOccurrences, selectedDay]);
 
   const handleEventsSet = (eventApis: EventApi[]) => {
@@ -130,7 +109,7 @@ export default function EventsCalendar() {
 
   return (
     <div className="flex flex-col gap-5 lg:flex-row">
-      <div className="w-full p-4">
+      <div className={`${styles.surface} min-w-0 w-full flex-1 rounded-2xl bg-surface p-4`}>
         <CalendarToolbar controller={controller} onAdd={openAddModal} />
 
         {error && (
@@ -166,9 +145,11 @@ export default function EventsCalendar() {
             controller={controller}
             plugins={CALENDAR_PLUGINS}
             initialView="dayGridMonth"
+            height="auto"
             timeZone="America/Toronto"
+            dayCellTopInnerClass={(info) => info.isToday ? styles.today : ""}
             fixedWeekCount={false}
-            dayMaxEvents={3}
+            dayMaxEvents={CALENDAR_VISIBLE_EVENTS_PER_DAY}
             events={events}
             eventClass="cursor-pointer"
             datesSet={handleRangeChange}
@@ -181,21 +162,16 @@ export default function EventsCalendar() {
 
       <aside className="sticky top-18.25 flex w-full shrink-0 flex-col self-start overflow-hidden rounded-2xl border border-line bg-surface lg:w-87.5">
         <div className="border-b border-line px-5 py-3">
-          <p className="text-[12px] font-semibold uppercase tracking-wide text-muted">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted">
             {selectedEvents.length ? "Events on selected day" : "Events"}
           </p>
         </div>
-        <EventDetailsPanel events={selectedEvents} onEdit={openEditModal} />
-      </aside>
-
-      <dialog ref={modalRef} className="modal">
-        <EventModal
-          key={modalSession}
-          event={eventBeingEdited}
-          occurrenceDate={editedOccurrenceDate}
-          closeModal={closeModal}
+        <EventDetailsPanel
+          events={isCalendarBusy || error ? [] : selectedEvents}
+          onEdit={openEditModal}
+          selectedDay={selectedDay}
         />
-      </dialog>
+      </aside>
     </div>
   );
 }

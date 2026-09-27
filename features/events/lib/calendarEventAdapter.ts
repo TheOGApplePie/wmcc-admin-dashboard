@@ -7,7 +7,9 @@ export function eventFromCalendarApi(calendarEvent: EventApi): Event {
   const start = calendarEvent.start ?? new Date();
 
   return {
-    id: Number(calendarEvent.id),
+    id: Number(extendedProps.event_id),
+    occurrence_id: calendarEvent.id,
+    publication_status: extendedProps.publication_status,
     title: calendarEvent.title,
     description: extendedProps.description,
     location: extendedProps.location,

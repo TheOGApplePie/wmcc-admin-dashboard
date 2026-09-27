@@ -1,0 +1,4 @@
+.draggable {
+  transform: var(--filmstrip-transform, none);
+  transition: var(--filmstrip-transition, none);
+}

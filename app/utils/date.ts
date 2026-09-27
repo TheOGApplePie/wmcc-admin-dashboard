@@ -29,3 +29,15 @@ export function torontoInputToUtc(value: string | Date): Date {
 export function torontoDate(value: string | Date): string {
   return formatInTimeZone(value, EVENT_TIME_ZONE, "yyyy-MM-dd");
 }
+
+/** Formats an instant for event summaries in Toronto time. */
+export function formatTorontoDateTime(value: Date | string): string {
+  return new Date(value).toLocaleString("en-CA", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: EVENT_TIME_ZONE,
+  });
+}

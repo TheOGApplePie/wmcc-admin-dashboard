@@ -53,13 +53,20 @@ export default function AnnouncementsClient({
       reorderingRef.current = true;
       setReordering(true);
       try {
-        const result = await reorderAnnouncements({ ids: reordered.map((a) => a.id) });
-        if (!result?.data?.success && !result?.data?.error) throw new Error("Unable to save announcement order.");
+        const result = await reorderAnnouncements({
+          ids: reordered.map((a) => a.id),
+        });
+        if (!result?.data?.success && !result?.data?.error)
+          throw new Error("Unable to save announcement order.");
         if (result.data?.error) throw new Error(result.data.error);
         toast.success("Announcement order saved.");
       } catch (error) {
         setLiveItems(liveItems);
-        toast.error(error instanceof Error ? error.message : "Unable to save announcement order.");
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Unable to save announcement order.",
+        );
         router.refresh();
       } finally {
         reorderingRef.current = false;
@@ -69,7 +76,11 @@ export default function AnnouncementsClient({
     [canEdit, liveItems, router],
   );
 
-  const itemsByTab = { live: liveItems, scheduled: scheduledAnnouncements, expired: expiredAnnouncements };
+  const itemsByTab = {
+    live: liveItems,
+    scheduled: scheduledAnnouncements,
+    expired: expiredAnnouncements,
+  };
   function handleTabChange(newTab: AnnouncementTab) {
     setTab(newTab);
     setSelected(itemsByTab[newTab][0] ?? null);
@@ -85,8 +96,12 @@ export default function AnnouncementsClient({
       {/* ── Left: preview + tabs ───────────────────────────────────────── */}
       <div className="flex-1 min-w-0 bg-surface border border-line rounded-2xl overflow-hidden">
         {/* Preview header */}
-        <PreviewHeader selected={selected} isLive={tab === "live"}
-          isMobile={isMobile} onDeviceChange={setIsMobile} />
+        <PreviewHeader
+          selected={selected}
+          isLive={tab === "live"}
+          isMobile={isMobile}
+          onDeviceChange={setIsMobile}
+        />
 
         {/* Carousel preview */}
         <CarouselPreview
@@ -96,14 +111,25 @@ export default function AnnouncementsClient({
           onNavigate={setSelected}
         />
 
-        {reordering && <p role="status" className="px-4 py-2 text-sm text-muted">Saving order…</p>}
-        <AnnouncementTabs tab={tab} items={itemsByTab} selected={selected} canEdit={canEdit && !reordering}
-          onTabChange={handleTabChange} onSelect={setSelected} onDragEnd={handleDragEnd} />
+        {reordering && (
+          <p role="status" className="px-4 py-2 text-sm text-muted">
+            Saving order…
+          </p>
+        )}
+        <AnnouncementTabs
+          tab={tab}
+          items={itemsByTab}
+          selected={selected}
+          canEdit={canEdit && !reordering}
+          onTabChange={handleTabChange}
+          onSelect={setSelected}
+          onDragEnd={handleDragEnd}
+        />
       </div>
 
       {/* ── Right: inspector ───────────────────────────────────────────── */}
       <div className="w-full lg:w-72 shrink-0">
-        <div className="bg-surface border border-line rounded-2xl p-5 sticky top-[73px]">
+        <div className="bg-surface border border-line rounded-2xl p-5 sticky top-18.25">
           <InspectorPanel
             selected={selected}
             liveIds={liveItems.map((a) => a.id)}

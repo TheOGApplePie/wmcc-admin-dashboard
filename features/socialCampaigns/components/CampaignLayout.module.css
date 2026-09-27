@@ -1,0 +1,32 @@
+.page {
+  min-height: calc(100dvh - 4.5rem);
+}
+
+.container, .dialog {
+  max-width: 100rem;
+}
+
+.dialog {
+  min-height: calc(100dvh - 3rem);
+}
+
+@media (min-width: 80rem) {
+  .sidebar {
+    max-height: calc(100dvh - 6rem);
+  }
+}
+
+.platformBadge[data-platform="instagram"] {
+  color: var(--sp-ig);
+  background: color-mix(in srgb, var(--sp-ig) 12%, var(--color-surface));
+}
+
+.platformBadge[data-platform="whatsapp"] {
+  color: var(--sp-whatsapp);
+  background: color-mix(in srgb, var(--sp-whatsapp) 12%, var(--color-surface));
+}
+
+.platformBadge[data-platform="tiktok"] {
+  color: var(--color-ink);
+  background: var(--color-base-300);
+}

@@ -1,0 +1,16 @@
+.today {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 2rem;
+  height: 2rem;
+  border: 2px solid var(--color-teal);
+  border-radius: 50%;
+  color: var(--color-teal);
+  font-weight: 700;
+}
+
+.surface {
+  box-shadow: 0 0.25rem 1.5rem color-mix(in srgb, var(--color-ink) 6%, transparent);
+}
