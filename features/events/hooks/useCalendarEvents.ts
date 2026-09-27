@@ -45,8 +45,10 @@ export function useCalendarEvents() {
         if (requestId !== requestIdRef.current) return;
 
         if (result.serverError) {
+          setEvents([]);
           setError(result.serverError);
         } else if (!Array.isArray(result.data)) {
+          setEvents([]);
           setError(result.data?.error || "Events could not be loaded.");
         } else {
           setEvents(result.data);
@@ -56,11 +58,15 @@ export function useCalendarEvents() {
       .catch((fetchError) => {
         if (requestId !== requestIdRef.current) return;
         console.error(fetchError);
+        setEvents([]);
         setError(
           "Events could not be loaded. Check your connection and try again.",
         );
         setIsLoading(false);
       });
+    return () => {
+      requestIdRef.current += 1;
+    };
   }, [range, reloadKey]);
 
   return { events, error, isLoading, changeRange, reload };

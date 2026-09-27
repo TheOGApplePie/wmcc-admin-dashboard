@@ -1,0 +1,22 @@
+.hero, .content {
+  min-height: 12.25rem;
+}
+
+.fallback {
+  background: linear-gradient(135deg, var(--color-teal), var(--color-ink));
+}
+
+.overlay {
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--color-black) 8%, transparent),
+    color-mix(in srgb, var(--color-black) 60%, transparent)
+  );
+}
+
+.glass {
+  background-color: color-mix(in srgb, var(--color-canvas) 15%, transparent);
+  backdrop-filter: blur(0.375rem);
+  color: var(--color-canvas);
+  border: 1px solid color-mix(in srgb, var(--color-canvas) 25%, transparent);
+}

@@ -1,7 +1,8 @@
+import "server-only";
 import { createClient } from "@supabase/supabase-js";
 
 // Service-role client bypasses Row Level Security.
-// ONLY import this from app/api/cron/* route handlers — never from UI code.
+// Only use in trusted server code after checking the caller's permissions.
 export function createServiceClient() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

@@ -5,6 +5,13 @@
 }
 
 @theme {
+  --color-scrollbar: #d6d0c4;
+  --color-announcement-start: #08101a;
+  --color-announcement-end: #1e3a5f;
+  --text-micro: 0.625rem;
+  --text-caption: 0.6875rem;
+  --text-body-sm: 0.8125rem;
+  --text-subheading: 0.9375rem;
   --color-ink: #15201C;
   --color-muted: #6B726E;
   --color-line: #E7E3DA;
@@ -56,14 +63,14 @@
 html, body {
   -webkit-font-smoothing: antialiased;
   font-family: var(--font-plus-jakarta, "Plus Jakarta Sans"), ui-sans-serif, system-ui, sans-serif;
-  background-color: #F6F4EF;
-  color: #15201C;
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
 }
 
 /* ── Scrollbar ──────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-thumb {
-  background: #d6d0c4;
+  background: var(--color-scrollbar);
   border-radius: 9px;
   border: 2px solid transparent;
   background-clip: content-box;
@@ -100,5 +107,5 @@ html, body {
 
 /* Shared background for announcement previews and poster placeholders. */
 .announcement-slide-bg {
-  background: linear-gradient(135deg, #08101a 0%, #1e3a5f 100%);
+  background: linear-gradient(135deg, var(--color-announcement-start), var(--color-announcement-end));
 }

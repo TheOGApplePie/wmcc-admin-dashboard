@@ -5,7 +5,7 @@ TypeScript, Supabase, and FullCalendar.
 
 ## Features
 
-- Events and recurring-event management
+- Draft/published events with multiple schedules, recurring sessions, and poster inheritance
 - Announcements
 - Social campaigns, post scheduling, and event-based proposal generation
 - Community feedback
@@ -13,6 +13,8 @@ TypeScript, Supabase, and FullCalendar.
 - Team and permission management
 
 ## Local development
+
+See [event schedules and migration guidance](docs/event-schedules.md) for the new schema, public-site reader changes, campaign compatibility, and cutover checks.
 
 ### Requirements
 
@@ -91,12 +93,12 @@ delivered. Draft posts do not reserve schedule capacity.
 
 ### Cron routes
 
-| Route | UTC schedule | Purpose |
-|---|---:|---|
-| `/api/cron/generation` | Monday `12:00` | Extend eligible event campaign proposals |
-| `/api/cron/morning` | Daily `14:00` | Process due social deliveries |
-| `/api/cron/afternoon` | Daily `19:00` | Process due social deliveries and retries |
-| `/api/cron/evening` | Daily `00:00` | Process due social deliveries and retries |
+| Route                  |   UTC schedule | Purpose                                   |
+| ---------------------- | -------------: | ----------------------------------------- |
+| `/api/cron/generation` | Monday `12:00` | Extend eligible event campaign proposals  |
+| `/api/cron/morning`    |  Daily `14:00` | Process due social deliveries             |
+| `/api/cron/afternoon`  |  Daily `19:00` | Process due social deliveries and retries |
+| `/api/cron/evening`    |  Daily `00:00` | Process due social deliveries and retries |
 
 For a scheduling-only deployment, keep:
 
