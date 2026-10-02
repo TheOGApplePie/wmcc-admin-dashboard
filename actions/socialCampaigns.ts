@@ -7,16 +7,15 @@ import {
   CampaignLifecycleZod,
   CreateCampaignZod,
   CreateManualSocialPostZod,
-  DeleteSocialDeliveryZod,
+  DeleteSocialPostZod,
   GenerateCampaignProposalZod,
   ReviewVerdictZod,
-  UpdateSocialDeliveryZod,
+  UpdateSocialPostZod,
   UpdateCampaignZod,
   type CampaignEventOption,
   type AdminUserOption,
-  type SocialCalendarDelivery,
+  type SocialCalendarPost,
   type SocialCampaign,
-  type SocialCampaignReview,
 } from "@/app/schemas/socialCampaigns";
 import { runCampaignGeneration } from "@/features/socialCampaigns/generation/runCampaignGeneration";
 import { clientFail, fail, ok } from "@/utils/actionResponse";
@@ -32,7 +31,7 @@ import {
 const actionClient = createSafeActionClient();
 const REVALIDATE = "/dashboard/posts";
 const SELECT =
-  "*, events(title, publication_status, event_schedules(id, recurrence))";
+  "*, events(title, publication_status, event_schedules(id, recurrence_rule_id))";
 
 type SocialMediaItemInput = { url: string; alt_text: string };
 
@@ -118,7 +117,7 @@ async function getEventSnapshot(
   if (!eventId) return {};
   const { data, error } = await supabase
     .from("events")
-    .select("id,title,publication_status,version,event_schedules(*)")
+    .select("id,title,publication_status,version,event_schedules(*,recurrence_rule(*))")
     .eq("id", eventId)
     .single();
   if (error) throw new Error(error.message);
@@ -156,65 +155,27 @@ export const getSocialCampaigns = actionClient.action(async () => {
   }
 });
 
-export const getSocialCalendarDeliveries = actionClient.action(async () => {
+export const getSocialCalendarPosts = actionClient.action(async () => {
   try {
     const { supabase } = await requirePermission("social", "view");
-    const { data, error } = await supabase
-      .from("social_deliveries")
-      .select(
-        `
-        id, schedule_platform, scheduled_date, time_slot, scheduled_at, status, attempt_count, retryable, next_attempt_at, provider_error,
-        social_post_variants!inner(
-          id, channel, caption, description, media_url, media_items, hashtags, call_to_action_link, call_to_action_caption,
-          social_posts!inner(
-            id, title, description, media_url, campaign_id,
-            social_campaigns!inner(id, name, status)
-          )
-        )
-      `,
-      )
-      .neq("status", "cancelled")
-      .order("scheduled_date", { ascending: true });
-    if (error) throw new Error(error.message);
-
-    const one = <T>(value: T | T[]): T =>
-      Array.isArray(value) ? value[0] : value;
-    const deliveries = (data ?? []).map((row) => {
-      const variant = one(row.social_post_variants);
-      const post = one(variant.social_posts);
-      const campaign = one(post.social_campaigns);
-      return {
-        id: row.id,
-        campaign_id: campaign.id,
-        campaign_name: campaign.name,
-        campaign_status: campaign.status,
-        post_id: post.id,
-        variant_id: variant.id,
-        post_title: post.title,
-        caption: variant.caption,
-        description: variant.description || post.description,
-        media_url: variant.media_url || post.media_url,
-        media_items: variant.media_items?.length
-          ? variant.media_items
-          : variant.media_url || post.media_url
-            ? [{ url: variant.media_url || post.media_url, alt_text: "" }]
-            : [],
-        hashtags: variant.hashtags ?? [],
-        call_to_action_link: variant.call_to_action_link,
-        call_to_action_caption: variant.call_to_action_caption,
-        channel: variant.channel,
-        schedule_platform: row.schedule_platform,
-        scheduled_date: row.scheduled_date,
-        time_slot: row.time_slot,
-        scheduled_at: row.scheduled_at,
-        status: row.status,
-        attempt_count: row.attempt_count,
-        retryable: row.retryable,
-        next_attempt_at: row.next_attempt_at,
-        provider_error: row.provider_error,
-      };
-    }) as SocialCalendarDelivery[];
-
+    const deliveries: SocialCalendarPost[] = [];
+    for (let offset = 0; ; offset += 500) {
+      const { data, error } = await supabase.from("social_posts")
+        .select("*, social_campaigns!inner(id,name,status)")
+        .neq("status", "cancelled").order("id").range(offset, offset + 499);
+      if (error) throw new Error(error.message);
+      for (const row of data ?? []) {
+        deliveries.push({
+          ...row,
+          campaign_name: row.social_campaigns.name,
+          campaign_status: row.social_campaigns.status,
+          post_title: row.title,
+          media_url: row.media_urls[0] ?? null,
+          media_items: row.media_urls.map((url: string, i: number) => ({url, alt_text: row.media_alt_texts[i] ?? ""})),
+        } as SocialCalendarPost);
+      }
+      if (!data || data.length < 500) break;
+    }
     return ok(deliveries);
   } catch (error) {
     return fail(
@@ -224,28 +185,23 @@ export const getSocialCalendarDeliveries = actionClient.action(async () => {
   }
 });
 
-export const updateSocialDelivery = actionClient
-  .inputSchema(UpdateSocialDeliveryZod)
+export const updateSocialPost = actionClient
+  .inputSchema(UpdateSocialPostZod)
   .action(async ({ parsedInput }) => {
     try {
       const { supabase } = await requirePermission("social", "edit");
 
       const { data: existing, error: existingError } = await supabase
-        .from("social_deliveries")
-        .select("status, scheduled_date, time_slot")
+        .from("social_posts")
+        .select("status, campaign_id, scheduled_date, time_slot")
         .eq("id", parsedInput.id)
         .single();
       if (existingError) throw new Error(existingError.message);
-      if (["due", "processing", "sent", "skipped"].includes(existing.status)) {
-        return clientFail("This delivery can no longer be edited.");
+      if (["due", "processing", "provider_processing", "sent", "skipped"].includes(existing.status)) {
+        return clientFail("This post can no longer be edited.");
       }
-      const scheduleChanged =
-        existing.status !== parsedInput.status ||
-        (parsedInput.status !== "draft" &&
-          (existing.scheduled_date !== parsedInput.scheduled_date ||
-            existing.time_slot !== parsedInput.time_slot));
-      if (scheduleChanged || parsedInput.status === "scheduled") {
-        await requirePermission("social", "schedule");
+      if (parsedInput.status === "scheduled") {
+        await requirePermission("social", "publish");
       }
 
       const schedulePlatform = schedulePlatformFor(parsedInput.channel);
@@ -255,7 +211,7 @@ export const updateSocialDelivery = actionClient
         parsedInput.time_slot
       ) {
         const { data: collision, error: collisionError } = await supabase
-          .from("social_deliveries")
+          .from("social_posts")
           .select("id, status, retryable")
           .eq("schedule_platform", schedulePlatform)
           .eq("scheduled_date", parsedInput.scheduled_date)
@@ -266,6 +222,7 @@ export const updateSocialDelivery = actionClient
             "scheduled",
             "due",
             "processing",
+            "provider_processing",
             "failed",
           ]);
         if (collisionError) throw new Error(collisionError.message);
@@ -295,33 +252,31 @@ export const updateSocialDelivery = actionClient
           parsedInput.media_items,
         );
       }
-      const { error: updateError } = await supabase.rpc(
-        "update_social_delivery_post",
+      const { data: saved, error: updateError } = await supabase.rpc(
+        "save_social_post",
         {
-          p_delivery_id: parsedInput.id,
+          p_id: parsedInput.id,
+          p_version: parsedInput.version,
+          p_campaign_id: existing.campaign_id,
           p_title: parsedInput.title,
           p_description: parsedInput.description,
           p_caption: parsedInput.caption,
-          p_media_url: parsedInput.media_url,
-          p_media_items: parsedInput.media_items,
+          p_media_urls: parsedInput.media_items.map((item) => item.url),
+          p_media_alt_texts: parsedInput.media_items.map((item) => item.alt_text),
           p_hashtags: parsedInput.hashtags,
           p_call_to_action_link: parsedInput.call_to_action_link,
           p_call_to_action_caption: parsedInput.call_to_action_caption,
           p_channel: parsedInput.channel,
           p_mode: parsedInput.status,
-          p_scheduled_date:
-            parsedInput.status === "scheduled"
-              ? parsedInput.scheduled_date
-              : null,
-          p_time_slot:
-            parsedInput.status === "scheduled" ? parsedInput.time_slot : null,
+          p_scheduled_date: parsedInput.scheduled_date,
+          p_time_slot: parsedInput.time_slot,
         },
-      );
+      ).single<{ id: string; version: number }>();
       if (updateError) throw new Error(updateError.message);
 
       await logAudit(
         supabase,
-        "social_delivery",
+        "social_post",
         parsedInput.id,
         "update",
         `${schedulePlatform}:${parsedInput.scheduled_date}:${parsedInput.time_slot}`,
@@ -330,6 +285,7 @@ export const updateSocialDelivery = actionClient
       return ok(
         {
           ...parsedInput,
+          version: saved.version as number,
           schedule_platform: schedulePlatform,
           scheduled_at: scheduledAt,
         },
@@ -343,24 +299,24 @@ export const updateSocialDelivery = actionClient
     }
   });
 
-export const deleteSocialDelivery = actionClient
-  .inputSchema(DeleteSocialDeliveryZod)
+export const deleteSocialPost = actionClient
+  .inputSchema(DeleteSocialPostZod)
   .action(async ({ parsedInput }) => {
     try {
       const { supabase } = await requirePermission("social", "delete");
-      const { error } = await supabase.rpc("delete_social_delivery_post", {
-        p_delivery_id: parsedInput.id,
+      const { error } = await supabase.rpc("delete_social_post", {
+        p_id: parsedInput.id,
       });
       if (error) throw new Error(error.message);
       await logAudit(
         supabase,
-        "social_delivery",
+        "social_post",
         parsedInput.id,
         "delete",
-        "CMS record only",
+        "Removed from calendar; generated identity retained",
       );
       revalidatePath(REVALIDATE);
-      return ok({ id: parsedInput.id }, "Post deleted from the CMS.");
+      return ok({ id: parsedInput.id }, "Post removed from the calendar.");
     } catch (error) {
       return fail(
         error instanceof Error ? error.message : String(error),
@@ -375,7 +331,7 @@ export const createManualSocialPost = actionClient
     try {
       const { supabase } = await requirePermission("social", "edit");
       if (parsedInput.mode === "scheduled")
-        await requirePermission("social", "schedule");
+        await requirePermission("social", "publish");
       if (
         parsedInput.mode === "scheduled" &&
         parsedInput.scheduled_date &&
@@ -390,30 +346,31 @@ export const createManualSocialPost = actionClient
       }
       if (parsedInput.mode === "scheduled") {
         await assertSocialMediaSelection(
-          parsedInput.variants[0].channel,
-          parsedInput.variants[0].media_items,
+          parsedInput.channel,
+          parsedInput.media_items,
         );
       }
-      const { data, error } = await supabase.rpc("create_manual_social_post", {
-        p_campaign_id: parsedInput.campaign_id,
-        p_title: parsedInput.title,
-        p_description: parsedInput.description,
-        p_scheduled_date: parsedInput.scheduled_date,
-        p_time_slot: parsedInput.time_slot,
-        p_mode: parsedInput.mode,
-        p_variants: parsedInput.variants,
-      });
+      const post = parsedInput;
+      const { data, error } = await supabase.rpc("save_social_post", {
+        p_id: null, p_version: null, p_campaign_id: post.campaign_id,
+        p_title: post.title, p_description: post.description, p_caption: post.caption,
+        p_media_urls: post.media_items.map((item) => item.url),
+        p_media_alt_texts: post.media_items.map((item) => item.alt_text),
+        p_hashtags: post.hashtags, p_call_to_action_link: post.call_to_action_link,
+        p_call_to_action_caption: post.call_to_action_caption, p_channel: post.channel,
+        p_mode: post.mode, p_scheduled_date: post.scheduled_date, p_time_slot: post.time_slot,
+      }).single<{ id: string; version: number }>();
       if (error) throw new Error(error.message);
       await logAudit(
         supabase,
         "social_post",
-        String(data),
+        String(data.id),
         "create",
         `manual:${parsedInput.mode}`,
       );
       revalidatePath(REVALIDATE);
       return ok(
-        { id: String(data) },
+        { id: String(data.id) },
         parsedInput.mode === "scheduled" ? "Post scheduled." : "Draft saved.",
       );
     } catch (error) {
@@ -431,17 +388,11 @@ export const getSocialCampaign = actionClient
       const { supabase } = await requirePermission("social", "view");
       const { data, error } = await supabase
         .from("social_campaigns")
-        .select(
-          `${SELECT}, social_campaign_reviews(*, social_post_review_items(*))`,
-        )
+        .select(SELECT)
         .eq("id", parsedInput.id)
         .single();
       if (error) throw new Error(error.message);
-      return ok(
-        data as SocialCampaign & {
-          social_campaign_reviews: SocialCampaignReview[];
-        },
-      );
+      return ok(data as SocialCampaign);
     } catch (error) {
       return fail(
         error instanceof Error ? error.message : String(error),
@@ -454,11 +405,10 @@ export const resolveCampaignReview = actionClient
   .inputSchema(ReviewVerdictZod)
   .action(async ({ parsedInput }) => {
     try {
-      const { supabase } = await requirePermission("social", "review");
-      const { error } = await supabase.rpc("resolve_social_campaign_review", {
-        p_review_id: parsedInput.review_id,
-        p_decision: parsedInput.decision,
-        p_post_id: parsedInput.post_id,
+      const { supabase } = await requirePermission("social", "publish");
+      const { error } = await supabase.rpc("acknowledge_social_campaign", {
+        p_campaign_id: parsedInput.campaign_id,
+        p_version: parsedInput.version,
       });
       if (error) throw new Error(error.message);
       revalidatePath(REVALIDATE);
@@ -481,7 +431,7 @@ export const getCampaignEventOptions = actionClient.action(async () => {
       supabase
         .from("events")
         .select(
-          "id, title, publication_status, event_schedules(id, recurrence)",
+          "id, title, publication_status, event_schedules(id, recurrence_rule_id)",
         )
         .order("title", { ascending: true }),
       supabase
@@ -500,7 +450,7 @@ export const getCampaignEventOptions = actionClient.action(async () => {
         is_recurring:
           event.event_schedules.length > 1 ||
           event.event_schedules.some((schedule) =>
-            Boolean(schedule.recurrence),
+            Boolean(schedule.recurrence_rule_id),
           ),
         campaign_id: campaignByEvent.get(event.id) ?? null,
       })) as CampaignEventOption[],
@@ -591,7 +541,7 @@ export const updateSocialCampaign = actionClient
         .single();
       if (existingError) throw new Error(existingError.message);
       if (existing.status !== changes.status)
-        await requirePermission("social", "schedule");
+        await requirePermission("social", "publish");
       const eventChanged = existing.event_id !== changes.event_id;
       const eventSnapshot = await getEventSnapshot(supabase, changes.event_id);
       const { data, error } = await supabase
@@ -612,32 +562,6 @@ export const updateSocialCampaign = actionClient
         .select(SELECT)
         .single();
       if (error) throw new Error(error.message);
-      if (eventChanged) {
-        const service = createServiceClient();
-        const { data: openReview, error: reviewLookupError } = await service
-          .from("social_campaign_reviews")
-          .select("id")
-          .eq("campaign_id", id)
-          .eq("status", "open")
-          .maybeSingle();
-        if (reviewLookupError) throw new Error(reviewLookupError.message);
-        const reviewValues = {
-          reason: "The campaign's linked event changed.",
-          schedule_snapshot: existing.schedule_event_snapshot ?? {},
-          current_snapshot: eventSnapshot,
-          detected_at: new Date().toISOString(),
-        };
-        const reviewOperation = openReview
-          ? service
-              .from("social_campaign_reviews")
-              .update(reviewValues)
-              .eq("id", openReview.id)
-          : service
-              .from("social_campaign_reviews")
-              .insert({ campaign_id: id, ...reviewValues });
-        const { error: reviewError } = await reviewOperation;
-        if (reviewError) throw new Error(reviewError.message);
-      }
       await logAudit(supabase, "social_campaign", id, "update", data.name);
       revalidatePath(REVALIDATE);
       return ok(data as SocialCampaign, "Campaign updated.");
@@ -660,7 +584,7 @@ export const transitionSocialCampaign = actionClient
   .inputSchema(CampaignLifecycleZod)
   .action(async ({ parsedInput }) => {
     try {
-      const { supabase } = await requirePermission("social", "schedule");
+      const { supabase } = await requirePermission("social", "publish");
       const transition = LIFECYCLE_TRANSITIONS[parsedInput.action];
       const { data, error } = await supabase
         .from("social_campaigns")
@@ -690,7 +614,7 @@ export const generateCampaignProposal = actionClient
   .inputSchema(GenerateCampaignProposalZod)
   .action(async ({ parsedInput }) => {
     try {
-      const { supabase } = await requirePermission("social", "schedule");
+      const { supabase } = await requirePermission("social", "publish");
       const result = await runCampaignGeneration(
         supabase,
         parsedInput.id,
@@ -717,39 +641,6 @@ export const generateCampaignProposal = actionClient
       return fail(
         error instanceof Error ? error.message : String(error),
         "Failed to generate proposal.",
-      );
-    }
-  });
-
-export const getCampaignProposals = actionClient
-  .inputSchema(CampaignIdZod)
-  .action(async ({ parsedInput }) => {
-    try {
-      const { supabase } = await requirePermission("social", "view");
-      const { data, error } = await supabase
-        .from("social_campaign_occurrences")
-        .select(
-          `
-          *,
-          social_posts(
-            id, title, caption, status,
-            social_post_variants(
-              id, channel, caption, media_url,
-              social_deliveries(id, schedule_platform, scheduled_date, time_slot, status)
-            )
-          )
-        `,
-        )
-        .eq("campaign_id", parsedInput.id)
-        .neq("proposal_status", "superseded")
-        .order("target_date")
-        .order("sequence");
-      if (error) throw new Error(error.message);
-      return ok(data ?? []);
-    } catch (error) {
-      return fail(
-        error instanceof Error ? error.message : String(error),
-        "Failed to load proposals.",
       );
     }
   });

@@ -1,3 +1,4 @@
+import { hasPerm, type MemberRole } from "@/features/team/permissions";
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/utils/supabase/serviceRole";
 import { publishDelivery, type ClaimedDelivery } from "@/features/socialCampaigns/delivery/publishers";
@@ -13,7 +14,7 @@ async function notifyTerminalFailure(delivery: FailedDelivery, error: string) {
   const supabase = createServiceClient();
   const { data: profiles } = await supabase.from("profiles").select("id, role, permission_overrides").eq("status", "active");
   const recipients = (profiles ?? []).filter((profile) =>
-    profile.role === "board" || profile.role === "management" || profile.permission_overrides?.["social.send"] === true,
+    hasPerm(profile.role as MemberRole, profile.permission_overrides, "social", "publish"),
   );
   if (!recipients.length) return;
   await supabase.from("notifications").insert(recipients.map((profile) => ({
@@ -21,7 +22,7 @@ async function notifyTerminalFailure(delivery: FailedDelivery, error: string) {
     type: "social_delivery_failed",
     title: "Social post needs attention",
     body: `${delivery.platform} delivery failed after ${delivery.attempt_number} attempts: ${error}`,
-    entity_type: "social_delivery",
+    entity_type: "social_post",
     entity_id: delivery.delivery_id,
   })));
 }
@@ -38,7 +39,7 @@ export async function runCronSlot(req: NextRequest, slot: string): Promise<NextR
   }
   const supabase = createServiceClient();
   const staleBefore = new Date(Date.now() - 30 * 60_000).toISOString();
-  const { data: recovered, error: recoveryError } = await supabase.rpc("recover_stuck_social_deliveries", {
+  const { data: recovered, error: recoveryError } = await supabase.rpc("recover_stuck_social_posts", {
     p_stale_before: staleBefore,
   });
   if (recoveryError) return NextResponse.json({ error: recoveryError.message }, { status: 500 });
@@ -51,7 +52,7 @@ export async function runCronSlot(req: NextRequest, slot: string): Promise<NextR
       }, "The publishing worker stopped before completing the final attempt.");
     }
   }
-  const { data, error } = await supabase.rpc("claim_social_deliveries", { p_limit: 20 });
+  const { data, error } = await supabase.rpc("claim_social_posts", { p_limit: 20 });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const results = [];

@@ -1,4 +1,4 @@
-/** Shared bounds for validation, materialization, and event UI pagination. */
+/** Shared bounds for validation and event UI pagination. */
 export const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 export const DEFAULT_SESSION_DURATION_MS = 60 * 60 * 1000;
 export const MAX_SCHEDULE_OCCURRENCES = 5_000;

@@ -12,13 +12,13 @@ import type { CampaignStatus } from "@/app/schemas/socialCampaigns";
 export default function CampaignLifecycleControls({
   id,
   status,
-  canSchedule,
+  canPublish,
   canDelete,
   eventPublished = true,
 }: Readonly<{
   id: string;
   status: CampaignStatus;
-  canSchedule: boolean;
+  canPublish: boolean;
   canDelete: boolean;
   eventPublished?: boolean;
 }>) {
@@ -71,7 +71,7 @@ export default function CampaignLifecycleControls({
           publication does not activate it automatically.
         </p>
       )}
-      {canSchedule && transition && (
+      {canPublish && transition && (
         <button
           type="button"
           disabled={working || (!eventPublished && transition !== "pause")}

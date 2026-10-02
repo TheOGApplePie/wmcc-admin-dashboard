@@ -1,8 +1,12 @@
 "use client";
-import { ISO_DATE_LENGTH } from "../constants";
 import { EVENT_FIELD_LIMITS } from "@/features/events/constants";
-import { DEFAULT_SESSION_DURATION_MS, SCHEDULE_PREVIEW_LIMIT, MAX_SCHEDULE_OCCURRENCES, MAX_RECURRENCE_INTERVAL, DEFAULT_RECURRENCE_COUNT } from "../constants";
-
+import {
+  DEFAULT_SESSION_DURATION_MS,
+  MAX_SCHEDULE_OCCURRENCES,
+  MAX_RECURRENCE_INTERVAL,
+  DEFAULT_RECURRENCE_COUNT,
+  ISO_DATE_LENGTH,
+} from "../constants";
 
 import { useRequestId } from "../hooks/useRequestId";
 
@@ -13,7 +17,7 @@ import { Temporal } from "temporal-polyfill";
 import { saveEventSchedule } from "@/actions/events";
 import { scheduleFields } from "../schemas";
 import {
-  generateOccurrences,
+  scheduleDateIndex,
   type BaseEvent,
   type Rule,
   type Schedule,
@@ -27,7 +31,6 @@ import {
   inputClass,
   nullable,
   scheduleTitle,
-  submitLabel,
   utcInput,
   value,
 } from "../lib/formUtilities";
@@ -52,25 +55,25 @@ export function ScheduleForm({
   const [dirty, setDirty] = useState(false);
   const discard = useUnsavedChanges(dirty);
   const requestId = useRequestId();
+  const remainingCount =
+    schedule?.recurrence_rule?.count && splitFrom
+      ? schedule.recurrence_rule.count - scheduleDateIndex(schedule, splitFrom)
+      : schedule?.recurrence_rule?.count;
   const [frequency, setFrequency] = useState(
-    schedule?.recurrence?.frequency ?? "once",
+    schedule?.recurrence_rule?.frequency ?? "once",
   );
   const [termination, setTermination] = useState(
-    schedule?.recurrence?.until ? "until" : "count",
+    schedule?.recurrence_rule?.until ? "until" : "count",
   );
   const [monthlyMode, setMonthlyMode] = useState(
-    schedule?.recurrence?.by_month_day ? "date" : "weekday",
+    schedule?.recurrence_rule?.by_month_day ? "date" : "weekday",
   );
   const [weekdays, setWeekdays] = useState(
-    schedule?.recurrence?.by_weekdays ?? [],
+    schedule?.recurrence_rule?.by_weekdays ?? [],
   );
   const [positions, setPositions] = useState(
-    schedule?.recurrence?.by_set_position ?? [1],
+    schedule?.recurrence_rule?.by_set_position ?? [1],
   );
-  const [preview, setPreview] = useState<{
-    count: number;
-    dates: string[];
-  } | null>(null);
   const [initialNow] = useState(() => Date.now());
   const start = schedule
     ? formatDateTimeLocal(schedule.start_at)
@@ -88,7 +91,7 @@ export function ScheduleForm({
         .toString() + end.slice(ISO_DATE_LENGTH)
     : end;
   function parse(form: FormData) {
-    const recurrence: Rule | null =
+    const recurrence_rule: Rule | null =
       frequency === "once"
         ? null
         : {
@@ -110,14 +113,14 @@ export function ScheduleForm({
             until: termination === "until" ? value(form, "until") : null,
             count:
               termination === "count" ? Number(value(form, "count")) : null,
-            exdates: schedule?.recurrence?.exdates ?? [],
+            exdates: schedule?.recurrence_rule?.exdates ?? [],
           };
     return scheduleFields.parse({
       label: value(form, "label"),
       start_at: utcInput(value(form, "start")),
       end_at: utcInput(value(form, "end")),
       time_zone: "America/Toronto",
-      recurrence,
+      recurrence_rule,
       poster_url: nullable(form, "poster_url"),
       poster_alt: value(form, "poster_alt"),
       location: nullable(form, "location"),
@@ -129,16 +132,6 @@ export function ScheduleForm({
     setError("");
     try {
       const fields = parse(new FormData(e.currentTarget));
-      const occurrences = generateOccurrences(fields);
-      if (!preview) {
-        setPreview({
-          count: occurrences.length,
-          dates: occurrences
-            .slice(0, SCHEDULE_PREVIEW_LIMIT)
-            .map((o) => formatDateTimeLocal(o.start_at)),
-        });
-        return;
-      }
       setBusy(true);
       const payload = {
         event_id: event.id,
@@ -168,7 +161,6 @@ export function ScheduleForm({
       onSubmit={save}
       onChange={() => {
         setDirty(true);
-        setPreview(null);
       }}
       className="space-y-4 rounded-2xl border border-line bg-surface p-5"
     >
@@ -193,7 +185,9 @@ export function ScheduleForm({
               type="datetime-local"
               className={inputClass}
               required
-              defaultValue={splitFrom ? splitFrom + start.slice(ISO_DATE_LENGTH) : start}
+              defaultValue={
+                splitFrom ? splitFrom + start.slice(ISO_DATE_LENGTH) : start
+              }
             />
           </Field>
           <Field label="First session ends">
@@ -227,7 +221,7 @@ export function ScheduleForm({
                 name="interval"
                 min={1}
                 max={MAX_RECURRENCE_INTERVAL}
-                defaultValue={schedule?.recurrence?.interval ?? 1}
+                defaultValue={schedule?.recurrence_rule?.interval ?? 1}
                 required
               />
             </Field>
@@ -251,7 +245,7 @@ export function ScheduleForm({
                   name="month_day"
                   min={1}
                   max={31}
-                  defaultValue={schedule?.recurrence?.by_month_day ?? 1}
+                  defaultValue={schedule?.recurrence_rule?.by_month_day ?? 1}
                   required
                 />
               </Field>
@@ -328,7 +322,7 @@ export function ScheduleForm({
                   min={1}
                   max={MAX_SCHEDULE_OCCURRENCES}
                   required
-                  defaultValue={schedule?.recurrence?.count ?? DEFAULT_RECURRENCE_COUNT}
+                  defaultValue={remainingCount ?? DEFAULT_RECURRENCE_COUNT}
                 />
               </Field>
             ) : (
@@ -338,7 +332,10 @@ export function ScheduleForm({
                   name="until"
                   type="date"
                   required
-                  defaultValue={schedule?.recurrence?.until?.slice(0, ISO_DATE_LENGTH)}
+                  defaultValue={schedule?.recurrence_rule?.until?.slice(
+                    0,
+                    ISO_DATE_LENGTH,
+                  )}
                 />
               </Field>
             )}
@@ -360,30 +357,11 @@ export function ScheduleForm({
           onBusy={setUploading}
           onChange={() => {
             setDirty(true);
-            setPreview(null);
           }}
         />
-        {preview && (
-          <div role="status" className="rounded-xl bg-teal-soft p-3 text-sm">
-            <p>{preview.count} sessions in this schedule. First dates:</p>
-            <ul>
-              {preview.dates.map((date) => (
-                <li key={date}>{date.replace("T", " ")}</li>
-              ))}
-            </ul>
-            <p>
-              Saving updates this schedule and flags its campaign for review.
-            </p>
-          </div>
-        )}
         <div className="flex gap-3">
           <button type="submit" className={buttonClass}>
-            {submitLabel(
-              busy,
-              Boolean(preview),
-              "Preview schedule",
-              "Confirm schedule",
-            )}
+            {busy ? "Saving�" : "Save schedule"}
           </button>
           <button
             type="button"

@@ -4,14 +4,13 @@ import { notFound } from "next/navigation";
 import {
   getCampaignEventOptions,
   getSocialAdminUsers,
-  getSocialCalendarDeliveries,
+  getSocialCalendarPosts,
   getSocialCampaign,
 } from "@/actions/socialCampaigns";
 import { PageShell } from "@/app/components/ui/PageShell";
 import CampaignLifecycleControls from "@/features/socialCampaigns/components/CampaignLifecycleControls";
 import CampaignPageActions from "@/features/socialCampaigns/components/CampaignPageActions";
 import CampaignReviewPanel from "@/features/socialCampaigns/components/CampaignReviewPanel";
-import type { SocialCampaignReview } from "@/app/schemas/socialCampaigns";
 import { requirePermission } from "@/utils/permissions";
 
 export const dynamic = "force-dynamic";
@@ -27,20 +26,16 @@ export default async function CampaignPage({
     { data: eventsResult },
     { data: usersResult },
     editPerm,
-    schedulePerm,
-    sendPerm,
+    publishPerm,
     deletePerm,
-    reviewPerm,
   ] = await Promise.all([
     getSocialCampaign({ id: campaignId }),
-    getSocialCalendarDeliveries(),
+    getSocialCalendarPosts(),
     getCampaignEventOptions(),
     getSocialAdminUsers(),
     supabase.rpc("has_perm", { p_module: "social", p_action: "edit" }),
-    supabase.rpc("has_perm", { p_module: "social", p_action: "schedule" }),
-    supabase.rpc("has_perm", { p_module: "social", p_action: "send" }),
+    supabase.rpc("has_perm", { p_module: "social", p_action: "publish" }),
     supabase.rpc("has_perm", { p_module: "social", p_action: "delete" }),
-    supabase.rpc("has_perm", { p_module: "social", p_action: "review" }),
   ]);
   if (result?.error || !result?.data) notFound();
   const campaign = result.data;
@@ -67,24 +62,12 @@ export default async function CampaignPage({
                 !campaign.event_id ||
                 campaign.events?.publication_status === "published"
               }
-              canSchedule={Boolean(schedulePerm.data)}
+              canPublish={Boolean(publishPerm.data)}
               canDelete={Boolean(deletePerm.data)}
             />
           </div>
 
-          {campaign.needs_review &&
-            campaign.social_campaign_reviews?.find(
-              (review: SocialCampaignReview) => review.status === "open",
-            ) && (
-              <CampaignReviewPanel
-                review={
-                  campaign.social_campaign_reviews.find(
-                    (review: SocialCampaignReview) => review.status === "open",
-                  ) as SocialCampaignReview
-                }
-                canReview={Boolean(reviewPerm.data)}
-              />
-            )}
+          {campaign.needs_review && <CampaignReviewPanel campaign={campaign} canReview={Boolean(publishPerm.data)} />}
 
           <CampaignPageActions
             initialCampaign={campaign}
@@ -92,8 +75,7 @@ export default async function CampaignPage({
             events={eventsResult?.data ?? []}
             adminUsers={usersResult?.data ?? []}
             canEdit={Boolean(editPerm.data)}
-            canSchedule={Boolean(schedulePerm.data)}
-            canSend={Boolean(sendPerm.data)}
+            canPublish={Boolean(publishPerm.data)}
             canDelete={Boolean(deletePerm.data)}
           />
         </div>

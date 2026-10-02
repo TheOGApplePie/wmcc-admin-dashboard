@@ -1,11 +1,9 @@
 import { DATABASE_PAGE_SIZE } from "@/features/events/constants";
-import { createServiceClient } from "@/utils/supabase/serviceRole";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { formatInTimeZone } from "date-fns-tz";
+import { fromZonedTime, formatInTimeZone } from "date-fns-tz";
 import {
-  readOccurrences,
-  ensureEventCoverage,
-  type OccurrenceRow,
+  readScheduleDates,
+  type ScheduleDateRow,
 } from "@/features/events/server";
 import {
   SOCIAL_TIME_ZONE,
@@ -19,32 +17,52 @@ async function readExistingKeys(supabase: SupabaseClient, campaignId: string) {
   const keys = new Set<string>();
   for (let offset = 0; ; offset += DATABASE_PAGE_SIZE) {
     const { data, error } = await supabase
-      .from("social_campaign_occurrences")
-      .select("generation_key")
+      .from("social_posts")
+      .select("source_schedule_id,source_date,reminder_milestone,channel")
       .eq("campaign_id", campaignId)
       .order("id")
       .range(offset, offset + DATABASE_PAGE_SIZE - 1);
     if (error) throw new Error(error.message);
-    for (const row of data ?? []) keys.add(row.generation_key);
+    for (const row of data ?? []) keys.add(`${campaignId}:${row.source_schedule_id}:${row.source_date}:${row.reminder_milestone}:${row.channel}`);
     if (!data || data.length < DATABASE_PAGE_SIZE) return keys;
   }
 }
 
+async function readOccupiedSlots(supabase: SupabaseClient, today: string, through: string) {
+  const occupied: OccupiedSlot[] = [];
+  for (let offset = 0; ; offset += DATABASE_PAGE_SIZE) {
+    const { data, error } = await supabase.from("social_posts")
+      .select("schedule_platform,scheduled_date,time_slot,status,retryable")
+      .in("status", ["proposed", "scheduled", "due", "processing", "provider_processing", "failed"])
+      .gte("scheduled_date", today).lte("scheduled_date", through)
+      .order("id").range(offset, offset + DATABASE_PAGE_SIZE - 1);
+    if (error) throw new Error(error.message);
+    for (const row of data ?? []) {
+      if (row.status !== "failed" || row.retryable) occupied.push({
+        schedulePlatform: row.schedule_platform, date: row.scheduled_date, slot: row.time_slot,
+      } as OccupiedSlot);
+    }
+    if (!data || data.length < DATABASE_PAGE_SIZE) break;
+  }
+  return occupied;
+}
+
 function resolveLaunch(
   campaign: {
-    launch_occurrence_id: string | null;
+    launch_schedule_id: string | null;
     launch_occurrence_at: string | null;
     launch_decision_made: boolean;
   },
-  occurrences: OccurrenceRow[],
+  occurrences: ScheduleDateRow[],
   actualFirst: boolean,
   behavior?: "next" | "reminders_only",
 ) {
-  if (campaign.launch_occurrence_id) return campaign.launch_occurrence_id;
   if (campaign.launch_occurrence_at) {
     const timestamp = Date.parse(campaign.launch_occurrence_at);
     const legacy = occurrences.find(
-      (occurrence) => Date.parse(occurrence.start_at) === timestamp,
+      (occurrence) =>
+        occurrence.schedule_id === campaign.launch_schedule_id &&
+        Date.parse(occurrence.start_at) === timestamp,
     );
     if (legacy) return legacy.id;
   }
@@ -91,7 +109,6 @@ export async function runCampaignGeneration(
     throw new Error(
       "Publish the linked event before generating its campaign schedule.",
     );
-  await ensureEventCoverage(supabase, event.id);
   const today = formatInTimeZone(new Date(), SOCIAL_TIME_ZONE, "yyyy-MM-dd");
   const coverageStart = campaign.generated_through
     ? addCalendarDays(campaign.generated_through, 1)
@@ -109,22 +126,13 @@ export async function runCampaignGeneration(
       generatedThrough: campaign.generated_through as string | null,
       suppressed: 0,
     };
-  // All finite sessions are available; slot planning only uses the current horizon.
-  const occurrences = (
-    await readOccurrences(supabase, new Date().toISOString(), null, event.id)
-  ).filter((o) => Date.parse(o.start_at) > Date.now());
-  const { data: first, error: firstError } = await supabase
-    .from("resolved_event_occurrences")
-    .select("id,start_at")
-    .eq("event_id", event.id)
-    .eq("cancelled", false)
-    .eq("superseded", false)
-    .eq("schedule_cancelled", false)
-    .order("start_at")
-    .order("id")
-    .limit(1)
-    .maybeSingle();
-  if (firstError) throw new Error(firstError.message);
+  // RRULE supplies dates directly from the event's current schedules.
+  const through = fromZonedTime(`${addCalendarDays(coverageEnd, 15)}T00:00:00`, SOCIAL_TIME_ZONE).toISOString();
+  const dates = await readScheduleDates(supabase, null, through, event.id, true);
+  const occurrences = dates.filter(
+    (date) => Date.parse(date.start_at) > Date.now(),
+  );
+  const first = dates[0];
   const next = occurrences[0];
   const actualFirst = Boolean(next && first?.id === next.id);
   if (!campaign.launch_decision_made && next && !actualFirst && !launchBehavior)
@@ -134,11 +142,6 @@ export async function runCampaignGeneration(
       generatedThrough: campaign.generated_through as string | null,
       suppressed: 0,
     };
-  const { error: linkError } = await createServiceClient().rpc(
-    "link_legacy_event_campaign_occurrences",
-    { p_event_id: event.id },
-  );
-  if (linkError) throw new Error(linkError.message);
   const existingKeys = await readExistingKeys(supabase, campaignId);
   const launch = resolveLaunch(
     campaign,
@@ -159,65 +162,55 @@ export async function runCampaignGeneration(
       }).map((proposal) => ({
         ...proposal,
         generationKey: `${campaignId}:${occurrence.id}:${proposal.milestone}`,
-        eventOccurrenceId: occurrence.id,
+        eventScheduleId: occurrence.schedule_id,
       })),
     )
+    .map((proposal) => ({...proposal, channels: proposal.channels.filter((channel) => !existingKeys.has(`${proposal.generationKey}:${channel}`))}))
     .filter(
       (proposal) =>
-        !existingKeys.has(proposal.generationKey) &&
+        proposal.channels.length > 0 &&
         proposal.targetDate >= coverageStart &&
         proposal.targetDate <= coverageEnd,
     );
-  const { data: occupiedRows, error: occupiedError } = await supabase
-    .from("social_deliveries")
-    .select("schedule_platform,scheduled_date,time_slot,status,retryable")
-    .in("status", [
-      "proposed",
-      "scheduled",
-      "due",
-      "processing",
-      "provider_processing",
-      "failed",
-    ])
-    .gte("scheduled_date", today)
-    .lte("scheduled_date", coverageEnd);
-  if (occupiedError) throw new Error(occupiedError.message);
-  const occupied = (occupiedRows ?? [])
-    .filter((row) => row.status !== "failed" || row.retryable)
-    .map((row) => ({
-      schedulePlatform: row.schedule_platform,
-      date: row.scheduled_date,
-      slot: row.time_slot,
-    })) as OccupiedSlot[];
-  const { planned, suppressed } = planProposalSlots(raw, occupied, today);
+  const occupied = await readOccupiedSlots(supabase, today, coverageEnd);
+  const { planned, suppressed } = planProposalSlots(raw, occupied, [today, campaign.starts_on].filter(Boolean).sort().at(-1) as string);
   const proposals = planned.map((proposal, sequence) => {
     const source = raw.find(
       (item) => item.generationKey === proposal.generationKey,
     )!;
     const occurrence = occurrences.find(
-      (item) => item.id === source.eventOccurrenceId,
+      (item) =>
+        item.schedule_id === source.eventScheduleId &&
+        item.start_at === source.eventOccurrenceAt,
     )!;
     return {
       ...proposal,
-      eventOccurrenceId: occurrence.id,
+      eventScheduleId: occurrence.schedule_id,
+      sourceDate: occurrence.original_key,
       sequence,
       title: `${proposal.kind === "initial" ? "Initial post" : `${proposal.milestoneDays}-day reminder`}: ${event.title}`,
       caption: occurrence.description,
       description: occurrence.description,
       mediaUrl: occurrence.poster_url,
+      mediaAlt: occurrence.poster_alt,
       callToActionLink: occurrence.call_to_action_link,
       callToActionCaption: occurrence.call_to_action_caption,
     };
   });
   const { data: inserted, error: persistError } = await supabase.rpc(
-    "persist_event_campaign_proposals",
+    "persist_schedule_campaign_proposals",
     {
       p_campaign_id: campaignId,
+      p_campaign_version: campaign.version,
       p_event_version: event.version,
       p_proposals: proposals,
       p_suppressed: suppressed,
       p_generated_through: coverageEnd,
-      p_launch_occurrence_id: launch,
+      p_launch_schedule_id:
+        occurrences.find((date) => date.id === launch)?.schedule_id ?? campaign.launch_schedule_id,
+      p_launch_at:
+        occurrences.find((date) => date.id === launch)?.start_at ??
+        campaign.launch_occurrence_at,
       p_launch_decision_made: true,
     },
   );

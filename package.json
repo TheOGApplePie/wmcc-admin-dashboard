@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:events": "node --test tests/events.test.mjs"
+    "test:events": "node --test tests/events.test.mjs",
+    "test:social": "node --test tests/social-posts.test.mjs",
+    "test:permissions": "node --test tests/social-permissions.test.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

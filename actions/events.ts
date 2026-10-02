@@ -1,6 +1,8 @@
 "use server";
-import { EVENT_FIELD_LIMITS } from "@/features/events/constants";
-import { MAX_EVENT_POSTER_BYTES } from "@/features/events/constants";
+import {
+  EVENT_FIELD_LIMITS,
+  MAX_EVENT_POSTER_BYTES,
+} from "@/features/events/constants";
 
 import { createSafeActionClient } from "next-safe-action";
 import { revalidatePath } from "next/cache";
@@ -10,13 +12,17 @@ import {
   saveEventSchema,
   saveScheduleSchema,
   versionedEventSchema as versioned,
-  occurrenceChangeSchema,
+  scheduleExceptionSchema,
   eventRangeSchema,
 } from "@/features/events/schemas";
-import { generateOccurrences } from "@/features/events/domain";
-import { readOccurrences } from "@/features/events/server";
+
+import {
+  readCalendarSchedules,
+  readEventDetail,
+} from "@/features/events/server";
 import { ok, fail } from "@/utils/actionResponse";
 import { resolveStorageUrl } from "@/utils/uploadFiles";
+import { scheduleDateIndex } from "@/features/events/domain";
 const client = createSafeActionClient();
 function message(error: unknown) {
   return error instanceof Error ? error.message : String(error);
@@ -58,12 +64,15 @@ export const saveEventSchedule = client
   .action(async ({ parsedInput: input }) => {
     try {
       const { request_id, ...payload } = input;
+      if (input.split_from && input.id) {
+        const schedule = await currentSchedule(
+          input.event_id,
+          input.id,
+        );
+        if (schedule && schedule.version === input.version) scheduleDateIndex(schedule, input.split_from);
+      }
       return ok(
-        await mutate(
-          "save_schedule",
-          { ...payload, occurrences: generateOccurrences(input.fields) },
-          request_id,
-        ),
+        await mutate("save_schedule", payload, request_id),
         "Schedule saved.",
       );
     } catch (error) {
@@ -94,24 +103,28 @@ export const removeBaseEvent = client
       return fail(message(error));
     }
   });
-export const changeScheduleState = client
-  .inputSchema(versioned.extend({ id: z.uuid(), cancelled: z.boolean() }))
+export const removeEventSchedule = client
+  .inputSchema(
+    versioned.extend({ id: z.uuid(), restore_original: z.boolean() }),
+  )
   .action(async ({ parsedInput }) => {
     try {
       return ok(
-        await mutate("schedule_state", parsedInput, parsedInput.request_id),
+        await mutate("remove_schedule", parsedInput, parsedInput.request_id),
       );
     } catch (error) {
       return fail(message(error));
     }
   });
-export const changeOccurrence = client
-  .inputSchema(occurrenceChangeSchema)
+export const changeScheduleException = client
+  .inputSchema(scheduleExceptionSchema)
   .action(async ({ parsedInput }) => {
     try {
-      return ok(
-        await mutate("occurrence", parsedInput, parsedInput.request_id),
-      );
+      const schedule = await currentSchedule(parsedInput.event_id, parsedInput.id);
+      if (schedule?.version === parsedInput.version && parsedInput.action !== "restore") {
+        scheduleDateIndex(schedule, parsedInput.original_date);
+      }
+      return ok(await mutate("exception", parsedInput, parsedInput.request_id));
     } catch (error) {
       return fail(message(error));
     }
@@ -143,25 +156,18 @@ export const uploadEventPoster = client
   });
 export const fetchAllEvents = client
   .inputSchema(eventRangeSchema)
-  .action(async ({ parsedInput }) => {
+  .action(async () => {
     try {
       const { supabase } = await requirePermission("events", "view");
-      const rows = await readOccurrences(
-        supabase,
-        parsedInput.rangeStart.toISOString(),
-        parsedInput.rangeEnd.toISOString(),
-      );
-      return rows.map((row) => ({
-        ...row,
-        id: row.id,
-        occurrence_id: row.id,
-        start: row.start_at,
-        end: row.end_at,
-        start_date: row.start_at,
-        end_date: row.end_at,
-        classNames: row.publication_status === "draft" ? ["opacity-60"] : [],
-      }));
+      return await readCalendarSchedules(supabase);
     } catch (error) {
       return { error: message(error), data: null };
     }
   });
+
+async function currentSchedule(eventId: number, id: string) {
+  const { supabase } = await requirePermission("events", "edit");
+  const detail = await readEventDetail(supabase, eventId);
+  const schedule = detail.schedules.find((row) => row.id === id);
+  return schedule;
+}

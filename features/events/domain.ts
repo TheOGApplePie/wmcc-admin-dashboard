@@ -1,5 +1,9 @@
-import { ISO_DATE_LENGTH } from "./constants";
-import { MAX_SCHEDULE_OCCURRENCES, MAX_SCHEDULE_SPAN_DAYS, MILLISECONDS_PER_DAY } from "./constants";
+import {
+  MAX_SCHEDULE_OCCURRENCES,
+  MAX_SCHEDULE_SPAN_DAYS,
+  MILLISECONDS_PER_DAY,
+  ISO_DATE_LENGTH,
+} from "./constants";
 import { RRule, type Weekday } from "rrule";
 import { Temporal } from "temporal-polyfill";
 
@@ -35,36 +39,14 @@ export interface Schedule {
   start_at: string;
   end_at: string;
   time_zone: string;
-  recurrence: Rule | null;
+  recurrence_rule: Rule | null;
   poster_url: string | null;
   poster_alt: string;
   location: string | null;
-  cancelled: boolean;
   version: number;
-  materialized_version: number;
+  recurrence_rule_id: number | null;
 }
-export interface Occurrence {
-  id: string;
-  event_id: number;
-  schedule_id: string;
-  original_key: string;
-  start_at: string;
-  end_at: string;
-  generated_start_at: string;
-  generated_end_at: string;
-  cancelled: boolean;
-  superseded: boolean;
-  overridden: boolean;
-  version: number;
-}
-export interface ResolvedOccurrence extends Occurrence {
-  event: BaseEvent;
-  schedule: Schedule;
-  poster_url: string | null;
-  poster_alt: string;
-  location: string;
-}
-export interface GeneratedOccurrence {
+export interface ScheduleDate {
   original_key: string;
   start_at: string;
   end_at: string;
@@ -92,17 +74,11 @@ function parseWeekday(day: string): Weekday {
   return match[1] ? weekday.nth(Number(match[1])) : weekday;
 }
 function recurrenceOptions(rule: Rule, start: Temporal.PlainDateTime) {
-  if (Boolean(rule.count) === Boolean(rule.until))
-    throw new Error("Choose a count or end date.");
-  if (rule.count && (rule.count < 1 || rule.count > MAX_SCHEDULE_OCCURRENCES))
-    throw new Error("Use between 1 and 5,000 occurrences.");
   if (!(rule.frequency in frequencies))
     throw new Error("Invalid recurrence frequency.");
   const until = rule.until
     ? Temporal.PlainDate.from(rule.until.slice(0, ISO_DATE_LENGTH))
     : null;
-  if (until && until.since(start.toPlainDate()).days > MAX_SCHEDULE_SPAN_DAYS)
-    throw new Error("Schedules may span at most ten years.");
   const options: ConstructorParameters<typeof RRule>[0] = {
     freq: frequencies[rule.frequency],
     interval: rule.interval ?? 1,
@@ -116,20 +92,12 @@ function recurrenceOptions(rule: Rule, start: Temporal.PlainDateTime) {
   if (rule.by_set_position?.length) options.bysetpos = rule.by_set_position;
   return options;
 }
-function validateGeneratedDates(dates: Date[], start: Temporal.PlainDateTime) {
-  if (dates.length > MAX_SCHEDULE_OCCURRENCES)
-    throw new Error("A schedule cannot exceed 5,000 sessions.");
-  if (!dates.length || dates[0].getTime() !== new Date(`${start}Z`).getTime())
-    throw new Error("The first date must match the recurrence pattern.");
-  if (dates[dates.length - 1].getTime() - dates[0].getTime() > MAX_SCHEDULE_SPAN_DAYS * MILLISECONDS_PER_DAY)
-    throw new Error("Schedules may span at most ten years.");
-}
 function resolveGeneratedDate(
   date: Date,
   duration: Temporal.Duration,
   timeZone: string,
   excluded: Set<string>,
-): GeneratedOccurrence {
+): ScheduleDate {
   const plain = Temporal.PlainDateTime.from(
     date.toISOString().replace(/Z$/, ""),
   );
@@ -147,10 +115,29 @@ function resolveGeneratedDate(
     cancelled: excluded.has(key),
   };
 }
-/** Finite schedules are materialized completely; never silently truncate coverage. */
-export function generateOccurrences(
-  schedule: Pick<Schedule, "start_at" | "end_at" | "time_zone" | "recurrence">,
-): GeneratedOccurrence[] {
+function datesInRange(
+  rule: RRule, start: Temporal.PlainDateTime, duration: Temporal.Duration, timeZone: string,
+  range?: { from: string | null; through: string },
+): Date[] {
+  if (!range) {
+    if (!rule.options.count && !rule.options.until) throw new Error("A date range is required for an open-ended schedule.");
+    return rule.all();
+  }
+  const lower = range.from
+    ? Temporal.Instant.from(range.from).toZonedDateTimeISO(timeZone).toPlainDateTime().subtract(duration)
+    : start;
+  const upper = Temporal.Instant.from(range.through).toZonedDateTimeISO(timeZone).toPlainDateTime();
+  if (Temporal.PlainDateTime.compare(lower, upper) >= 0) return [];
+  return rule.between(new Date(`${lower}Z`), new Date(`${upper}Z`), true);
+}
+/** RRULE expansion for reminders and upcoming summaries only; never persisted. */
+export function scheduleDates(
+  schedule: Pick<
+    Schedule,
+    "start_at" | "end_at" | "time_zone" | "recurrence_rule"
+  >,
+  range?: { from: string | null; through: string },
+): ScheduleDate[] {
   const start = Temporal.Instant.from(schedule.start_at).toZonedDateTimeISO(
     schedule.time_zone,
   );
@@ -159,7 +146,7 @@ export function generateOccurrences(
   );
   if (end.epochMilliseconds <= start.epochMilliseconds)
     throw new Error("End must be after start.");
-  if (!schedule.recurrence)
+  if (!schedule.recurrence_rule)
     return [
       {
         original_key: start.toPlainDate().toString(),
@@ -169,13 +156,13 @@ export function generateOccurrences(
       },
     ];
   const plain = start.toPlainDateTime();
-  const dates = new RRule(recurrenceOptions(schedule.recurrence, plain)).all(
-    (_date, index) => index <= MAX_SCHEDULE_OCCURRENCES,
-  );
-  validateGeneratedDates(dates, plain);
+  const rule = new RRule(recurrenceOptions(schedule.recurrence_rule, plain));
   const duration = plain.until(end.toPlainDateTime());
+  const dates = datesInRange(rule, plain, duration, schedule.time_zone, range);
   const excluded = new Set(
-    (schedule.recurrence.exdates ?? []).map((day) => day.slice(0, ISO_DATE_LENGTH)),
+    (schedule.recurrence_rule.exdates ?? []).map((day) =>
+      day.slice(0, ISO_DATE_LENGTH),
+    ),
   );
   return dates.map((date) =>
     resolveGeneratedDate(date, duration, schedule.time_zone, excluded),
@@ -188,4 +175,79 @@ export function resolvePoster(
   return schedule.poster_url
     ? { poster_url: schedule.poster_url, poster_alt: schedule.poster_alt }
     : { poster_url: event.poster_url, poster_alt: event.poster_alt };
+}
+
+/** Validate a schedule without materializing its recurrence. */
+export function validateSchedule(
+  schedule: Pick<
+    Schedule,
+    "start_at" | "end_at" | "time_zone" | "recurrence_rule"
+  >,
+) {
+  const start = Temporal.Instant.from(schedule.start_at).toZonedDateTimeISO(
+    schedule.time_zone,
+  );
+  const end = Temporal.Instant.from(schedule.end_at).toZonedDateTimeISO(
+    schedule.time_zone,
+  );
+  if (end.epochMilliseconds <= start.epochMilliseconds)
+    throw new Error("End must be after start.");
+  if (!schedule.recurrence_rule) return;
+  if (Boolean(schedule.recurrence_rule.count) === Boolean(schedule.recurrence_rule.until))
+    throw new Error("Choose a count or end date.");
+  if (schedule.recurrence_rule.count && (schedule.recurrence_rule.count < 1 || schedule.recurrence_rule.count > MAX_SCHEDULE_OCCURRENCES))
+    throw new Error("Use between 1 and 5,000 occurrences.");
+  const anchor = new Date(`${start.toPlainDateTime()}Z`);
+  const rule = new RRule(
+    recurrenceOptions(schedule.recurrence_rule, start.toPlainDateTime()),
+  );
+  if (rule.after(anchor, true)?.getTime() !== anchor.getTime())
+    throw new Error("The first date must match the recurrence pattern.");
+  if (rule.after(new Date(anchor.getTime() + MAX_SCHEDULE_SPAN_DAYS * MILLISECONDS_PER_DAY), false))
+    throw new Error("Schedules may span at most ten years.");
+}
+export function scheduleDateIndex(schedule: Schedule, date: string): number {
+  const start = Temporal.Instant.from(schedule.start_at)
+    .toZonedDateTimeISO(schedule.time_zone)
+    .toPlainDateTime();
+  const selected = Temporal.PlainDate.from(date).toPlainDateTime(
+    start.toPlainTime(),
+  );
+  if (!schedule.recurrence_rule)
+    throw new Error("Select a recurring schedule.");
+  const rule = new RRule(recurrenceOptions(schedule.recurrence_rule, start));
+  const target = new Date(`${selected}Z`);
+  if (rule.after(target, true)?.getTime() !== target.getTime())
+    throw new Error("Choose a date in this schedule's recurrence rule.");
+  return rule.between(new Date(`${start}Z`), target, true).length - 1;
+}
+
+/** Find one active date for campaign launch selection without expanding an open-ended rule. */
+export function nextScheduleDate(schedule: Schedule, after?: string): ScheduleDate | null {
+  const start = Temporal.Instant.from(schedule.start_at).toZonedDateTimeISO(schedule.time_zone).toPlainDateTime();
+  const end = Temporal.Instant.from(schedule.end_at).toZonedDateTimeISO(schedule.time_zone).toPlainDateTime();
+  if (!schedule.recurrence_rule) {
+    if (after && Date.parse(schedule.start_at) <= Date.parse(after)) return null;
+    return { original_key: start.toPlainDate().toString(), start_at: schedule.start_at, end_at: schedule.end_at, cancelled: false };
+  }
+  const rule = new RRule(recurrenceOptions(schedule.recurrence_rule, start));
+  const lower = after ? Temporal.Instant.from(after).toZonedDateTimeISO(schedule.time_zone).toPlainDateTime() : start;
+  let candidate = rule.after(new Date(`${lower}Z`), !after);
+  const excluded = new Set((schedule.recurrence_rule.exdates ?? []).map(date => date.slice(0, ISO_DATE_LENGTH)));
+  while (candidate) {
+    const date = resolveGeneratedDate(candidate, start.until(end), schedule.time_zone, excluded);
+    if (!date.cancelled) return date;
+    candidate = rule.after(candidate, false);
+  }
+  return null;
+}
+export function campaignScheduleDates(schedule: Schedule, through: string): ScheduleDate[] {
+  const now = new Date().toISOString();
+  const dates = scheduleDates(schedule, { from: now, through });
+  // Include the first and next active dates even when the next event is beyond the reminder horizon.
+  // Initial announcements can still be due today for that future event.
+  for (const date of [nextScheduleDate(schedule), nextScheduleDate(schedule, now)]) {
+    if (date && !dates.some(existing => existing.original_key === date.original_key)) dates.push(date);
+  }
+  return dates;
 }

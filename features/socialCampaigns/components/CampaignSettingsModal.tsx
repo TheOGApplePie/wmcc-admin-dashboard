@@ -8,10 +8,10 @@ import type {
   CampaignEventOption,
   CampaignStatus,
   SocialCampaign,
-  VariantChannel,
+  SocialPostChannel,
 } from "@/app/schemas/socialCampaigns";
 
-const CHANNELS: Array<{ value: VariantChannel; label: string }> = [
+const CHANNELS: Array<{ value: SocialPostChannel; label: string }> = [
   { value: "instagram_feed", label: "Instagram Feed" },
   { value: "instagram_story", label: "Instagram Story" },
   { value: "instagram_reel", label: "Instagram Reel" },
@@ -24,14 +24,14 @@ export default function CampaignSettingsForm({
   events,
   adminUsers,
   canEdit,
-  canSchedule,
+  canPublish,
   onSaved,
 }: Readonly<{
   campaign: SocialCampaign;
   events: CampaignEventOption[];
   adminUsers: AdminUserOption[];
   canEdit: boolean;
-  canSchedule: boolean;
+  canPublish: boolean;
   onSaved: (campaign: SocialCampaign) => void;
 }>) {
   const [form, setForm] = useState(campaign);
@@ -39,7 +39,7 @@ export default function CampaignSettingsForm({
   const availableEvents = events.filter(
     (event) => !event.campaign_id || event.campaign_id === campaign.id,
   );
-  const toggleChannel = (channel: VariantChannel) =>
+  const toggleChannel = (channel: SocialPostChannel) =>
     setForm((current) => ({
       ...current,
       default_channels: current.default_channels.includes(channel)
@@ -156,7 +156,7 @@ export default function CampaignSettingsForm({
         <label className="flex flex-col gap-1 text-sm font-medium text-ink">
           Status
           <select
-            disabled={!canSchedule}
+            disabled={!canPublish}
             value={form.status}
             onChange={(event) =>
               setForm({ ...form, status: event.target.value as CampaignStatus })

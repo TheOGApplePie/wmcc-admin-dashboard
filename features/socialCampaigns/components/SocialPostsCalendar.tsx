@@ -7,7 +7,7 @@ import interactionPlugin from "@fullcalendar/react/interaction";
 import themePlugin from "@fullcalendar/react/themes/classic";
 import "@fullcalendar/react/skeleton.css";
 import "@fullcalendar/react/themes/classic/theme.css";
-import type { SocialCalendarDelivery } from "@/app/schemas/socialCampaigns";
+import type { SocialCalendarPost } from "@/app/schemas/socialCampaigns";
 import { scheduledAtFor } from "@/features/socialCampaigns/scheduling/slots";
 import ManualPostModal from "./ManualPostModal";
 
@@ -17,7 +17,7 @@ export const PLATFORM = {
   tiktok: { label: "TikTok", color: "#111827", soft: "#e5e7eb" },
 } as const;
 
-export const CHANNEL_LABEL: Record<SocialCalendarDelivery["channel"], string> = {
+export const CHANNEL_LABEL: Record<SocialCalendarPost["channel"], string> = {
   instagram_feed: "Instagram Feed",
   instagram_story: "Instagram Story",
   instagram_reel: "Instagram Reel",
@@ -31,14 +31,14 @@ export const SLOT_LABEL = {
   evening: "7 PM EST / 8 PM EDT",
 } as const;
 
-export default function SocialPostsCalendar({ deliveries, campaignId, canEdit, canSchedule, canSend, canDelete, onUpdated, onDeleted, editingDelivery, onEditDelivery, onCloseEditor, highlightCampaignId = null, onDateSelect }: Readonly<{
-  deliveries: SocialCalendarDelivery[]; campaignId: string | null; canEdit: boolean; canSchedule: boolean; canSend: boolean; canDelete: boolean;
-  onUpdated: (delivery: SocialCalendarDelivery) => void; onDeleted: (id: string) => void;
-  editingDelivery: SocialCalendarDelivery | null; onEditDelivery: (delivery: SocialCalendarDelivery) => void; onCloseEditor: () => void;
+export default function SocialPostsCalendar({ deliveries, campaignId, canEdit, canPublish, canDelete, onUpdated, onDeleted, editingDelivery, onEditDelivery, onCloseEditor, highlightCampaignId = null, onDateSelect }: Readonly<{
+  deliveries: SocialCalendarPost[]; campaignId: string | null; canEdit: boolean; canPublish: boolean; canDelete: boolean;
+  onUpdated: (delivery: SocialCalendarPost) => void; onDeleted: (id: string) => void;
+  editingDelivery: SocialCalendarPost | null; onEditDelivery: (delivery: SocialCalendarPost) => void; onCloseEditor: () => void;
   highlightCampaignId?: string | null; onDateSelect?: (date: string) => void;
 }>) {
   const controller = useCalendarController();
-  const [platform, setPlatform] = useState<"all" | SocialCalendarDelivery["schedule_platform"]>("all");
+  const [platform, setPlatform] = useState<"all" | SocialCalendarPost["schedule_platform"]>("all");
   const visible = useMemo(() => deliveries.filter((delivery) =>
     Boolean(delivery.scheduled_date && delivery.time_slot) &&
     (!campaignId || delivery.campaign_id === campaignId) &&
@@ -77,6 +77,6 @@ export default function SocialPostsCalendar({ deliveries, campaignId, canEdit, c
         eventTimeFormat={{ hour: "numeric", minute: "2-digit", meridiem: "short" }} />
       {!canEdit && <p className="mt-3 text-xs text-muted">You need social edit permission to modify post content.</p>}
     </section>
-    {editingDelivery && <ManualPostModal key={editingDelivery.id} delivery={editingDelivery} initialCampaignId={editingDelivery.campaign_id} initialDate={editingDelivery.scheduled_date} canEdit={canEdit} canSchedule={canSchedule} canSend={canSend} canDelete={canDelete} onClose={onCloseEditor} onUpdated={onUpdated} onDeleted={onDeleted} />}
+    {editingDelivery && <ManualPostModal key={editingDelivery.id} delivery={editingDelivery} initialCampaignId={editingDelivery.campaign_id} initialDate={editingDelivery.scheduled_date} canEdit={canEdit} canPublish={canPublish} canDelete={canDelete} onClose={onCloseEditor} onUpdated={onUpdated} onDeleted={onDeleted} />}
   </>;
 }
