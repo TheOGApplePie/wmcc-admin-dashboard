@@ -10,7 +10,7 @@ export type MemberStatus = "invited" | "active" | "inactive";
 
 /** Flat map of "<module>.<action>": granted? */
 export type PermissionMap = Record<string, boolean>;
-/** Per-user deviations from the role preset, e.g. { "social.send": true }. */
+/** Per-user deviations from the role preset, e.g. { "social.publish": true }. */
 export type PermissionOverrides = Record<string, boolean>;
 
 export interface ModuleAction {
@@ -90,10 +90,7 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     actions: [
       { key: "view", label: "View" },
       { key: "edit", label: "Create / Update" },
-      { key: "schedule", label: "Schedule", sensitive: true },
-      { key: "send", label: "Send / Broadcast", sensitive: true },
-      { key: "review", label: "Render schedule verdicts", sensitive: true },
-      { key: "override", label: "Approve exceptions", sensitive: true },
+      { key: "publish", label: "Publish / Schedule", sensitive: true },
       { key: "delete", label: "Delete", sensitive: true },
     ],
   },
@@ -132,7 +129,7 @@ const PRESETS: Record<
   management: {
     announcements: ["view", "edit", "publish", "delete"],
     events: ["view", "edit", "publish", "delete"],
-    social: ["view", "edit", "schedule", "send", "review", "override", "delete"],
+    social: ["view", "edit", "publish", "delete"],
     feedback: ["view", "respond"],
     users: ["view"],
     integrations: [],

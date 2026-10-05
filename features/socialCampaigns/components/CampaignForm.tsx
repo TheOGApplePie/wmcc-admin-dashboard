@@ -7,7 +7,7 @@ import type {
   AdminUserOption,
   CampaignEventOption,
   SocialCampaign,
-  VariantChannel,
+  SocialPostChannel,
 } from "@/app/schemas/socialCampaigns";
 import { CHANNELS } from "../lib/channels";
 
@@ -28,14 +28,14 @@ export function CampaignForm({
   const [startsOn, setStartsOn] = useState("");
   const [endsOn, setEndsOn] = useState("");
   const [assignee, setAssignee] = useState("");
-  const [channels, setChannels] = useState<VariantChannel[]>([]);
+  const [channels, setChannels] = useState<SocialPostChannel[]>([]);
   const [saving, setSaving] = useState(false);
   const availableEvents = events.filter((event) => !event.campaign_id);
   const selectedEvent = availableEvents.find(
     (event) => String(event.id) === eventId,
   );
 
-  const toggleChannel = (channel: VariantChannel) =>
+  const toggleChannel = (channel: SocialPostChannel) =>
     setChannels((current) =>
       current.includes(channel)
         ? current.filter((item) => item !== channel)

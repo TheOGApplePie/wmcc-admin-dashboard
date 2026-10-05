@@ -9,6 +9,7 @@ import {
   eventFromCalendarApi,
   eventFromCalendarClick,
 } from "@/features/events/lib/calendarEventAdapter";
+import rrulePlugin from "@fullcalendar/rrule";
 import luxonFormatPlugin from "@fullcalendar/format-luxon3";
 import FullCalendar, {
   type EventApi,
@@ -28,6 +29,7 @@ import styles from "./EventsCalendar.module.css";
 import { CALENDAR_VISIBLE_EVENTS_PER_DAY } from "@/features/events/constants";
 
 const CALENDAR_PLUGINS = [
+  rrulePlugin,
   themePlugin,
   dayGridPlugin,
   luxonFormatPlugin,
@@ -109,7 +111,9 @@ export default function EventsCalendar() {
 
   return (
     <div className="flex flex-col gap-5 lg:flex-row">
-      <div className={`${styles.surface} min-w-0 w-full flex-1 rounded-2xl bg-surface p-4`}>
+      <div
+        className={`${styles.surface} min-w-0 w-full flex-1 rounded-2xl bg-surface p-4`}
+      >
         <CalendarToolbar controller={controller} onAdd={openAddModal} />
 
         {error && (
@@ -147,7 +151,7 @@ export default function EventsCalendar() {
             initialView="dayGridMonth"
             height="auto"
             timeZone="America/Toronto"
-            dayCellTopInnerClass={(info) => info.isToday ? styles.today : ""}
+            dayCellTopInnerClass={(info) => (info.isToday ? styles.today : "")}
             fixedWeekCount={false}
             dayMaxEvents={CALENDAR_VISIBLE_EVENTS_PER_DAY}
             events={events}

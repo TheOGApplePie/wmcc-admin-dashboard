@@ -1,13 +1,18 @@
-import { EVENT_FIELD_LIMITS } from "./constants";
-import { MAX_SCHEDULE_OCCURRENCES, MAX_CALENDAR_RANGE_DAYS, MILLISECONDS_PER_DAY, MAX_RECURRENCE_INTERVAL } from "./constants";
+import {
+  MAX_SCHEDULE_OCCURRENCES,
+  MAX_CALENDAR_RANGE_DAYS,
+  MILLISECONDS_PER_DAY,
+  MAX_RECURRENCE_INTERVAL,
+  EVENT_FIELD_LIMITS,
+} from "./constants";
 import { z } from "zod";
-import { generateOccurrences } from "./domain";
+import { validateSchedule } from "./domain";
 const https = z
   .url()
-  .refine((value) => new URL(value).protocol === "https:", "Use an HTTPS URL.");
+  .refine((value) => URL.canParse(value) && new URL(value).protocol === "https:", "Use an HTTPS URL.");
 const poster = https.refine(
   (value) =>
-    new URL(value).origin ===
+    URL.canParse(value) && new URL(value).origin ===
     new URL(
       process.env.NEXT_PUBLIC_SUPABASE_URL ?? "https://placeholder.supabase.co",
     ).origin,
@@ -15,8 +20,16 @@ const poster = https.refine(
 );
 export const baseFields = z
   .object({
-    title: z.string().trim().min(EVENT_FIELD_LIMITS.titleMin).max(EVENT_FIELD_LIMITS.titleMax),
-    description: z.string().trim().min(EVENT_FIELD_LIMITS.descriptionMin).max(EVENT_FIELD_LIMITS.descriptionMax),
+    title: z
+      .string()
+      .trim()
+      .min(EVENT_FIELD_LIMITS.titleMin)
+      .max(EVENT_FIELD_LIMITS.titleMax),
+    description: z
+      .string()
+      .trim()
+      .min(EVENT_FIELD_LIMITS.descriptionMin)
+      .max(EVENT_FIELD_LIMITS.descriptionMax),
     location: z.string().trim().min(1).max(EVENT_FIELD_LIMITS.shortTextMax),
     navigation_slug: z
       .string()
@@ -29,8 +42,13 @@ export const baseFields = z
       ),
     poster_url: poster.nullable(),
     poster_alt: z.string().trim().max(EVENT_FIELD_LIMITS.shortTextMax),
+    cognito_form_id: z.string().trim().regex(/^[0-9]+$/, "Use digits only for the Cognito form ID.").nullable().default(null),
     call_to_action_link: https.nullable(),
-    call_to_action_caption: z.string().trim().max(EVENT_FIELD_LIMITS.ctaCaptionMax).nullable(),
+    call_to_action_caption: z
+      .string()
+      .trim()
+      .max(EVENT_FIELD_LIMITS.ctaCaptionMax)
+      .nullable(),
     gallery_url: https.nullable(),
   })
   .superRefine((data, ctx) => {
@@ -39,6 +57,12 @@ export const baseFields = z
         code: "custom",
         path: ["poster_alt"],
         message: "Describe the poster.",
+      });
+    if (data.cognito_form_id && (data.call_to_action_link || data.call_to_action_caption))
+      ctx.addIssue({
+        code: "custom",
+        path: ["cognito_form_id"],
+        message: "Choose a Cognito form or a CTA link and caption, not both.",
       });
     if (
       Boolean(data.call_to_action_link) !== Boolean(data.call_to_action_caption)
@@ -69,7 +93,7 @@ export const ruleSchema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .nullable(),
   count: z.number().int().min(1).max(MAX_SCHEDULE_OCCURRENCES).nullable(),
-  exdates: z.array(z.string()).optional(),
+  exdates: z.array(z.iso.date()).optional(),
 });
 function validateRuleShape(
   rule: z.infer<typeof ruleSchema> | null,
@@ -79,7 +103,7 @@ function validateRuleShape(
   const days = rule.by_weekdays ?? [];
   const positions = rule.by_set_position ?? [];
   const issue = (message: string) =>
-    ctx.addIssue({ code: "custom", path: ["recurrence"], message });
+    ctx.addIssue({ code: "custom", path: ["recurrence_rule"], message });
   if (
     new Set(days).size !== days.length ||
     new Set(positions).size !== positions.length
@@ -102,10 +126,15 @@ export const scheduleFields = z
     start_at: z.iso.datetime({ offset: true }),
     end_at: z.iso.datetime({ offset: true }),
     time_zone: z.literal("America/Toronto"),
-    recurrence: ruleSchema.nullable(),
+    recurrence_rule: ruleSchema.nullable(),
     poster_url: poster.nullable(),
     poster_alt: z.string().trim().max(EVENT_FIELD_LIMITS.shortTextMax),
-    location: z.string().trim().min(1).max(EVENT_FIELD_LIMITS.shortTextMax).nullable(),
+    location: z
+      .string()
+      .trim()
+      .min(1)
+      .max(EVENT_FIELD_LIMITS.shortTextMax)
+      .nullable(),
   })
   .superRefine((data, ctx) => {
     if (data.poster_url && !data.poster_alt)
@@ -114,13 +143,13 @@ export const scheduleFields = z
         path: ["poster_alt"],
         message: "Describe the override poster.",
       });
-    validateRuleShape(data.recurrence, ctx);
+    validateRuleShape(data.recurrence_rule, ctx);
     try {
-      generateOccurrences(data);
+      validateSchedule(data);
     } catch (error) {
       ctx.addIssue({
         code: "custom",
-        path: ["recurrence"],
+        path: ["recurrence_rule"],
         message: error instanceof Error ? error.message : "Invalid schedule.",
       });
     }
@@ -137,10 +166,7 @@ export const saveScheduleSchema = z.object({
   version: z.number().int().optional(),
   request_id: z.uuid(),
   fields: scheduleFields,
-  split_from: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
+  split_from: z.iso.date().optional(),
 });
 export const versionedEventSchema = z.object({
   event_id: z.number().int().positive(),
@@ -152,16 +178,17 @@ export const eventRangeSchema = z
   .refine(
     (data) =>
       data.rangeEnd > data.rangeStart &&
-      data.rangeEnd.getTime() - data.rangeStart.getTime() <= MAX_CALENDAR_RANGE_DAYS * MILLISECONDS_PER_DAY,
+      data.rangeEnd.getTime() - data.rangeStart.getTime() <=
+        MAX_CALENDAR_RANGE_DAYS * MILLISECONDS_PER_DAY,
     "Choose a range of at most one year.",
   );
-export const occurrenceChangeSchema = versionedEventSchema
+export const scheduleExceptionSchema = versionedEventSchema
   .extend({
     id: z.uuid(),
-    action: z.enum(["edit", "cancel", "restore", "reset"]),
+    original_date: z.iso.date(),
+    action: z.enum(["edit", "cancel", "restore"]),
     start_at: z.iso.datetime({ offset: true }).optional(),
     end_at: z.iso.datetime({ offset: true }).optional(),
-    cancelled: z.boolean().optional(),
   })
   .superRefine((input, ctx) => {
     if (

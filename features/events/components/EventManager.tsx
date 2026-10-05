@@ -1,52 +1,35 @@
 "use client";
-import { EVENT_LIST_PAGE_SIZE } from "../constants";
-
+import type { ScheduleException } from "../server";
 
 import { useState } from "react";
 import Link from "next/link";
 import { useCan } from "@/store/hooks";
-import type { BaseEvent, Occurrence, Schedule } from "../domain";
+import type { BaseEvent, Schedule } from "../domain";
 import { BaseEventForm } from "./BaseEventForm";
 import { EventActions } from "./EventActions";
-import { buttonClass, inputClass } from "../lib/formUtilities";
-import {
-  matchesFilter,
-  splitEditor,
-  type Campaign,
-  type Editor,
-} from "../lib/eventManagement";
+import { buttonClass } from "../lib/formUtilities";
+import { type Campaign, type Editor } from "../lib/eventManagement";
 import { useEventMutation } from "../hooks/useEventMutation";
 import { ScheduleCard } from "./ScheduleCard";
 import { ScheduleForm } from "./ScheduleForm";
-import { SessionCard } from "./SessionCard";
-import { SessionEditor } from "./SessionEditor";
+import { ScheduleExceptions } from "./ScheduleExceptions";
 
 export default function EventManager({
   event,
   schedules,
-  occurrences,
+  exceptions,
   campaign,
 }: Readonly<{
   event: BaseEvent;
   schedules: Schedule[];
-  occurrences: Occurrence[];
+  exceptions: ScheduleException[];
   campaign: Campaign | null;
 }>) {
   const canEdit = useCan("events.edit");
   const { run, busy, error } = useEventMutation();
   const [details, setDetails] = useState(false);
   const [editing, setEditing] = useState<Editor | null>(null);
-  const [session, setSession] = useState<Occurrence | null>(null);
-  const [filter, setFilter] = useState("upcoming");
-  const [page, setPage] = useState(0);
-  const [now] = useState(() => Date.now());
-  const scheduleMap = new Map(
-    schedules.map((schedule) => [schedule.id, schedule]),
-  );
-  const visible = occurrences.filter((row) =>
-    matchesFilter(row, scheduleMap.get(row.schedule_id), filter, now),
-  );
-  const editorOpen = Boolean(editing || session || details);
+  const editorOpen = Boolean(editing || details);
   const blocked = busy || editorOpen;
   return (
     <div className="space-y-6" aria-busy={busy}>
@@ -118,6 +101,10 @@ export default function EventManager({
             run={run}
             busy={blocked}
             onEdit={() => setEditing({ schedule })}
+            replacement={exceptions.some(
+              (row) => row.replacement_schedule_id === schedule.id,
+            )}
+            onSplit={(date) => setEditing({ schedule, splitFrom: date })}
           />
         ))}
         {editing && (
@@ -130,70 +117,13 @@ export default function EventManager({
           />
         )}
       </section>
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold">Sessions</h2>
-        <select
-          aria-label="Filter sessions"
-          className={inputClass}
-          value={filter}
-          onChange={(e) => {
-            setFilter(e.target.value);
-            setPage(0);
-          }}
-        >
-          <option value="upcoming">Upcoming and happening now</option>
-          <option value="past">Past</option>
-          <option value="cancelled">Cancelled</option>
-          <option value="all">All sessions</option>
-        </select>
-        {!visible.length && (
-          <p className="text-sm text-muted">No sessions match this filter.</p>
-        )}
-        {visible.slice(page * EVENT_LIST_PAGE_SIZE, page * EVENT_LIST_PAGE_SIZE + EVENT_LIST_PAGE_SIZE).map((row) => (
-          <SessionCard
-            key={row.id}
-            event={event}
-            occurrence={row}
-            schedule={scheduleMap.get(row.schedule_id)}
-            run={run}
-            busy={blocked}
-            onEdit={() => setSession(row)}
-            onSplit={() => {
-              const schedule = scheduleMap.get(row.schedule_id);
-              if (schedule) setEditing(splitEditor(schedule, row, occurrences));
-            }}
-          />
-        ))}
-        {visible.length > EVENT_LIST_PAGE_SIZE && (
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              disabled={!page}
-              onClick={() => setPage(page - 1)}
-            >
-              Previous
-            </button>
-            <span>
-              {page + 1} / {Math.ceil(visible.length / EVENT_LIST_PAGE_SIZE)}
-            </span>
-            <button
-              type="button"
-              disabled={(page + 1) * EVENT_LIST_PAGE_SIZE >= visible.length}
-              onClick={() => setPage(page + 1)}
-            >
-              Next
-            </button>
-          </div>
-        )}
-        {session && (
-          <SessionEditor
-            key={session.id}
-            event={event}
-            session={session}
-            onClose={() => setSession(null)}
-          />
-        )}
-      </section>
+      <ScheduleExceptions
+        event={event}
+        schedules={schedules}
+        exceptions={exceptions}
+        busy={blocked}
+        run={run}
+      />
     </div>
   );
 }

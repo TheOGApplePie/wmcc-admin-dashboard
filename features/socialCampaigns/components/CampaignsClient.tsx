@@ -6,7 +6,7 @@ import { useMemo, useState } from "react";
 import type {
   AdminUserOption,
   CampaignEventOption,
-  SocialCalendarDelivery,
+  SocialCalendarPost,
   SocialCampaign,
 } from "@/app/schemas/socialCampaigns";
 import SocialPostsCalendar, {
@@ -22,17 +22,15 @@ export default function CampaignsClient({
   events,
   adminUsers,
   canEdit,
-  canSchedule,
-  canSend,
+  canPublish,
   canDelete,
 }: Readonly<{
   initialCampaigns: SocialCampaign[];
-  calendarDeliveries: SocialCalendarDelivery[];
+  calendarDeliveries: SocialCalendarPost[];
   events: CampaignEventOption[];
   adminUsers: AdminUserOption[];
   canEdit: boolean;
-  canSchedule: boolean;
-  canSend: boolean;
+  canPublish: boolean;
   canDelete: boolean;
 }>) {
   const [campaigns, setCampaigns] = useState(initialCampaigns);
@@ -66,7 +64,7 @@ export default function CampaignsClient({
   );
   const editingDelivery =
     deliveries.find((delivery) => delivery.id === editDeliveryId) ?? null;
-  const updateDelivery = (updated: SocialCalendarDelivery) =>
+  const updateDelivery = (updated: SocialCalendarPost) =>
     setDeliveries((current) =>
       current.map((item) => (item.id === updated.id ? updated : item)),
     );
@@ -130,8 +128,7 @@ export default function CampaignsClient({
             deliveries={deliveries}
             campaignId={selectedCampaignId}
             canEdit={canEdit}
-            canSchedule={canSchedule}
-            canSend={canSend}
+            canPublish={canPublish}
             canDelete={canDelete}
             onUpdated={updateDelivery}
             onDeleted={removeDelivery}
@@ -262,7 +259,7 @@ export default function CampaignsClient({
             campaigns={campaigns}
             initialCampaignId={manualPostSeed.campaignId}
             initialDate={manualPostSeed.date}
-            canSchedule={canSchedule}
+            canPublish={canPublish}
             onClose={() => setManualPostSeed(null)}
             onCreated={setDeliveries}
           />

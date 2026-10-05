@@ -1,4 +1,4 @@
-import { getCampaignEventOptions, getSocialAdminUsers, getSocialCalendarDeliveries, getSocialCampaigns } from "@/actions/socialCampaigns";
+import { getCampaignEventOptions, getSocialAdminUsers, getSocialCalendarPosts, getSocialCampaigns } from "@/actions/socialCampaigns";
 import { PageShell } from "@/app/components/ui/PageShell";
 import CampaignsClient from "@/features/socialCampaigns/components/CampaignsClient";
 import { requirePermission } from "@/utils/permissions";
@@ -9,14 +9,13 @@ export const dynamic = "force-dynamic";
 export default async function SocialCampaignsPage() {
   await requireViewerPermission("social", "view");
   const { supabase } = await requirePermission("social", "view");
-  const [{ data: campaignResult }, { data: calendarResult }, { data: eventResult }, { data: userResult }, editPerm, schedulePerm, sendPerm, deletePerm] = await Promise.all([
+  const [{ data: campaignResult }, { data: calendarResult }, { data: eventResult }, { data: userResult }, editPerm, publishPerm, deletePerm] = await Promise.all([
     getSocialCampaigns(),
-    getSocialCalendarDeliveries(),
+    getSocialCalendarPosts(),
     getCampaignEventOptions(),
     getSocialAdminUsers(),
     supabase.rpc("has_perm", { p_module: "social", p_action: "edit" }),
-    supabase.rpc("has_perm", { p_module: "social", p_action: "schedule" }),
-    supabase.rpc("has_perm", { p_module: "social", p_action: "send" }),
+    supabase.rpc("has_perm", { p_module: "social", p_action: "publish" }),
     supabase.rpc("has_perm", { p_module: "social", p_action: "delete" }),
   ]);
 
@@ -31,8 +30,7 @@ export default async function SocialCampaignsPage() {
         events={eventResult?.data ?? []}
         adminUsers={userResult?.data ?? []}
         canEdit={Boolean(editPerm.data)}
-        canSchedule={Boolean(schedulePerm.data)}
-        canSend={Boolean(sendPerm.data)}
+        canPublish={Boolean(publishPerm.data)}
         canDelete={Boolean(deletePerm.data)}
       />
     </PageShell>

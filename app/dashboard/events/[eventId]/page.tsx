@@ -1,7 +1,10 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
 import { requireViewerPermission } from "@/features/access/server";
-import { readEventDetail, readOccurrences } from "@/features/events/server";
+import {
+  readEventDetail,
+  readScheduleExceptions,
+} from "@/features/events/server";
 import EventManager from "@/features/events/components/EventManager";
 import { PageShell } from "@/app/components/ui/PageShell";
 export default async function EventPage({
@@ -15,18 +18,11 @@ export default async function EventPage({
   const supabase = await createClient();
   const detail = await readEventDetail(supabase, id);
   if (!detail.event) notFound();
-  const occurrences = await readOccurrences(
-    supabase,
-    null,
-    null,
-    id,
-    true,
-    false,
-  );
+  const exceptions = await readScheduleExceptions(supabase, id);
   return (
     <PageShell
       title={detail.event.title}
-      subtitle="Event details, schedules and sessions"
+      subtitle="Event details, schedules and exclusions"
     >
       <div className="mx-auto max-w-4xl">
         <EventManager
@@ -34,7 +30,7 @@ export default async function EventPage({
           event={detail.event}
           schedules={detail.schedules}
           campaign={detail.campaign}
-          occurrences={occurrences}
+          exceptions={exceptions}
         />
       </div>
     </PageShell>

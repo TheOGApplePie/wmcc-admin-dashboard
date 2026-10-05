@@ -1,126 +1,76 @@
-# Events, schedules and publication
+# Events, schedules and recurrence rules
 
-## Scope
+## Current contract
 
-The events landing page remains a calendar with its selected-day panel. New event-specific pages manage shared details, schedules and individual sessions. An **All events** link provides access to drafts, unscheduled events and archived events. Prayer-relative timing is deferred; Hijri recurrence is out of scope.
+- `events` owns shared content, publication status and an optimistic version.
+- `event_schedules` owns start/end, Toronto timezone, optional poster/location overrides and a nullable `recurrence_rule_id`.
+- `recurrence_rule` owns the RRULE fields and `exdates`. A schedule owns its rule; rules must not be shared between schedules.
+- `event_schedule_exceptions` records a source schedule, source rule, excluded local date and optional replacement schedule. It contains only explicit edits, never generated sessions.
 
-## Code organization
+Recurrence data has already been migrated. Migrations **030_schedule_rule_authoring.sql** and **031_schedule_campaign_generation.sql** add the new authoring and campaign operations. They perform no occurrence ETL. Migration 030 also adds the rule foreign-key column if absent; it does not populate existing data.
 
-- `features/events/components/`: one UI component per file. Component-local props may stay with their component.
-- `features/events/hooks/`: React state/effect hooks, including mutation state and idempotent request IDs.
-- `features/events/lib/`: ordinary utilities and shared form styles, without a `use client` directive or server credentials.
-- Shared UI types live with their related utilities in `lib/`; `domain.ts` holds recurrence logic and domain types; `schemas.ts` holds input validation.
-- `features/events/server.ts`: server-only data access. `actions/events.ts`: authorized and validated server mutations. The privileged Supabase client is also protected by `server-only`.
-- `scripts/`: Node maintenance commands, outside the application client graph. They read credentials from the environment, paginate reads, report failures, and default to read-only behavior where applicable.
+Old occurrence tables, views, JSON recurrence and coverage columns remain pending a separate cleanup decision. The updated application does not read or write them. Existing old SQL entry points remain for that cleanup; deploy all admin writers together. Do not run the old occurrence backfill workflow against this model.
 
-Keep hooks out of generic utility modules and avoid introducing client boundaries around pure helpers. Route-specific dashboard utilities live in `app/dashboard/_lib/`; social channel constants live in `features/socialCampaigns/lib/`.
+## Calendar and dates
 
-## Schema contract for the public website
+The calendar reads schedules with their related rules and gives them directly to FullCalendar's RRULE plugin. There is no materialization or generated-session table.
 
-Apply migrations **028_event_schedules.sql** and **029_event_campaign_compatibility.sql** together with the updated admin application. They follow announcement migrations 026 and 027.
+The dashboard's upcoming summary and social reminders use the RRULE library to obtain dates in memory within a bounded query window. Readers accept existing open-ended rules and rules with both limits; RRULE applies whichever limit is reached first. Campaigns separately find the first and next active dates for launch decisions. Those dates are never stored as event records. The current form retains its existing finite recurrence limits (a count or final date, up to 5,000 dates and ten years); unbounded recurrence is a separate feature.
 
-| Table/view                                        | Meaning                                                                                                                                                                                                    |
-| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `events`                                          | Base identity and shared content. New `publication_status` (`draft`, `published`, `archived`) and optimistic `version`. Existing rows are backfilled as published; new rows default to draft.              |
-| `event_schedules`                                 | Parent `event_id`, first `start_at`/`end_at`, Toronto `time_zone`, nullable structured `recurrence`, optional poster/alt and location overrides, cancellation and version/coverage state.                  |
-| `event_occurrences`                               | UUID identity, parent `schedule_id`, original local date key, generated and effective times, cancellation, supersession, explicit-override and version state.                                              |
-| `resolved_event_occurrences`                      | Public/staff read view joining occurrences with base content and effective poster/location. Includes `event_id`, `schedule_id`, `publication_status`, `cancelled`, `schedule_cancelled`, and `superseded`. |
-| `social_campaign_occurrences.event_occurrence_id` | Stable event-session reference, separate from the social reminder's own ID.                                                                                                                                |
-| `social_campaigns.launch_occurrence_id`           | Stable launch-session reference; the legacy timestamp remains a snapshot.                                                                                                                                  |
+`exdates` are `YYYY-MM-DD` original local dates in the schedule timezone. Calendar inputs combine each date with the original local start time so the exclusion matches the RRULE. Rule `until` is stored as the end of the chosen Toronto date. Local times remain fixed over DST; ambiguous/nonexistent times require correction.
 
-Use the base `events.id` and `navigation_slug` for permanent event URLs. Use the occurrence UUID for a specific session. A rescheduled session retains its UUID. Different schedules can have sessions on the same date.
+## Editing
 
-**Do not expand `events.recurrence_rule` or read base `start_date`/`end_date` for new schedules.** Those legacy columns and the old rule table remain for reconciliation only. They are not synchronized to the new model and cannot represent multiple schedules. New base-event date fields may be null. Old admin mutation APIs have been replaced; authenticated direct writes to legacy event/rule tables are revoked.
+| Action | Result |
+| --- | --- |
+| Exclude one date | Add `exdate` and an exception record |
+| Move one date | Atomically add the exclusion and a one-off replacement schedule, preserving poster/location inheritance |
+| Change replacement content | Edit the replacement schedule normally |
+| Restore excluded date | Remove the exclusion and exception; delete any replacement schedule |
+| Remove replacement | Offer to restore its source date or leave the exclusion in place |
+| Change this and following | Truncate the original rule before the date and create a new schedule; transfer following exclusions and replacement links |
+| Remove schedule | Physically delete it and delete its rule when unreferenced |
 
-Example public range query (end exclusive):
+Removing an original schedule leaves replacement schedules intact and removes their source exception records. Legacy rule references from `events` prevent deletion of those shared historical rule rows until the later cleanup.
 
-```ts
-const { data, error } = await supabase
-  .from("resolved_event_occurrences")
-  .select(
-    "id,event_id,schedule_id,title,description,start_at,end_at,poster_url,poster_alt,location,navigation_slug,call_to_action_link,call_to_action_caption",
-  )
-  .eq("publication_status", "published")
-  .eq("cancelled", false)
-  .eq("schedule_cancelled", false)
-  .eq("superseded", false)
-  .lt("start_at", rangeEnd.toISOString())
-  .gt("end_at", rangeStart.toISOString())
-  .order("start_at")
-  .order("id");
-```
+Changing a tracked recurring schedule to one date requires restoring its exclusions first. Schedule forms cannot silently remove exclusions. Excluded dates can be restored from the event page even when the current pattern no longer includes them.
 
-Paginate queries larger than the configured Supabase row limit. Always handle errors separately from empty results. An event detail page can exist with no upcoming sessions. Display timestamps in `America/Toronto`, including overnight sessions overlapping the requested range. Anonymous RLS exposes only published parent events; a privileged service client bypasses RLS and **must explicitly filter publication status**. Cancelled/superseded published-session records remain readable for history; the filters above exclude them from upcoming lists.
+Mutations use permission checks, event/schedule versions, transactional writes, request IDs and the existing campaign review workflow. Retry the same payload with the same request ID. Stale edits require reload.
 
-Poster inheritance is a pair: a non-null schedule URL uses its own alt text; null inherits both fields from the event. Missing images need a placeholder. Do not copy the parent URL into inheriting schedules. Stored social posts retain their snapshots until reviewed.
+## Social campaigns
 
-## Occurrence generation and editing
+Campaigns remain linked to an event. Generation reads that event's current schedules and rules. After migration 032, each generated channel post stores `source_schedule_id`, the original local `source_date` and a reminder milestone. Launch selection references `launch_schedule_id` and its timestamp snapshot. Deduplication uses campaign + schedule + original local date + milestone + channel.
 
-There is one recurrence engine, `features/events/domain.ts`. Calendar, dashboard and campaign generation read its persisted sessions rather than independently interpreting RRULEs.
+Schedule changes/removal flag the campaign and hold pending posts as drafts. Source identifiers survive schedule deletion to preserve history and duplicate prevention. Publishing an event does not activate its campaign; drafting or archiving the event still drafts its campaign. See [social posts](social-posts.md) for the two-table model, review behavior and coordinated cutover instructions.
 
-For the first release schedules are **finite and completely materialized**, rather than an indefinitely extending rolling cache. This deliberately avoids coverage gaps and another cron dependency. A schedule is limited to 5,000 sessions and a ten-year span. RRULE date limits are inclusive; occurrence counts include excluded/cancelled dates. Invalid anchors and ambiguous/nonexistent DST wall times require correction instead of silent shifting. Ordinary fixed local times retain their wall-clock time over DST.
+## Public site follow-up
 
-- New base events can have no schedules. Create a draft, then add one-off or recurring schedules.
-- Editing a schedule preserves its original anchor unless explicitly changed. Existing overrides and completed-session timing remain intact.
-- Editing one session retains its ID and changes its effective timing.
-- This-and-following creates a schedule branch under the same event, retaining IDs for matching original dates. Splitting the first session updates the existing schedule.
-- A changed date pattern supersedes removed future sessions. Old references remain available for review/history.
-- Reset exception restores generated timing and the rule's exclusion state.
-- Schedule cancellation is separate from session cancellation; restoring an individual session cannot reactivate a cancelled schedule.
-- Archive preserves event and campaign history. The application refuses permanent deletion of events linked to campaigns.
+The public calendar already reads schedules and rules. Its remaining `resolved_event_occurrences` consumers (session lookup, next-session navigation and some event detail helpers) require a separate public-repository update. Public calendar exclusions must match the local start time, rather than treating date-only `exdates` as UTC instants. Do not remove the old view/table until those readers are replaced.
 
-Mutations are transactional and versioned. Retrying a create/save with the same request ID and payload is idempotent; reusing the ID for different changes is rejected. Stale versions require reload. Finite generation occurs before the transaction and is committed together with the schedule; a failure rolls everything back.
+Permanent event links continue to use the event slug; new admin calendar inputs use schedule IDs.
 
-## Publication and social compatibility
+## Deployment and verification
 
-`events.publish` is required for event publication changes. `events.edit` creates/edits drafts, content, schedules and sessions; `events.delete` controls permanent deletion. Drafts are readable by authorized event staff and social staff so they can be linked to campaigns.
+1. Apply 030 through 033 to a staging database with the already-migrated rule relationships, following the social worker cutover instructions.
+2. Deploy the updated admin; verify event editing and campaign generation there before production cutover.
+3. Coordinate the public-reader follow-up and review existing pending campaigns before enabling workers.
+4. Discuss and perform legacy infrastructure cleanup separately.
 
-- A draft event may be linked to a draft campaign.
-- A campaign linked to a draft or archived event cannot activate or resume.
-- Returning an event to draft, or archiving it, returns its linked campaign to draft atomically.
-- Publishing an event **does not** activate its campaign. An authorized user must activate it separately.
-- Existing campaign screens, proposal confirmation, provider adapters, channels and delivery history are retained.
-- Generation covers all noncancelled schedules under the event and uses each session's effective poster.
-- Reminder identity uses occurrence UUID plus milestone. Rescheduling does not invent a new reminder identity.
-- Content, timing and poster changes open the existing campaign review workflow and invalidate generation coverage.
-- Automatic delivery claims require an active campaign, a published linked event and no pending review. Standalone campaigns have no event publication dependency.
-- Drafting/archiving does not erase scheduled posts, their reservations or sent history. They remain held until campaign reactivation and review resolution.
-- Already in-flight provider publications cannot be recalled by a database status change. Their actual outcome is recorded; an external publication is not falsely reported as cancelled.
+This change has not applied migrations to the shared Supabase database.
 
-Legacy reminder links are reconciled by exact event ID and instant when the mapping is unique. Ambiguous upcoming reminders block new generation with an actionable error. They are not deleted or guessed. Existing duplicate base events are **not automatically merged**; reconciliation must account for campaign uniqueness and URL aliases.
+Checks:
 
-## Deployment sequence
-
-1. Obtain a schema/data backup and rehearse on a staging copy. The repository does not contain the original event-table creation migration; compare its real constraints/triggers with the assumptions above.
-   Run `node scripts/preflight-event-migration.mjs` before applying migration 028. This read-only check projects legacy schedules through the production recurrence engine and reports invalid rules, missing timestamps, duplicate slugs, unmatched future reminders/launches, and reminder-key collisions. It prints counts and problem IDs, not event content or credentials. Invalid schedules, unmatched future reminders, and key collisions produce a nonzero exit code. It does not inspect database constraints/policies, replace a staging rehearsal, or automatically repair data.
-2. Coordinate the public-site reader change. Old readers cannot faithfully display new multi-schedule events.
-3. Pause event edits and campaign generation/delivery during cutover. Keep social delivery disabled until checks pass.
-4. Apply 028 and 029 in order. New tables are populated with one schedule per legacy event; original IDs, content and publication visibility are preserved.
-5. With Node 20.12+ and development dependencies installed, run `node scripts/backfill-event-occurrences.mjs`. It loads `.env.local` without logging credentials, validates all finite schedules and reports failures without writes.
-6. Resolve invalid legacy schedules before proceeding. After reviewing the dry run, run `node scripts/backfill-event-occurrences.mjs --apply`. This is restartable and fills missing coverage, then links unambiguous social history.
-7. Compare occurrence counts and sample sessions across DST, exclusions, overnight ranges and campaign links. Confirm all schedules have `materialized_version = version`. The admin can repair an invalid schedule on its event page; calendar failures are explicit rather than false empty results.
-8. Deploy the updated admin and public readers. Verify anonymous access cannot see drafts, publication does not activate campaigns, and drafting an event drafts its campaign.
-9. Resolve migration/review diagnostics, then resume workers. Verify a published campaign's proposal/approval/delivery path before enabling live delivery.
-
-Do not roll back to the old application after new schedules have been created: its data model cannot represent them. Before writes resume, a backup rollback is possible; afterward use a forward repair or an explicit data conversion. Legacy fields should be removed only in a later migration after the public repository is updated.
-
-This is an in-place ETL workflow: SQL copies legacy timing/rule data into schedules; the Node backfill transforms schedules into concrete sessions; the linking RPC reconciles social references. Each schedule materialization and linking RPC is transactional, but the entire backfill is not one transaction. An apply run can complete valid schedules while reporting other failures; rerunning resumes using version/coverage markers. Always complete a successful dry run first and keep workers paused until validation succeeds. The preflight does not merge events sharing a title/slug or choose which end condition to retain when a legacy rule has both count and until.
-
-## Verification
-
-- `npm run test:events`: domain/validation regression tests using the production TypeScript engine.
+- `npm run test:events`: production RRULE/date validation and calendar input regression checks.
 - `node node_modules/typescript/bin/tsc --noEmit --incremental false`.
 - `npm run lint` and `npm run build`.
-- `tests/events-fixture.sql` + migrations 017, 028, 029 + `tests/events-integration.sql` and `tests/events-campaign-integration.sql`: disposable PostgreSQL integration checks. The fixture refuses databases whose name does not start with `wmcc_event_test`. It is a focused schema fixture with synthetic auth/review helpers, not a substitute for a production-data rehearsal.
+- In a fresh disposable PostgreSQL database whose name starts with `wmcc_event_test`, run `psql -v ON_ERROR_STOP=1 -f tests/schedule-fixture.sql -f supabase/migrations/030_schedule_rule_authoring.sql -f supabase/migrations/031_schedule_campaign_generation.sql -f tests/schedule-transactions.sql`. The fixture supplies minimal synthetic auth and proposal persistence; it is not a production-data rehearsal. Never run it against the application database.
 
-Run the SQL files in that order against a new empty database using `psql -v ON_ERROR_STOP=1`. Both integration suites roll back their test changes. Never apply the fixture to the application database.
+Browser acceptance after staging migration: create/edit schedules; exclude/move/restore dates; remove replacements with both choices; split count-based and until-based rules; remove a source while retaining replacements; check inheritance, dirty forms, DST, publication permissions and the existing campaign review/proposal/delivery path.
 
-Manual acceptance: preserve calendar layout at desktop/mobile widths; create an unscheduled draft; add several differently timed schedules; reset poster inheritance; edit/cancel/restore/split sessions; navigate away from dirty forms; verify failed uploads/saves and stale edits; check a viewer, editor, publisher and delete-only role; validate existing campaigns, new draft-linked campaigns and published-event reminder generation. The public repository must verify its own reader changes separately.
+## Optional event action
 
-## Remaining release checks and limitations
+Migration `033_event_cognito_form.sql` adds nullable `events.cognito_form_id` as text. IDs contain only digits and are kept as strings. An event can have a form ID, a complete CTA link/caption pair, or neither. A form ID cannot coexist with either CTA field. The editor defaults to Cognito for new events and retains CTA mode for existing CTA events; changing modes clears the other option when saved.
 
-The implementation has not been deployed or applied to the shared database. Browser acceptance against a migrated staging project, production-data migration rehearsal, and the separate public-site changes remain release prerequisites.
+Apply 033 before deploying the corresponding app. It normalizes blank CTA values to null and validates existing CTA pairs; incomplete existing pairs must be corrected if the migration reports a constraint violation. The save RPC and campaign snapshots include the new field. The public-site repository must read `cognito_form_id` to render the form; this admin change does not embed Cognito or invent a form URL for social posts.
 
-Poster uploads use unique filenames and never overwrite a campaign's stored media. Abandoned/replaced uploads are retained: automatic orphan cleanup is not implemented because existing social posts can still reference earlier posters. Any cleanup must account for both event/schedule references and social media snapshots.
-
-The first release does not merge existing duplicate events, calculate prayer-relative times, or support unbounded recurrence. Repair invalid legacy rules and reconcile ambiguous reminder links during cutover. Existing unrelated social review/provider workflows still require their normal end-to-end staging checks; the focused SQL fixture verifies the new integration boundaries.
+Focused schema checks: `node --test tests/event-actions.test.mjs`. In a fresh disposable PostgreSQL database named `wmcc_event_test...`, run `psql -v ON_ERROR_STOP=1 -f tests/event-actions-fixture.sql -f supabase/migrations/033_event_cognito_form.sql -f tests/event-actions.sql`. The minimal fixture tests base-event persistence and constraints with synthetic auth; it does not test the full permission model. Test mutations are rolled back. No shared Supabase migration is performed by these local checks.

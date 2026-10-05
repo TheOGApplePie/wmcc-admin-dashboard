@@ -16,6 +16,7 @@ export function eventFromCalendarApi(calendarEvent: EventApi): Event {
     poster_url: extendedProps.poster_url,
     poster_file: extendedProps.poster_file ?? null,
     poster_alt: extendedProps.poster_alt,
+    cognito_form_id: extendedProps.cognito_form_id ?? null,
     call_to_action_link: extendedProps.call_to_action_link,
     call_to_action_caption: extendedProps.call_to_action_caption,
     action: extendedProps.action,

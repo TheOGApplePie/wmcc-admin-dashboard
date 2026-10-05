@@ -5,10 +5,10 @@ import { useState } from "react";
 import toast from "react-hot-toast";
 import {
   generateCampaignProposal,
-  getSocialCalendarDeliveries,
+  getSocialCalendarPosts,
 } from "@/actions/socialCampaigns";
 import type {
-  SocialCalendarDelivery,
+  SocialCalendarPost,
   SocialCampaign,
 } from "@/app/schemas/socialCampaigns";
 import SocialPostsCalendar from "./SocialPostsCalendar";
@@ -17,20 +17,18 @@ export default function CampaignScheduleModal({
   campaign,
   deliveries,
   canEdit,
-  canSchedule,
-  canSend,
+  canPublish,
   canDelete,
   onClose,
   onDeliveriesChanged,
 }: Readonly<{
   campaign: SocialCampaign;
-  deliveries: SocialCalendarDelivery[];
+  deliveries: SocialCalendarPost[];
   canEdit: boolean;
-  canSchedule: boolean;
-  canSend: boolean;
+  canPublish: boolean;
   canDelete: boolean;
   onClose: () => void;
-  onDeliveriesChanged: (deliveries: SocialCalendarDelivery[]) => void;
+  onDeliveriesChanged: (deliveries: SocialCalendarPost[]) => void;
 }>) {
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +36,7 @@ export default function CampaignScheduleModal({
     "next" | "reminders_only"
   >("next");
   const [editingDelivery, setEditingDelivery] =
-    useState<SocialCalendarDelivery | null>(null);
+    useState<SocialCalendarPost | null>(null);
   const needsLaunchDecision = Boolean(
     campaign.event_id && !campaign.launch_decision_made,
   );
@@ -59,7 +57,7 @@ export default function CampaignScheduleModal({
             result?.serverError ||
             "Could not generate the campaign schedule.",
         );
-      const refreshed = await getSocialCalendarDeliveries();
+      const refreshed = await getSocialCalendarPosts();
       if (!refreshed?.data || refreshed.data.error)
         throw new Error(
           refreshed?.data?.error ||
@@ -67,6 +65,8 @@ export default function CampaignScheduleModal({
             "Schedule generated, but refreshing failed. Reopen the calendar to retry.",
         );
       onDeliveriesChanged(refreshed.data.data ?? deliveries);
+      const suppressed = result.data.data?.suppressed ?? 0;
+      if (suppressed) setError(`${suppressed} reminders could not be assigned a slot or overlapped another reminder. Review the campaign calendar and add posts where needed.`);
       const inserted = result.data.data?.inserted ?? 0;
       toast.success(
         inserted
@@ -148,7 +148,7 @@ export default function CampaignScheduleModal({
               </select>
             </label>
           )}
-          {canSchedule && campaign.event_id && campaign.generation_enabled && (
+          {canPublish && campaign.event_id && campaign.generation_enabled && (
             <button
               type="button"
               disabled={
@@ -180,8 +180,7 @@ export default function CampaignScheduleModal({
           campaignId={null}
           highlightCampaignId={campaign.id}
           canEdit={canEdit}
-          canSchedule={canSchedule}
-          canSend={canSend}
+          canPublish={canPublish}
           canDelete={canDelete}
           onUpdated={(updated) =>
             onDeliveriesChanged(

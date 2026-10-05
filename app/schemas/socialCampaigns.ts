@@ -7,7 +7,7 @@ export const CampaignStatusZod = z.enum([
   "completed",
   "archived",
 ]);
-export const VariantChannelZod = z.enum([
+export const SocialPostChannelZod = z.enum([
   "instagram_feed",
   "instagram_story",
   "instagram_reel",
@@ -18,7 +18,7 @@ export const VariantChannelZod = z.enum([
 const HttpsUrlZod = z
   .url()
   .refine(
-    (value) => new URL(value).protocol === "https:",
+    (value) => URL.canParse(value) && new URL(value).protocol === "https:",
     "URL must use HTTPS.",
   );
 export const SocialMediaItemZod = z.object({
@@ -33,7 +33,7 @@ export const CreateCampaignZod = z
     event_id: z.coerce.number().int().positive().nullable().optional(),
     starts_on: z.iso.date().nullable().optional(),
     ends_on: z.iso.date().nullable().optional(),
-    default_channels: z.array(VariantChannelZod).default([]),
+    default_channels: z.array(SocialPostChannelZod).default([]),
     default_assigned_to: z.uuid().nullable().optional(),
     launch_occurrence_at: z.iso.datetime().nullable().optional(),
   })
@@ -64,33 +64,16 @@ export const GenerateCampaignProposalZod = z.object({
   launch_behavior: z.enum(["next", "reminders_only"]).optional(),
 });
 
-export const ReviewVerdictZod = z
-  .object({
-    review_id: z.uuid(),
-    decision: z.enum([
-      "keep_post",
-      "regenerate_post",
-      "keep_all",
-      "regenerate_all",
-    ]),
-    post_id: z.uuid().nullable().default(null),
-  })
-  .superRefine((data, ctx) => {
-    if (data.decision.endsWith("_post") && !data.post_id)
-      ctx.addIssue({
-        code: "custom",
-        path: ["post_id"],
-        message: "Select a post.",
-      });
-  });
+export const ReviewVerdictZod = z.object({ campaign_id: z.uuid(), version: z.number().int().positive() });
 
 export const CampaignMediaLinkZod = z.object({
   url: HttpsUrlZod,
 });
 
-export const UpdateSocialDeliveryZod = z
+const SocialPostFieldsZod = z
   .object({
     id: z.uuid(),
+    version: z.number().int().positive(),
     title: z.string().trim().min(1).max(120),
     caption: z.string().max(2_200),
     description: z.string().max(2_000),
@@ -99,11 +82,13 @@ export const UpdateSocialDeliveryZod = z
     hashtags: z.array(z.string().trim().min(1).max(100)).max(30).default([]),
     call_to_action_link: z.union([HttpsUrlZod, z.literal("")]),
     call_to_action_caption: z.string().max(100).default(""),
-    channel: VariantChannelZod,
+    channel: SocialPostChannelZod,
     scheduled_date: z.iso.date().nullable(),
     time_slot: z.enum(["morning", "afternoon", "evening"]).nullable(),
     status: z.enum(["draft", "scheduled"]),
-  })
+  });
+
+export const UpdateSocialPostZod = SocialPostFieldsZod
   .superRefine((data, ctx) => {
     const mediaCount = data.media_items.length || (data.media_url ? 1 : 0);
     if (data.channel !== "instagram_feed" && mediaCount > 1) {
@@ -113,7 +98,9 @@ export const UpdateSocialDeliveryZod = z
         message: "Only Instagram Feed supports multiple media links.",
       });
     }
-    if (!["draft", "cancelled"].includes(data.status)) {
+    if (data.status === "scheduled") {
+      if (!data.caption.trim()) ctx.addIssue({code: "custom", path: ["caption"], message: "Caption is required to schedule."});
+      if (data.channel !== "whatsapp" && !data.media_items.length) ctx.addIssue({code: "custom", path: ["media_items"], message: "Media is required for this platform."});
       if (!data.scheduled_date)
         ctx.addIssue({
           code: "custom",
@@ -140,97 +127,20 @@ export const UpdateSocialDeliveryZod = z
     }
   });
 
-export const DeleteSocialDeliveryZod = z.object({ id: z.uuid() });
+export const DeleteSocialPostZod = z.object({ id: z.uuid() });
 
-export const CreateManualSocialPostZod = z
-  .object({
-    campaign_id: z.uuid(),
-    title: z.string().trim().min(1).max(120),
-    description: z.string().max(2_000).default(""),
-    scheduled_date: z.iso.date().nullable(),
-    time_slot: z.enum(["morning", "afternoon", "evening"]).nullable(),
-    mode: z.enum(["draft", "scheduled"]),
-    variants: z
-      .array(
-        z.object({
-          channel: VariantChannelZod,
-          caption: z.string().max(2_200),
-          media_url: z.union([HttpsUrlZod, z.literal("")]),
-          media_items: z.array(SocialMediaItemZod).max(10).default([]),
-          hashtags: z
-            .array(z.string().trim().min(1).max(100))
-            .max(30)
-            .default([]),
-          call_to_action_link: z.union([HttpsUrlZod, z.literal("")]),
-          call_to_action_caption: z.string().max(100).default(""),
-        }),
-      )
-      .length(1, "Select one platform."),
-  })
+export const CreateManualSocialPostZod = SocialPostFieldsZod
+  .omit({id: true, version: true, status: true})
+  .extend({campaign_id: z.uuid(), mode: z.enum(["draft", "scheduled"])})
   .superRefine((data, ctx) => {
-    data.variants.forEach((variant, index) => {
-      const mediaCount =
-        variant.media_items.length || (variant.media_url ? 1 : 0);
-      if (variant.channel !== "instagram_feed" && mediaCount > 1) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["variants", index, "media_items"],
-          message: "Only Instagram Feed supports multiple media links.",
-        });
-      }
-    });
-    if (data.mode === "scheduled") {
-      if (!data.scheduled_date)
-        ctx.addIssue({
-          code: "custom",
-          path: ["scheduled_date"],
-          message: "Date is required to schedule.",
-        });
-      if (!data.time_slot)
-        ctx.addIssue({
-          code: "custom",
-          path: ["time_slot"],
-          message: "Time slot is required to schedule.",
-        });
-      if (!data.variants.length)
-        ctx.addIssue({
-          code: "custom",
-          path: ["variants"],
-          message: "Select at least one platform.",
-        });
-      data.variants.forEach((variant, index) => {
-        const mediaCount =
-          variant.media_items.length || (variant.media_url ? 1 : 0);
-        if (!variant.caption.trim())
-          ctx.addIssue({
-            code: "custom",
-            path: ["variants", index, "caption"],
-            message: "Caption is required to schedule.",
-          });
-        if (variant.channel !== "whatsapp" && mediaCount === 0)
-          ctx.addIssue({
-            code: "custom",
-            path: ["variants", index, "media_items"],
-            message: "Media is required for this platform.",
-          });
-        if (
-          variant.channel.startsWith("instagram_") &&
-          variant.channel !== "instagram_reel" &&
-          variant.media_items.some((item) => !item.alt_text.trim())
-        )
-          ctx.addIssue({
-            code: "custom",
-            path: ["variants", index, "media_items"],
-            message: "Alt text is required for every Instagram image.",
-          });
-      });
-    }
+    const result = UpdateSocialPostZod.safeParse({...data, id: "00000000-0000-4000-8000-000000000000", version: 1, status: data.mode});
+    if (!result.success) for (const issue of result.error.issues) ctx.addIssue({...issue, code: "custom"});
   });
 
 export type CampaignStatus = z.infer<typeof CampaignStatusZod>;
-export type VariantChannel = z.infer<typeof VariantChannelZod>;
+export type SocialPostChannel = z.infer<typeof SocialPostChannelZod>;
 
-export type SocialDeliveryStatus =
+export type SocialPostStatus =
   | "draft"
   | "proposed"
   | "scheduled"
@@ -242,13 +152,14 @@ export type SocialDeliveryStatus =
   | "skipped"
   | "cancelled";
 
-export interface SocialCalendarDelivery {
+export interface SocialCalendarPost {
   id: string;
   campaign_id: string;
   campaign_name: string;
   campaign_status: CampaignStatus;
-  post_id: string;
-  variant_id: string;
+  version: number;
+  needs_review: boolean;
+  review_reason: string | null;
   post_title: string;
   caption: string;
   description: string;
@@ -257,12 +168,12 @@ export interface SocialCalendarDelivery {
   hashtags: string[];
   call_to_action_link: string | null;
   call_to_action_caption: string | null;
-  channel: VariantChannel;
+  channel: SocialPostChannel;
   schedule_platform: "instagram" | "whatsapp" | "tiktok";
   scheduled_date: string | null;
   time_slot: "morning" | "afternoon" | "evening" | null;
   scheduled_at: string | null;
-  status: SocialDeliveryStatus;
+  status: SocialPostStatus;
   attempt_count: number;
   retryable: boolean;
   next_attempt_at: string | null;
@@ -271,6 +182,7 @@ export interface SocialCalendarDelivery {
 
 export interface SocialCampaign {
   id: string;
+  version: number;
   name: string;
   description: string;
   event_id: number | null;
@@ -279,7 +191,7 @@ export interface SocialCampaign {
   review_reason: string | null;
   starts_on: string | null;
   ends_on: string | null;
-  default_channels: VariantChannel[];
+  default_channels: SocialPostChannel[];
   default_assigned_to: string | null;
   launch_occurrence_at: string | null;
   launch_decision_made: boolean;
@@ -297,31 +209,8 @@ export interface SocialCampaign {
   events?: {
     title: string;
     publication_status: "draft" | "published" | "archived";
-    event_schedules: { id: string; recurrence: unknown }[];
+    event_schedules: { id: string; recurrence_rule_id: number | null }[];
   } | null;
-}
-
-export interface SocialReviewItem {
-  id: string;
-  review_id: string;
-  post_id: string | null;
-  decision:
-    | "unresolved"
-    | "kept"
-    | "regenerated"
-    | "suppression_accepted"
-    | "cancelled";
-  detail: string | null;
-  previous_state: { title?: string; status?: string };
-  proposed_state: Record<string, unknown>;
-}
-
-export interface SocialCampaignReview {
-  id: string;
-  campaign_id: string;
-  reason: string;
-  status: "open" | "resolved" | "superseded";
-  social_post_review_items: SocialReviewItem[];
 }
 
 export interface CampaignEventOption {

@@ -1,5 +1,11 @@
-import { DASHBOARD_LOOKAHEAD_DAYS, DASHBOARD_POST_LIMIT, DASHBOARD_FEEDBACK_LIMIT } from "./_lib/dashboard";
-import { readOccurrences } from "@/features/events/server";
+import {
+  DASHBOARD_LOOKAHEAD_DAYS,
+  DASHBOARD_POST_LIMIT,
+  DASHBOARD_FEEDBACK_LIMIT,
+  POST_BADGE,
+  DASHBOARD_EVENT_LIMIT,
+} from "./_lib/dashboard";
+import { readScheduleDates } from "@/features/events/server";
 import Link from "next/link";
 import { createClient } from "@/utils/supabase/server";
 import { PageShell } from "@/app/components/ui/PageShell";
@@ -10,7 +16,6 @@ import { Avatar } from "@/app/components/ui/Avatar";
 import { toEstDay, type Occurrence } from "@/utils/expandEvents";
 import { getViewerAccess } from "@/features/access/server";
 import { EventsCard } from "./EventsCard";
-import { POST_BADGE, DASHBOARD_EVENT_LIMIT } from "./_lib/dashboard";
 import { formatTorontoDateTime as fmtDateTime } from "@/app/utils/date";
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -30,17 +35,19 @@ export default async function Dashboard() {
   const [eventRows, myPostsRes, feedbackRes, feedbackCountRes] =
     await Promise.all([
       canViewEvents
-        ? readOccurrences(
+        ? readScheduleDates(
             supabase,
             now.toISOString(),
-            new Date(now.getTime() + DASHBOARD_LOOKAHEAD_DAYS * DAY_MS).toISOString(),
+            new Date(
+              now.getTime() + DASHBOARD_LOOKAHEAD_DAYS * DAY_MS,
+            ).toISOString(),
           )
         : Promise.resolve([]),
       user?.id && canViewSocial
         ? supabase
             .from("social_posts")
             .select(
-              "id, title, post_type, time_slot, scheduled_at, status, channels",
+              "id, title, channel, time_slot, scheduled_at, status",
             )
             .eq("assigned_to", user.id)
             .in("status", ["draft", "scheduled"])
@@ -95,24 +102,11 @@ export default async function Dashboard() {
     <PageShell title="Dashboard" subtitle={dateLabel}>
       {/* KPI strip */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        {canViewEvents && (
-          <Stat
-            label="Upcoming Sessions"
-            value={eventCount}
-          />
-        )}
+        {canViewEvents && <Stat label="Upcoming Sessions" value={eventCount} />}
         {canViewFeedback && (
-          <Stat
-            label="Community Feedback"
-            value={feedbackCount}
-          />
+          <Stat label="Community Feedback" value={feedbackCount} />
         )}
-        {canViewSocial && (
-          <Stat
-            label="My Queued Posts"
-            value={postCount}
-          />
-        )}
+        {canViewSocial && <Stat label="My Queued Posts" value={postCount} />}
       </div>
 
       {/* Bento grid */}
@@ -202,7 +196,7 @@ export default async function Dashboard() {
                         <div className="flex items-center gap-1.5">
                           <Badge variant={badge.variant}>{badge.label}</Badge>
                           <span className="text-micro text-muted uppercase tracking-wide font-medium">
-                            {post.post_type}
+                            {post.channel}
                           </span>
                         </div>
                         <p className="text-body-sm font-semibold leading-snug line-clamp-2 group-hover:text-teal-dark transition-colors">
