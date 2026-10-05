@@ -26,6 +26,7 @@ export interface BaseEvent {
   poster_url: string | null;
   poster_alt: string;
   navigation_slug: string;
+  cognito_form_id: string | null;
   call_to_action_link: string | null;
   call_to_action_caption: string | null;
   gallery_url: string | null;

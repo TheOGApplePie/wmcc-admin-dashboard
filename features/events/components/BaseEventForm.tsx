@@ -30,6 +30,9 @@ export function BaseEventForm({
   onClose?: () => void;
 }>) {
   const router = useRouter();
+  const [ctaMode, setCtaMode] = useState<"form" | "link">(
+    event?.call_to_action_link || event?.call_to_action_caption ? "link" : "form",
+  );
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
@@ -50,8 +53,9 @@ export function BaseEventForm({
         navigation_slug: value(form, "navigation_slug"),
         poster_url: nullable(form, "poster_url"),
         poster_alt: value(form, "poster_alt"),
-        call_to_action_link: nullable(form, "call_to_action_link"),
-        call_to_action_caption: nullable(form, "call_to_action_caption"),
+        cognito_form_id: ctaMode === "form" ? nullable(form, "cognito_form_id") : null,
+        call_to_action_link: ctaMode === "link" ? nullable(form, "call_to_action_link") : null,
+        call_to_action_caption: ctaMode === "link" ? nullable(form, "call_to_action_caption") : null,
         gallery_url: nullable(form, "gallery_url"),
       });
       const payload = { id: event?.id, version: event?.version, fields };
@@ -136,7 +140,18 @@ export function BaseEventForm({
           onBusy={setUploading}
           onChange={() => setDirty(true)}
         />
-        <div className="grid gap-4 md:grid-cols-2">
+        <Field label="Event action">
+          <select className={inputClass} value={ctaMode} onChange={(e) => setCtaMode(e.target.value as "form" | "link")}>
+            <option value="form">Cognito form</option>
+            <option value="link">CTA link and caption</option>
+          </select>
+        </Field>
+        <fieldset hidden={ctaMode !== "form"} disabled={ctaMode !== "form"}>
+          <Field label="Cognito form ID">
+            <input className={inputClass} name="cognito_form_id" type="text" inputMode="numeric" pattern="[0-9]+" defaultValue={event?.cognito_form_id ?? ""} placeholder="123" />
+          </Field>
+        </fieldset>
+        <fieldset hidden={ctaMode !== "link"} disabled={ctaMode !== "link"} className={ctaMode === "link" ? "grid gap-4 md:grid-cols-2" : "hidden"}>
           <Field label="Call-to-action URL">
             <input
               className={inputClass}
@@ -153,7 +168,7 @@ export function BaseEventForm({
               defaultValue={event?.call_to_action_caption ?? ""}
             />
           </Field>
-        </div>
+        </fieldset>
         <Field label="Gallery URL">
           <input
             className={inputClass}

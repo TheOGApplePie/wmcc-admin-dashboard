@@ -9,10 +9,10 @@ import { z } from "zod";
 import { validateSchedule } from "./domain";
 const https = z
   .url()
-  .refine((value) => new URL(value).protocol === "https:", "Use an HTTPS URL.");
+  .refine((value) => URL.canParse(value) && new URL(value).protocol === "https:", "Use an HTTPS URL.");
 const poster = https.refine(
   (value) =>
-    new URL(value).origin ===
+    URL.canParse(value) && new URL(value).origin ===
     new URL(
       process.env.NEXT_PUBLIC_SUPABASE_URL ?? "https://placeholder.supabase.co",
     ).origin,
@@ -42,6 +42,7 @@ export const baseFields = z
       ),
     poster_url: poster.nullable(),
     poster_alt: z.string().trim().max(EVENT_FIELD_LIMITS.shortTextMax),
+    cognito_form_id: z.string().trim().regex(/^[0-9]+$/, "Use digits only for the Cognito form ID.").nullable().default(null),
     call_to_action_link: https.nullable(),
     call_to_action_caption: z
       .string()
@@ -56,6 +57,12 @@ export const baseFields = z
         code: "custom",
         path: ["poster_alt"],
         message: "Describe the poster.",
+      });
+    if (data.cognito_form_id && (data.call_to_action_link || data.call_to_action_caption))
+      ctx.addIssue({
+        code: "custom",
+        path: ["cognito_form_id"],
+        message: "Choose a Cognito form or a CTA link and caption, not both.",
       });
     if (
       Boolean(data.call_to_action_link) !== Boolean(data.call_to_action_caption)

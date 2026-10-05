@@ -14,8 +14,9 @@ export interface Event {
   poster_url: string | null;
   poster_file: File | null;
   poster_alt: string;
+  cognito_form_id: string | null;
   call_to_action_link: string | null;
-  call_to_action_caption: string;
+  call_to_action_caption: string | null;
   start_date: Date | string;
   end_date: Date | string;
   action: EditEventAction | DeleteEventAction;

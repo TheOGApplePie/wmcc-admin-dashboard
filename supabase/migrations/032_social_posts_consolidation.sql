@@ -1,3 +1,4 @@
+-- Combined unapplied social permission and table changes; replaces the former 032/033 pair.
 -- Deploy with the publishing worker paused. This migration preserves channel posts
 -- and publication results; it does not recreate event sessions.
 BEGIN;
@@ -5,20 +6,151 @@ LOCK TABLE social_campaigns, social_posts, social_post_variants, social_deliveri
   social_campaign_occurrences, social_campaign_reviews, social_post_review_items IN ACCESS EXCLUSIVE MODE;
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM social_deliveries WHERE status IN ('processing','provider_processing')) THEN
-    RAISE EXCEPTION 'Finish in-flight social publications and pause the worker before migration 033.';
+    RAISE EXCEPTION 'Finish in-flight social publications and pause the worker before migration 032.';
   END IF;
   IF EXISTS (SELECT 1 FROM social_campaign_occurrences o
     WHERE o.generated AND o.event_occurrence_at>=now() AND o.event_schedule_id IS NULL AND o.event_occurrence_id IS NULL
       AND EXISTS(SELECT 1 FROM social_posts p WHERE p.campaign_occurrence_id=o.id)) THEN
-    RAISE EXCEPTION 'Link existing future generated reminders to their schedules before migration 033 to prevent duplicate posts.';
+    RAISE EXCEPTION 'Link existing future generated reminders to their schedules before migration 032 to prevent duplicate posts.';
   END IF;
   IF EXISTS (SELECT 1 FROM social_posts WHERE campaign_id IS NULL) THEN
-    RAISE EXCEPTION 'Assign existing social posts to campaigns before migration 033.';
+    RAISE EXCEPTION 'Assign existing social posts to campaigns before migration 032.';
   END IF;
   IF EXISTS (SELECT 1 FROM social_posts p WHERE NOT EXISTS(SELECT 1 FROM social_post_variants v WHERE v.post_id=p.id)) THEN
-    RAISE EXCEPTION 'Existing posts without channels need a channel before migration 033.';
+    RAISE EXCEPTION 'Existing posts without channels need a channel before migration 032.';
   END IF;
 END $$;
+
+-- Keep existing publishing access: either effective schedule or send authority becomes publish.
+-- Review/override access alone does not grant publishing. Explicit publish overrides win.
+ALTER TABLE profiles DISABLE TRIGGER trg_guard_profile_permission_update;
+ALTER TABLE profiles DISABLE TRIGGER trg_guard_self_access;
+UPDATE profiles SET permission_overrides =
+  (COALESCE(permission_overrides,'{}') - 'social.schedule' - 'social.send' - 'social.review' - 'social.override') ||
+  jsonb_build_object('social.publish', COALESCE((permission_overrides->>'social.publish')::boolean,
+    COALESCE((permission_overrides->>'social.schedule')::boolean,role::text IN ('board','management')) OR
+    COALESCE((permission_overrides->>'social.send')::boolean,role::text IN ('board','management'))));
+ALTER TABLE profiles ENABLE TRIGGER trg_guard_self_access;
+ALTER TABLE profiles ENABLE TRIGGER trg_guard_profile_permission_update;
+CREATE OR REPLACE FUNCTION has_perm(p_module TEXT, p_action TEXT)
+RETURNS BOOLEAN LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_role member_role;
+  v_status member_status;
+  v_overrides JSONB;
+  v_key TEXT := p_module || '.' || p_action;
+  v_preset BOOLEAN;
+BEGIN
+  -- Older RPCs and RLS policies resolve to the same canonical permission.
+  IF p_module='social' AND p_action IN ('schedule','send','review','override') THEN v_key:='social.publish'; END IF;
+  SELECT role, status, permission_overrides INTO v_role, v_status, v_overrides
+    FROM profiles WHERE id = auth.uid();
+  IF NOT FOUND OR v_status <> 'active' THEN RETURN FALSE; END IF;
+  IF v_role::TEXT = 'board' THEN RETURN TRUE; END IF;
+  v_preset := CASE v_role::TEXT
+    WHEN 'management' THEN v_key IN (
+      'announcements.view', 'announcements.edit', 'announcements.publish', 'announcements.delete',
+      'events.view', 'events.edit', 'events.publish', 'events.delete',
+      'social.view', 'social.edit', 'social.publish', 'social.delete',
+      'feedback.view', 'feedback.respond', 'users.view'
+    )
+    WHEN 'general' THEN v_key IN (
+      'announcements.view', 'announcements.edit', 'events.view', 'events.edit',
+      'social.view', 'social.edit', 'feedback.view'
+    )
+    ELSE FALSE
+  END;
+  IF v_overrides ? v_key THEN RETURN (v_overrides ->> v_key)::BOOLEAN; END IF;
+  RETURN COALESCE(v_preset, FALSE);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION get_my_access()
+RETURNS JSONB
+LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_profile profiles%ROWTYPE;
+  v_permissions JSONB;
+BEGIN
+  SELECT * INTO v_profile
+    FROM profiles
+   WHERE id = auth.uid();
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('profile', NULL, 'permissions', '{}'::JSONB);
+  END IF;
+
+  SELECT COALESCE(
+    jsonb_object_agg(permission_key, has_perm(module_key, action_key)),
+    '{}'::JSONB
+  ) INTO v_permissions
+  FROM (VALUES
+    ('announcements.view', 'announcements', 'view'),
+    ('announcements.edit', 'announcements', 'edit'),
+    ('announcements.publish', 'announcements', 'publish'),
+    ('announcements.delete', 'announcements', 'delete'),
+    ('events.view', 'events', 'view'),
+    ('events.edit', 'events', 'edit'),
+    ('events.publish', 'events', 'publish'),
+    ('events.delete', 'events', 'delete'),
+    ('social.view', 'social', 'view'),
+    ('social.edit', 'social', 'edit'),
+    ('social.publish', 'social', 'publish'),
+    ('social.delete', 'social', 'delete'),
+    ('feedback.view', 'feedback', 'view'),
+    ('feedback.respond', 'feedback', 'respond'),
+    ('users.view', 'users', 'view'),
+    ('users.manage', 'users', 'manage'),
+    ('users.delete', 'users', 'delete'),
+    ('integrations.manage', 'integrations', 'manage')
+  ) AS permission_list(permission_key, module_key, action_key);
+
+  RETURN jsonb_build_object(
+    'profile', jsonb_build_object(
+      'id', v_profile.id,
+      'displayName', v_profile.display_name,
+      'role', v_profile.role,
+      'status', v_profile.status
+    ),
+    'permissions', CASE
+      WHEN v_profile.status = 'active'::member_status THEN v_permissions
+      ELSE '{}'::JSONB
+    END
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION get_my_access() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION get_my_access() TO authenticated;
+
+
+CREATE FUNCTION guard_social_campaign_publication() RETURNS trigger
+LANGUAGE plpgsql SET search_path=public AS $$
+BEGIN
+  IF auth.role()='service_role' THEN RETURN NEW; END IF;
+  IF TG_OP='INSERT' THEN
+    IF NEW.status<>'draft' AND NOT has_perm('social','publish') THEN RAISE EXCEPTION 'Permission denied: social.publish'; END IF;
+  ELSE
+    -- Event unpublication/deletion may hold its campaign without granting social publishing.
+    IF pg_trigger_depth()>1 AND NEW.status='draft' THEN RETURN NEW; END IF;
+    IF NEW.status='archived' AND OLD.status<>'archived' AND NOT has_perm('social','delete') THEN RAISE EXCEPTION 'Permission denied: social.delete'; END IF;
+    IF NEW.status IS DISTINCT FROM OLD.status AND NEW.status<>'archived' AND NOT has_perm('social','publish') THEN
+      RAISE EXCEPTION 'Permission denied: social.publish';
+    END IF;
+    IF OLD.status='active' AND NEW.status='active' AND
+      ROW(NEW.event_id,NEW.starts_on,NEW.ends_on,NEW.default_channels,NEW.generation_enabled,NEW.generation_horizon_days,NEW.generation_lead_days)
+      IS DISTINCT FROM
+      ROW(OLD.event_id,OLD.starts_on,OLD.ends_on,OLD.default_channels,OLD.generation_enabled,OLD.generation_horizon_days,OLD.generation_lead_days)
+      THEN NEW.status:='draft'; END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER a_social_campaign_publication_permission BEFORE INSERT OR UPDATE ON social_campaigns
+FOR EACH ROW EXECUTE FUNCTION guard_social_campaign_publication();
+
 
 -- Keep resolved review history in the existing audit log, not another social table.
 INSERT INTO audit_logs(user_id,entity_type,entity_id,action,detail)
@@ -161,9 +293,7 @@ DO $$ DECLARE r record; BEGIN
         'mark_social_delivery_provider_processing',
         'link_legacy_event_campaign_occurrences',
         'persist_event_campaign_proposals',
-        'persist_schedule_campaign_proposals',
-        'hold_social_post_for_edit',
-        'hold_changed_social_content'))
+        'persist_schedule_campaign_proposals'))
   LOOP EXECUTE format('DROP TRIGGER %I ON %I.%I',r.tgname,r.nspname,r.relname); END LOOP;
 END $$;
 DROP TABLE social_post_review_items;
@@ -208,9 +338,7 @@ DO $$ DECLARE r record; BEGIN
         'mark_social_delivery_provider_processing',
         'link_legacy_event_campaign_occurrences',
         'persist_event_campaign_proposals',
-        'persist_schedule_campaign_proposals',
-        'hold_social_post_for_edit',
-        'hold_changed_social_content')
+        'persist_schedule_campaign_proposals')
   LOOP EXECUTE format('DROP FUNCTION %s',r.signature); END LOOP;
 END $$;
 DROP TYPE social_occurrence_kind, social_delivery_method, social_channel, social_post_status;

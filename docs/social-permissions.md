@@ -11,14 +11,13 @@ Publishing content through the post editor still requires Edit as well as Publis
 
 ## Migration 032
 
-Apply `032_social_publish_permission.sql` before deploying the corresponding app changes. It consolidates effective Schedule or Send permission into Publish, preserving an explicit existing `social.publish` override. A user denied both old permissions stays denied. Review/Override alone does not grant publishing. Board retains full access; Management defaults to publishing and General defaults to editing.
+Apply `032_social_posts_consolidation.sql` before deploying the corresponding app changes. It consolidates effective Schedule or Send permission into Publish, preserving an explicit existing `social.publish` override. A user denied both old permissions stays denied. Review/Override alone does not grant publishing. Board retains full access; Management defaults to publishing and General defaults to editing.
 
-The database maps old `has_perm('social', 'schedule'|'send'|'review'|'override')` calls to `social.publish` so existing RPCs and RLS policies enforce the canonical permission during the later schema consolidation. `get_my_access()` and the permission editor expose only the four new keys.
+The database maps old `has_perm('social', 'schedule'|'send'|'review'|'override')` calls to `social.publish` so existing RPCs and RLS policies enforce the canonical permission during the consolidated migration. `get_my_access()` and the permission editor expose only the four new keys.
 
-Migration 033 completes the [two-table consolidation](social-posts.md). Both migrations have been tested locally, not applied to shared Supabase. Deploy the current app with both migrations.
+The same migration performs the [two-table consolidation](social-posts.md). The former unapplied permission-only 032 and table-only 033 migrations have been replaced by this single transaction. Deploy it with the current app; the separate Cognito event change is now migration 033. Neither migration has been applied to shared Supabase.
 
 ## Tests
 
-- `npm run test:permissions` checks the application permission matrix and overrides.
-- Create a fresh disposable PostgreSQL database named `wmcc_event_test...`, then run `psql -v ON_ERROR_STOP=1 -f tests/social-permissions-fixture.sql -f supabase/migrations/032_social_publish_permission.sql -f tests/social-permissions.sql`. The fixture uses synthetic auth and selected production table/trigger definitions; it is not a production backup rehearsal.
+- The [social migration tests](social-posts.md#local-tests) verify permission migration and post approval against the consolidated schema.
 - TypeScript, ESLint and the production build check the application changes. Browser acceptance against a migrated staging database remains necessary before deployment.

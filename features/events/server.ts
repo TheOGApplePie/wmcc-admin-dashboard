@@ -13,7 +13,7 @@ import { formatInTimeZone } from "date-fns-tz";
 
 
 const SCHEDULE_FIELDS = "id,event_id,label,start_at,end_at,time_zone,poster_url,poster_alt,location,version,recurrence_rule_id,recurrence_rule(frequency,interval,by_weekdays,by_month_day,by_set_position,until,count,exdates)";
-const EVENT_FIELDS = "id,title,description,location,poster_url,poster_alt,navigation_slug,call_to_action_link,call_to_action_caption,gallery_url,publication_status,version";
+const EVENT_FIELDS = "id,title,description,location,poster_url,poster_alt,navigation_slug,cognito_form_id,call_to_action_link,call_to_action_caption,gallery_url,publication_status,version";
 export interface ScheduleDateRow
   extends ScheduleDate, Omit<BaseEvent, "id" | "version"> {
   event_id: number;

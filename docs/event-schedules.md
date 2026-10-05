@@ -39,7 +39,7 @@ Mutations use permission checks, event/schedule versions, transactional writes, 
 
 ## Social campaigns
 
-Campaigns remain linked to an event. Generation reads that event's current schedules and rules. After migration 033, each generated channel post stores `source_schedule_id`, the original local `source_date` and a reminder milestone. Launch selection references `launch_schedule_id` and its timestamp snapshot. Deduplication uses campaign + schedule + original local date + milestone + channel.
+Campaigns remain linked to an event. Generation reads that event's current schedules and rules. After migration 032, each generated channel post stores `source_schedule_id`, the original local `source_date` and a reminder milestone. Launch selection references `launch_schedule_id` and its timestamp snapshot. Deduplication uses campaign + schedule + original local date + milestone + channel.
 
 Schedule changes/removal flag the campaign and hold pending posts as drafts. Source identifiers survive schedule deletion to preserve history and duplicate prevention. Publishing an event does not activate its campaign; drafting or archiving the event still drafts its campaign. See [social posts](social-posts.md) for the two-table model, review behavior and coordinated cutover instructions.
 
@@ -66,3 +66,11 @@ Checks:
 - In a fresh disposable PostgreSQL database whose name starts with `wmcc_event_test`, run `psql -v ON_ERROR_STOP=1 -f tests/schedule-fixture.sql -f supabase/migrations/030_schedule_rule_authoring.sql -f supabase/migrations/031_schedule_campaign_generation.sql -f tests/schedule-transactions.sql`. The fixture supplies minimal synthetic auth and proposal persistence; it is not a production-data rehearsal. Never run it against the application database.
 
 Browser acceptance after staging migration: create/edit schedules; exclude/move/restore dates; remove replacements with both choices; split count-based and until-based rules; remove a source while retaining replacements; check inheritance, dirty forms, DST, publication permissions and the existing campaign review/proposal/delivery path.
+
+## Optional event action
+
+Migration `033_event_cognito_form.sql` adds nullable `events.cognito_form_id` as text. IDs contain only digits and are kept as strings. An event can have a form ID, a complete CTA link/caption pair, or neither. A form ID cannot coexist with either CTA field. The editor defaults to Cognito for new events and retains CTA mode for existing CTA events; changing modes clears the other option when saved.
+
+Apply 033 before deploying the corresponding app. It normalizes blank CTA values to null and validates existing CTA pairs; incomplete existing pairs must be corrected if the migration reports a constraint violation. The save RPC and campaign snapshots include the new field. The public-site repository must read `cognito_form_id` to render the form; this admin change does not embed Cognito or invent a form URL for social posts.
+
+Focused schema checks: `node --test tests/event-actions.test.mjs`. In a fresh disposable PostgreSQL database named `wmcc_event_test...`, run `psql -v ON_ERROR_STOP=1 -f tests/event-actions-fixture.sql -f supabase/migrations/033_event_cognito_form.sql -f tests/event-actions.sql`. The minimal fixture tests base-event persistence and constraints with synthetic auth; it does not test the full permission model. Test mutations are rolled back. No shared Supabase migration is performed by these local checks.
