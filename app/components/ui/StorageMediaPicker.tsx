@@ -4,6 +4,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import StorageUploadButton from "./StorageUploadButton";
 import toast from "react-hot-toast";
+import { checkImageUrlRatio } from "@/features/socialCampaigns/lib/imageDimensions";
 import { listStorageMedia } from "@/actions/storageMedia";
 
 type Bucket = "event-posters" | "videos";
@@ -21,23 +22,23 @@ function matchesMedia(entry: StorageEntry, kind: MediaKind) {
   if (entry.isFolder) return true;
   const mime = entry.mimeType || inferredMime(entry.name);
   if (kind === "instagram_image") return mime === "image/jpeg";
-  if (kind === "image") return mime.startsWith("image/");
+  if (kind === "image") return mime === "image/jpeg" || mime === "image/jpg";
   if (kind === "video") return mime.startsWith("video/");
-  return mime.startsWith("image/") || mime.startsWith("video/");
+  return mime === "image/jpeg" || mime === "image/jpg" || mime.startsWith("video/");
 }
 
 function inferredMime(name: string) {
   const extension = name.split(".").pop()?.toLowerCase() ?? "";
-  const types: Record<string, string> = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", gif: "image/gif", mp4: "video/mp4", mov: "video/quicktime", webm: "video/webm" };
+  const types: Record<string, string> = { jpg: "image/jpeg", jpeg: "image/jpeg", mp4: "video/mp4", mov: "video/quicktime", webm: "video/webm" };
   return types[extension] ?? "";
 }
 
 function selectionHint(kind: MediaKind, maximum: number) {
-  if (maximum > 1) return `Select up to ${maximum} images in order.`;
+  if (maximum > 1) return `Select up to ${maximum} JPG/JPEG images in order.`;
   if (kind === "video") return "Select one video.";
   if (kind === "instagram_image") return "Select one JPEG image.";
-  if (kind === "image") return "Select one image.";
-  return "Select one image or video.";
+  if (kind === "image") return "Select one JPG/JPEG image.";
+  return "Select one JPG/JPEG image or video.";
 }
 
 function parentFolder(prefix: string) {
@@ -98,11 +99,12 @@ function StorageResults({ loading, error, entries, selected, searching, hasMore,
   </div>;
 }
 
-export default function StorageMediaPicker({ context, selectedUrls, maximum, mediaKind, onChange, onClose }: Readonly<{
+export default function StorageMediaPicker({ context, selectedUrls, maximum, mediaKind, instagramPortrait = false, onChange, onClose }: Readonly<{
   context: "social" | "announcements" | "events";
   selectedUrls: string[];
   maximum: number;
   mediaKind: MediaKind;
+  instagramPortrait?: boolean;
   onChange: (urls: string[]) => void;
   onClose: () => void;
 }>) {
@@ -182,7 +184,7 @@ export default function StorageMediaPicker({ context, selectedUrls, maximum, med
     className="fixed inset-0 m-auto w-[calc(100%_-_2rem)] max-w-5xl rounded-2xl bg-surface p-0 shadow-xl backdrop:bg-black/55">
     <div className="flex max-h-[90dvh] flex-col overflow-hidden">
       <header className="flex flex-wrap items-center gap-3 border-b border-line p-4">
-        <div className="mr-auto"><h2 id={titleId} className="text-lg font-semibold text-ink">Choose from Supabase Storage</h2><p className="text-xs text-muted">{selectionHint(mediaKind, maximum)}</p></div>
+        <div className="mr-auto"><h2 id={titleId} className="text-lg font-semibold text-ink">Choose from Supabase Storage</h2><p className="text-xs text-muted">{instagramPortrait ? "JPG/JPEG only · 4:5 aspect ratio, such as 1080 × 1350. Applies to every carousel image." :selectionHint(mediaKind, maximum)}</p></div>
         <select aria-label="Media bucket" disabled={uploading || mediaKind !== "image_or_video"} value={bucket} onChange={(event) => { setLoadError(null); setSearch(""); setLoading(true); setOffset(0); setBucket(event.target.value as Bucket); setPrefix("public"); }} className="rounded-lg border border-line bg-white px-3 py-2 text-sm"><option value="event-posters">Event posters</option><option value="videos">Videos</option></select>
         <input aria-label="Filter this folder" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Filter this folder" className="rounded-lg border border-line bg-white px-3 py-2 text-sm" />
         <button type="button" disabled={uploading} onClick={onClose} className="rounded-lg border border-line px-3 py-2 text-sm">Close</button>
@@ -192,7 +194,7 @@ export default function StorageMediaPicker({ context, selectedUrls, maximum, med
         <span className="truncate">/{prefix}</span>
       </div>
       <div className="border-b border-line px-4 py-3">
-        <StorageUploadButton context={context} bucket={bucket} prefix={prefix} mediaKind={mediaKind}
+        <StorageUploadButton context={context} bucket={bucket} prefix={prefix} mediaKind={mediaKind} instagramPortrait={instagramPortrait}
           uploading={uploading} onUploading={setUploading} onUploaded={(url) => {
             setLoadError(null);
             setSearch("");
@@ -210,7 +212,10 @@ export default function StorageMediaPicker({ context, selectedUrls, maximum, med
       <div className="min-h-64 flex-1 overflow-y-auto p-4" aria-busy={loading || loadingMore}>
         <StorageResults loading={loading} error={loadError} entries={visible} selected={selected}
           searching={Boolean(search.trim())} hasMore={hasMore}
-          onClearSearch={() => setSearch("")} onOpenFolder={openFolder} onSelect={toggle}
+          onClearSearch={() => setSearch("")} onOpenFolder={openFolder} onSelect={(url) => {
+            if (!instagramPortrait ||selected.includes(url)) { toggle(url); return; }
+            void checkImageUrlRatio(url).then(() => toggle(url)).catch((error) => toast.error(error instanceof Error ? error.message : "Unable to read image dimensions."));
+          }}
           onRetry={() => { setLoadError(null); setLoading(true); setRefreshVersion((version) => version + 1); }} />
         {!loading && !loadError && hasMore && <div className="mt-4 text-center"><button type="button" disabled={uploading || loadingMore} onClick={() => { setLoadingMore(true); setOffset(entries.length); }} className="rounded-lg border border-line px-4 py-2 text-sm font-semibold text-ink disabled:opacity-50">{loadingMore ? "Loading…" : "Load more"}</button></div>}
         {loadingMore && <p role="status" className="text-center text-sm text-muted">Loading more media…</p>}

@@ -61,6 +61,7 @@ export const CampaignLifecycleZod = z.object({
 
 export const GenerateCampaignProposalZod = z.object({
   id: z.uuid(),
+  preview: z.boolean().default(true),
   launch_behavior: z.enum(["next", "reminders_only"]).optional(),
 });
 
@@ -174,6 +175,7 @@ export interface SocialCalendarPost {
   time_slot: "morning" | "afternoon" | "evening" | null;
   scheduled_at: string | null;
   status: SocialPostStatus;
+  publisher_user_id?: string | null;
   attempt_count: number;
   retryable: boolean;
   next_attempt_at: string | null;

@@ -17,6 +17,7 @@ import {
   type SocialCalendarPost,
   type SocialCampaign,
 } from "@/app/schemas/socialCampaigns";
+import { assertInstagramImageUrl } from "@/features/socialCampaigns/instagram/imageValidation";
 import { runCampaignGeneration } from "@/features/socialCampaigns/generation/runCampaignGeneration";
 import { clientFail, fail, ok } from "@/utils/actionResponse";
 import { logAudit } from "@/utils/audit";
@@ -28,6 +29,8 @@ import {
   type SocialChannel,
 } from "@/features/socialCampaigns/scheduling";
 
+import { CopyPostDetailsZod } from "@/features/socialCampaigns/lib/copyPostDetails";
+
 const actionClient = createSafeActionClient();
 const REVALIDATE = "/dashboard/posts";
 const SELECT =
@@ -35,7 +38,7 @@ const SELECT =
 
 type SocialMediaItemInput = { url: string; alt_text: string };
 
-const IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/jpg"]);
 const VIDEO_MIME_TYPES = new Set([
   "video/mp4",
   "video/quicktime",
@@ -100,12 +103,14 @@ async function assertSocialMediaSelection(
         "Instagram image publishing requires a JPEG from the event-posters bucket.",
       );
     }
+    if (requiresImage) await assertInstagramImageUrl(item.url,
+      channel === "instagram_feed");
     if (
       channel === "whatsapp" &&
       !IMAGE_MIME_TYPES.has(mimeType) &&
       !VIDEO_MIME_TYPES.has(mimeType)
     ) {
-      throw new Error("WhatsApp media must be a supported image or video.");
+      throw new Error("WhatsApp media must be a JPG/JPEG image or supported video.");
     }
   }
 }
@@ -184,6 +189,58 @@ export const getSocialCalendarPosts = actionClient.action(async () => {
     );
   }
 });
+
+export const copySocialPostDetails = actionClient
+  .inputSchema(CopyPostDetailsZod)
+  .action(async ({ parsedInput: input }) => {
+    try {
+      const { supabase } = await requirePermission("social", "edit");
+      const { data: source, error: sourceError } = await supabase.from("social_posts")
+        .select("id").eq("id", input.source_id).eq("campaign_id", input.campaign_id).single();
+      if (sourceError || !source) return clientFail("Source post is not in this campaign.");
+      const { data: targets, error } = await supabase
+        .from("social_posts")
+        .select("*").eq("campaign_id", input.campaign_id).in("id", input.targets.map((target) => target.id));
+      if (error) throw new Error(error.message);
+      if (targets.length !== input.targets.length) return clientFail("Some selected posts are no longer available.");
+      const details = Object.fromEntries(input.fields.map((field) => [field, input.details[field]]));
+      const verifiedMediaChannels = new Set<string>();
+      for (const target of targets) {
+        if (!["draft", "proposed", "scheduled"].includes(target.status))
+          return clientFail(`"${target.title}" can no longer be edited.`);
+        const merged = {
+          description: target.description, caption: target.caption,
+          media_items: target.media_urls.map((url: string, index: number) => ({ url, alt_text: target.media_alt_texts[index] ?? "" })),
+          hashtags: target.hashtags, call_to_action_link: target.call_to_action_link ?? "",
+          call_to_action_caption: target.call_to_action_caption ?? "", ...details,
+        };
+        const validation = UpdateSocialPostZod.safeParse({
+          ...merged, id: target.id, version: target.version, title: target.title,
+          media_url: merged.media_items[0]?.url ?? "", channel: target.channel,
+          scheduled_date: target.scheduled_date, time_slot: target.time_slot,
+          status: target.status === "scheduled" ? "scheduled" : "draft",
+        });
+        if (!validation.success) return clientFail(`"${target.title}": ${validation.error.issues[0].message} No posts were changed.`);
+        if (target.status === "scheduled")
+        await requirePermission("social", "publish");
+        if (input.fields.includes("media_items") && !verifiedMediaChannels.has(target.channel)) {
+          try { await assertSocialMediaSelection(target.channel, validation.data.media_items); }
+          catch (failure) { return clientFail(`"${target.title}": ${failure instanceof Error ? failure.message : String(failure)} No posts were changed.`); }
+          verifiedMediaChannels.add(target.channel);
+        }
+      }
+      const { error: copyError } = await supabase.rpc("copy_social_post_details", {
+        p_source_id: input.source_id, p_campaign_id: input.campaign_id,
+        p_targets: input.targets, p_details: details,
+      });
+      if (copyError) throw new Error(copyError.message);
+      revalidatePath(REVALIDATE);
+      return ok({ count: input.targets.length }, "Post details copied.");
+    } catch (error) {
+      return fail(
+        error instanceof Error ? error.message : String(error));
+    }
+  });
 
 export const updateSocialPost = actionClient
   .inputSchema(UpdateSocialPostZod)
@@ -619,8 +676,15 @@ export const generateCampaignProposal = actionClient
         supabase,
         parsedInput.id,
         parsedInput.launch_behavior,
+        { preview: parsedInput.preview },
       );
       if (result.skipped) return clientFail(result.skipped);
+      if (parsedInput.preview) return ok({
+        proposals: result.proposals ?? [],
+          generated_through: result.generatedThrough,
+          suppressed: result.suppressed,
+        inserted: 0,
+      }, "Schedule preview generated. Save to commit it.");
       await logAudit(
         supabase,
         "social_campaign",
@@ -631,6 +695,7 @@ export const generateCampaignProposal = actionClient
       revalidatePath(REVALIDATE);
       return ok(
         {
+          proposals: result.proposals ?? [],
           inserted: result.inserted,
           generated_through: result.generatedThrough,
           suppressed: result.suppressed,

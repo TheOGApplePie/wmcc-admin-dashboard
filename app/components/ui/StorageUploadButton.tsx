@@ -2,9 +2,10 @@
 
 import { useRef, useState } from "react";
 import { createBrowserClient } from "@supabase/ssr";
+import { checkImageFileRatio } from "@/features/socialCampaigns/lib/imageDimensions";
 import { prepareStorageUpload } from "@/actions/storageMedia";
 
-const IMAGE_TYPES = ["image/jpeg", "image/jpg", "image/png"] as const;
+const IMAGE_TYPES = ["image/jpeg", "image/jpg"] as const;
 const VIDEO_TYPES = ["video/mp4"] as const;
 type ContentType = typeof IMAGE_TYPES[number] | typeof VIDEO_TYPES[number];
 
@@ -13,6 +14,7 @@ interface Props {
   bucket: "event-posters" | "videos";
   prefix: string;
   mediaKind: "image" | "instagram_image" | "video" | "image_or_video";
+  instagramPortrait?: boolean;
   uploading: boolean;
   onUploading: (uploading: boolean) => void;
   onUploaded: (url: string) => void;
@@ -29,6 +31,7 @@ async function uploadFile(file: File, props: Props) {
   if (!types.includes(file.type as ContentType)) throw new Error("Choose a supported file type for this folder.");
   const limit = props.bucket === "videos" ? 50 : 5;
   if (!file.size || file.size > limit * 1024 * 1024) throw new Error(`Choose a non-empty file up to ${limit} MB.`);
+  if (props.instagramPortrait) await checkImageFileRatio(file);
   const contentType = file.type === "image/jpg" ? "image/jpeg" : file.type as ContentType;
   const result = await prepareStorageUpload({ context: props.context, bucket: props.bucket, prefix: props.prefix,
     mediaKind: props.mediaKind, name: file.name, contentType, size: file.size });
@@ -71,6 +74,6 @@ export default function StorageUploadButton(props: Readonly<Props>) {
     {props.uploading && <p role="status" className="mt-2 text-xs text-muted">Uploading to storage. Please wait…</p>}
     {feedback && <p role={feedback.kind === "error" ? "alert" : "status"}
       className={feedback.kind === "error" ? "mt-2 text-xs text-coral" : "mt-2 text-xs text-teal"}>{feedback.message}</p>}
-    <span className="ml-2 text-xs text-muted">{props.bucket === "videos" ? "MP4 · up to 50 MB" : "JPEG/JPG/PNG · up to 5 MB"}</span>
+    <span className="ml-2 text-xs text-muted">{props.bucket === "videos" ? "MP4 · up to 50 MB" : props.mediaKind === "instagram_image" ? `JPG/JPEG${props.instagramPortrait ? " · 4:5 (1080 × 1350)" : ""} · up to 5 MB` : "JPG/JPEG · up to 5 MB"}</span>
   </div>;
 }

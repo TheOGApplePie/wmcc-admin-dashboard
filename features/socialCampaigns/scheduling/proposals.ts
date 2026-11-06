@@ -57,7 +57,11 @@ export function planProposalSlots(
     for (const channel of proposal.channels) {
       let candidateDate = proposal.targetDate;
       let assigned = false;
-      while (candidateDate >= today) {
+      const earliestDate = [today, proposal.promotionStartsOn]
+        .filter(Boolean)
+        .sort()
+        .at(-1)!;
+      while (candidateDate >= earliestDate) {
         const option = availableSlots(channel, candidateDate, occupied, proposal.eventOccurrenceAt)[0];
         if (option) {
           suggestions[channel] = { date: option.date, slot: option.slot };

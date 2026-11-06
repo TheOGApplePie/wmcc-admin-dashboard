@@ -22,7 +22,10 @@ export function scheduledAtFor(date: string, slot: SocialTimeSlot): string {
 }
 
 export function localSlotLabel(date: string, slot: SocialTimeSlot): string {
-  return formatInTimeZone(scheduledAtFor(date, slot), SOCIAL_TIME_ZONE, "h:mm a zzz");
+  return formatInTimeZone(scheduledAtFor(date, slot),
+    SOCIAL_TIME_ZONE,
+    "h:mm a",
+  );
 }
 
 export function availableSlots(

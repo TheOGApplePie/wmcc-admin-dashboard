@@ -51,7 +51,7 @@ export const listStorageMedia = actionClient
 
 const UploadStorageZod = ListStorageZod.omit({ offset: true }).extend({
   name: z.string().min(1).max(255),
-  contentType: z.enum(["image/jpeg", "image/jpg", "image/png", "video/mp4"]),
+  contentType: z.enum(["image/jpeg", "image/jpg", "video/mp4"]),
   size: z.number().int().positive(),
   mediaKind: z.enum(["image", "instagram_image", "video", "image_or_video"]),
 }).superRefine((input, ctx) => {
@@ -59,7 +59,7 @@ const UploadStorageZod = ListStorageZod.omit({ offset: true }).extend({
   if (video !== (input.bucket === "videos")) {
     ctx.addIssue({ code: "custom", message: "Choose the matching image or video bucket.", path: ["bucket"] });
   }
-  if (input.mediaKind === "instagram_image" && input.contentType !== "image/jpeg") {
+  if (input.mediaKind === "instagram_image" && !["image/jpeg", "image/jpg"].includes(input.contentType)) {
     ctx.addIssue({ code: "custom", message: "Instagram images must be JPEG files.", path: ["contentType"] });
   }
   if ((input.mediaKind === "image" && video) || (input.mediaKind === "video" && !video)) {
@@ -74,7 +74,7 @@ const UploadStorageZod = ListStorageZod.omit({ offset: true }).extend({
 export const prepareStorageUpload = actionClient.inputSchema(UploadStorageZod).action(async ({ parsedInput }) => {
   try {
     await requirePermission(parsedInput.context, "edit");
-    const extensions = { "image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png", "video/mp4": "mp4" };
+    const extensions = { "image/jpeg": "jpg", "image/jpg": "jpg", "video/mp4": "mp4" };
     const base = parsedInput.name.replace(/\.[^.]+$/, "").replaceAll(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80) || "media";
     const name = `${base}-${crypto.randomUUID()}.${extensions[parsedInput.contentType]}`;
     const path = [parsedInput.prefix, name].filter(Boolean).join("/");

@@ -75,6 +75,7 @@ export async function runCampaignGeneration(
   supabase: SupabaseClient,
   campaignId: string,
   launchBehavior?: "next" | "reminders_only",
+  options?: { preview: boolean },
 ) {
   const { data: campaign, error: campaignError } = await supabase
     .from("social_campaigns")
@@ -128,7 +129,8 @@ export async function runCampaignGeneration(
     };
   // RRULE supplies dates directly from the event's current schedules.
   const through = fromZonedTime(`${addCalendarDays(coverageEnd, 15)}T00:00:00`, SOCIAL_TIME_ZONE).toISOString();
-  const dates = await readScheduleDates(supabase, null, through, event.id, true);
+  const dates = ( await readScheduleDates(supabase, null, through, event.id, true))
+    .sort((a, b) => Date.parse(a.start_at) - Date.parse(b.start_at));
   const occurrences = dates.filter(
     (date) => Date.parse(date.start_at) > Date.now(),
   );
@@ -159,6 +161,7 @@ export async function runCampaignGeneration(
         eventOccurrenceAt: occurrence.start_at,
         today,
         isFirstOccurrence: occurrence.id === launch,
+        previousOccurrenceAt: dates[dates.findIndex((date) => date.id === occurrence.id) - 1]?.start_at,
       }).map((proposal) => ({
         ...proposal,
         generationKey: `${campaignId}:${occurrence.id}:${proposal.milestone}`,
@@ -197,6 +200,11 @@ export async function runCampaignGeneration(
       callToActionCaption: occurrence.call_to_action_caption,
     };
   });
+  if (options?.preview) return {
+    inserted: 0,
+    generatedThrough: coverageEnd,
+    suppressed: suppressed.length, proposals,
+  };
   const { data: inserted, error: persistError } = await supabase.rpc(
     "persist_schedule_campaign_proposals",
     {

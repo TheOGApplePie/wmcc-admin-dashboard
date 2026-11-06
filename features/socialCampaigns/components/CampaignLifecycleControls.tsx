@@ -33,14 +33,31 @@ export default function CampaignLifecycleControls({
           ? "resume"
           : null;
 
-  const changeStatus = async () => {
-    if (!transition) return;
+  const changeStatus = async (
+    action: "activate" | "pause" | "resume" | "complete",
+  ) => {
     setWorking(true);
-    const result = await transitionSocialCampaign({ id, action: transition });
-    setWorking(false);
-    if (result?.data?.error) return toast.error(result.data.error);
-    toast.success("Campaign updated.");
-    router.refresh();
+    try {
+      const result = await transitionSocialCampaign({ id, action });
+      if (!result?.data || result.data.error) {
+        toast.error(
+          result?.data?.error ||
+            result?.serverError ||
+            "Could not update campaign.",
+        );
+        return;
+      }
+      toast.success(
+        action === "complete"
+          ? "Campaign marked as completed."
+          : "Campaign updated.",
+      );
+      router.refresh();
+    } catch {
+      toast.error("Could not update campaign.");
+    } finally {
+      setWorking(false);
+    }
   };
 
   const remove = async () => {
@@ -75,7 +92,7 @@ export default function CampaignLifecycleControls({
         <button
           type="button"
           disabled={working || (!eventPublished && transition !== "pause")}
-          onClick={changeStatus}
+          onClick={() => changeStatus(transition)}
           className="rounded-xl bg-teal px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
         >
           {transition === "activate"
@@ -84,6 +101,24 @@ export default function CampaignLifecycleControls({
               ? "Pause"
               : "Resume"}
         </button>
+      )}
+      {canPublish && (status === "active" || status === "paused") && (
+        <button
+          type="button"
+          disabled={working}
+          onClick={() => changeStatus("complete")}
+          className="rounded-xl border border-teal bg-surface px-4 py-2 text-sm font-semibold text-teal-dark disabled:opacity-50"
+        >
+          Mark completed
+        </button>
+      )}
+      {status === "completed" && (
+        <span
+          role="status"
+          className="self-center rounded-full bg-teal-soft px-3 py-1 text-sm font-semibold text-teal-dark"
+        >
+          Completed
+        </span>
       )}
       {canDelete && status !== "archived" && (
         <button

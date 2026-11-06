@@ -135,7 +135,7 @@ export const uploadEventPoster = client
       file: z
         .file()
         .max(MAX_EVENT_POSTER_BYTES)
-        .mime(["image/jpeg", "image/png"]),
+        .mime(["image/jpeg", "image/jpg"]),
       title: z.string().min(1).max(EVENT_FIELD_LIMITS.shortTextMax),
     }),
   )

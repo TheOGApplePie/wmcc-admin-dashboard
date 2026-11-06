@@ -4,9 +4,10 @@ import { SOCIAL_TIME_ZONE, type EventMilestone, type EventScheduleInput, type Sc
 
 const REMINDERS: ReadonlyArray<{ milestone: EventMilestone; days: number }> = [
   { milestone: "two_weeks", days: 14 },
+  { milestone: "ten_days", days: 10 },
   { milestone: "one_week", days: 7 },
+  { milestone: "four_days", days: 4 },
   { milestone: "two_days", days: 2 },
-  { milestone: "one_day", days: 1 },
   { milestone: "event_day", days: 0 },
 ];
 
@@ -14,7 +15,8 @@ export function eventLocalDate(eventOccurrenceAt: string): string {
   return formatInTimeZone(eventOccurrenceAt, SOCIAL_TIME_ZONE, "yyyy-MM-dd");
 }
 
-export function proposeEventSchedule(input: EventScheduleInput): ScheduleProposal[] {
+export function proposeEventSchedule(input: EventScheduleInput
+): ScheduleProposal[] {
   const eventDate = eventLocalDate(input.eventOccurrenceAt);
   if (eventDate < input.today) return [];
 
@@ -22,10 +24,15 @@ export function proposeEventSchedule(input: EventScheduleInput): ScheduleProposa
   const daysAvailable = calendarDayDifference(eventDate, input.campaignCreatedOn);
   const compressed = daysAvailable < 21;
   const proposals: ScheduleProposal[] = [];
+  const promotionStartsOn = input.previousOccurrenceAt
+    ? addCalendarDays(eventLocalDate(input.previousOccurrenceAt), 1)
+    : undefined;
 
   if (first) {
     const initialDate = input.campaignCreatedOn < input.today ? input.today : input.campaignCreatedOn;
-    if (initialDate <= eventDate) {
+    if (initialDate <= eventDate &&
+      (!promotionStartsOn || initialDate >= promotionStartsOn)
+    ) {
       proposals.push({
         generationKey: `${input.campaignId}:${input.eventOccurrenceAt}:initial`,
         kind: "initial",
@@ -35,13 +42,17 @@ export function proposeEventSchedule(input: EventScheduleInput): ScheduleProposa
         eventOccurrenceAt: input.eventOccurrenceAt,
         channels: ["instagram_feed", "whatsapp"],
         compressed,
+        promotionStartsOn,
       });
     }
   }
 
   for (const reminder of REMINDERS) {
     const targetDate = addCalendarDays(eventDate, -reminder.days);
-    if (targetDate < input.today || targetDate < input.campaignCreatedOn) continue;
+    if (targetDate < input.today || targetDate < input.campaignCreatedOn ||
+      (promotionStartsOn && targetDate < promotionStartsOn)
+    )
+      continue;
     proposals.push({
       generationKey: `${input.campaignId}:${input.eventOccurrenceAt}:${reminder.milestone}`,
       kind: "reminder",
@@ -51,6 +62,7 @@ export function proposeEventSchedule(input: EventScheduleInput): ScheduleProposa
       eventOccurrenceAt: input.eventOccurrenceAt,
       channels: ["instagram_story", "whatsapp"],
       compressed,
+      promotionStartsOn,
     });
   }
 
@@ -74,6 +86,7 @@ export function proposeRecurringSchedule(
       eventOccurrenceAt,
       today,
       isFirstOccurrence: index === 0,
+      previousOccurrenceAt: sorted[index - 1],
     })) {
       if (proposal.kind !== "reminder") {
         output.push(proposal);
@@ -93,4 +106,3 @@ export function proposeRecurringSchedule(
 
   return output;
 }
-

@@ -13,10 +13,9 @@ function titleToFilename(title: string, ext: string): string {
   return `${base}.${ext}`;
 }
 
-function extensionForMimeType(mimeType: string): "jpg" | "png" {
-  if (mimeType === "image/png") return "png";
+function extensionForMimeType(mimeType: string): "jpg" {
   if (mimeType === "image/jpeg" || mimeType === "image/jpg") return "jpg";
-  throw new Error("Only JPG, JPEG, and PNG poster images are supported.");
+  throw new Error("Only JPG/JPEG poster images are supported.");
 }
 export async function resolveStorageUrl(
   supabase: Awaited<ReturnType<typeof createClient>>,
