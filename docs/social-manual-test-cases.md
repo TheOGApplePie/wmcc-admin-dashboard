@@ -107,3 +107,14 @@ Record the tester, date, environment, observed result, and evidence link for eve
 Scheduling may be released when PERM, CAM, MEDIA, SCH, and GEN cases pass. Enable one provider
 at a time only after its provider cases and CRON cases pass. Keep WhatsApp disabled until its
 server-to-server authentication and payload contract are finalized.
+
+## Copy post details
+
+- Open a saved post and choose **Copy post details**. Verify no fields are preselected.
+- Select caption and CTA, choose **Paste to these…**, and verify only other eligible posts in the same campaign appear, with none selected.
+- Select individual targets or Select all. Apply and verify only selected fields and posts change; the source form is not saved.
+- Verify scheduled targets keep their status, date, time slot, and posting instant. Proposed targets remain proposed.
+- Copy a carousel to a Story or image media to a Reel. Verify incompatible content is rejected without changing any target.
+- Copy an empty caption to a scheduled post. Verify it is rejected without changing any target.
+- Modify a target in another session after opening the dialog. Verify applying fails without changing any target.
+- Verify users without publishing permission cannot target scheduled posts; completed/archived campaigns and sent/processing posts cannot receive copies.

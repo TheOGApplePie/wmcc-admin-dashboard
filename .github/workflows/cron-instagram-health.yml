@@ -1,0 +1,18 @@
+name: CMS cron — instagram-health
+
+on:
+  schedule:
+    - cron: '0 11 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    uses: ./.github/workflows/_social-cron.yml
+    with:
+      job: instagram-health
+    secrets:
+      cron_secret: ${{ secrets.CRON_SECRET }}
+      vercel_bypass_secret: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}

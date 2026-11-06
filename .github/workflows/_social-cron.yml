@@ -1,0 +1,40 @@
+name: Call a CMS cron endpoint
+
+on:
+  workflow_call:
+    inputs:
+      job:
+        required: true
+        type: string
+    secrets:
+      cron_secret:
+        required: true
+      vercel_bypass_secret:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  invoke:
+    # Enable only after migration 037 and the CMS deployment are ready.
+    if: vars.SOCIAL_CRON_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: cms-cron-${{ inputs.job }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Invoke ${{ inputs.job }} once and check the result
+        env:
+          CRON_JOB: ${{ inputs.job }}
+          CMS_BASE_URL: ${{ vars.CMS_BASE_URL }}
+          CRON_SECRET: ${{ secrets.cron_secret }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.vercel_bypass_secret }}
+        run: node scripts/run-social-cron.mjs

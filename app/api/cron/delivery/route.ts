@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
-import { runCronSlot } from "../_cronHandler";
+import { runDeliveryCron } from "../_cronHandler";
 
 export async function GET(req: NextRequest) {
-  return runCronSlot(req, "afternoon");
+  return runDeliveryCron(req);
 }

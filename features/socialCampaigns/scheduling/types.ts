@@ -16,7 +16,14 @@ export type SocialChannel =
   | "whatsapp"
   | "tiktok_reel";
 export type SchedulePlatform = "instagram" | "whatsapp" | "tiktok";
-export type EventMilestone = "initial" | "two_weeks" | "one_week" | "two_days" | "one_day" | "event_day";
+export type EventMilestone =
+  | "initial"
+  | "two_weeks"
+  | "ten_days"
+  | "one_week"
+  | "four_days"
+  | "two_days"
+  | "event_day";
 
 export interface ScheduleProposal {
   generationKey: string;
@@ -27,6 +34,7 @@ export interface ScheduleProposal {
   eventOccurrenceAt: string;
   channels: SocialChannel[];
   compressed: boolean;
+  promotionStartsOn?: string;
 }
 
 export interface EventScheduleInput {
@@ -35,6 +43,7 @@ export interface EventScheduleInput {
   eventOccurrenceAt: string;
   today: string;
   isFirstOccurrence?: boolean;
+  previousOccurrenceAt?: string;
 }
 
 export interface OccupiedSlot {

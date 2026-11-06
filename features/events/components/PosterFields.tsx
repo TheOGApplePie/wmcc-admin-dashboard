@@ -74,10 +74,10 @@ export function PosterFields({
               }}
             />
           </Field>
-          <Field label="Or upload a JPG / PNG (up to 5 MB)">
+          <Field label="Or upload a JPG / JPEG (up to 5 MB)">
             <input
               type="file"
-              accept="image/jpeg,image/png"
+              accept="image/jpeg,image/jpg"
               onChange={(e) => void upload(e.target.files?.[0])}
             />
           </Field>

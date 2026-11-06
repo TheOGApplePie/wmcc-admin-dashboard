@@ -1,7 +1,7 @@
 "use client";
 import styles from "@/features/socialCampaigns/components/CampaignLayout.module.css";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import {
   generateCampaignProposal,
@@ -12,6 +12,7 @@ import type {
   SocialCampaign,
 } from "@/app/schemas/socialCampaigns";
 import SocialPostsCalendar from "./SocialPostsCalendar";
+import { schedulePlatformFor, scheduledAtFor } from "@/features/socialCampaigns/scheduling";
 
 export default function CampaignScheduleModal({
   campaign,
@@ -30,6 +31,8 @@ export default function CampaignScheduleModal({
   onClose: () => void;
   onDeliveriesChanged: (deliveries: SocialCalendarPost[]) => void;
 }>) {
+  type GenerationData = NonNullable<NonNullable<Awaited<ReturnType<typeof generateCampaignProposal>>>["data"]>;
+  const [preview, setPreview] = useState<GenerationData["data"] | null>(null);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [launchBehavior, setLaunchBehavior] = useState<
@@ -43,12 +46,45 @@ export default function CampaignScheduleModal({
   const campaignPosts = deliveries.filter(
     (delivery) => delivery.campaign_id === campaign.id,
   );
-  const generate = async () => {
+  const previewPosts = useMemo<SocialCalendarPost[]>(() =>
+    (preview?.proposals ?? []).flatMap((proposal) => proposal.channels.flatMap((channel) => {
+      const suggestion = proposal.suggestions[channel];
+      if (!suggestion) return [];
+      return [{
+        id: `preview:${proposal.generationKey}:${channel}`,
+        campaign_id: campaign.id,
+        campaign_name: campaign.name,
+        campaign_status: campaign.status,
+        version: 0,
+        needs_review: false,
+        review_reason: null,
+        post_title: proposal.title,
+        caption: proposal.caption ?? "",
+        description: proposal.description ?? "",
+        media_url: proposal.mediaUrl,
+        media_items: [],
+        hashtags: [],
+        call_to_action_link: proposal.callToActionLink,
+        call_to_action_caption: proposal.callToActionCaption,
+        channel,
+        schedule_platform: schedulePlatformFor(channel),
+        scheduled_date: suggestion.date,
+        time_slot: suggestion.slot,
+        scheduled_at: scheduledAtFor(suggestion.date, suggestion.slot),
+        status: "proposed",
+        attempt_count: 0,
+        retryable: false,
+        next_attempt_at: null,
+        provider_error: null,
+      }];
+    })), [preview, campaign.id, campaign.name, campaign.status]);
+  const generate = async (save = false) => {
     setWorking(true);
     setError(null);
     try {
       const result = await generateCampaignProposal({
         id: campaign.id,
+        preview: !save,
         ...(needsLaunchDecision ? { launch_behavior: launchBehavior } : {}),
       });
       if (!result?.data || result.data.error)
@@ -57,6 +93,13 @@ export default function CampaignScheduleModal({
             result?.serverError ||
             "Could not generate the campaign schedule.",
         );
+      if (!save) {
+        setPreview(result.data.data);
+      const suppressed = result.data.data?.suppressed ?? 0;
+        if (suppressed) setError(`${suppressed} reminders could not be assigned a slot or overlapped another reminder.`);
+        return;
+      }
+      setPreview(null);
       const refreshed = await getSocialCalendarPosts();
       if (!refreshed?.data || refreshed.data.error)
         throw new Error(
@@ -115,6 +158,7 @@ export default function CampaignScheduleModal({
           <button
             type="button"
             onClick={onClose}
+            disabled={working}
             className="rounded-xl border border-line bg-surface px-4 py-2 text-sm font-semibold text-muted"
           >
             Close
@@ -138,6 +182,7 @@ export default function CampaignScheduleModal({
               Next recurring occurrence
               <select
                 value={launchBehavior}
+                disabled={working || Boolean(preview)}
                 onChange={(event) =>
                   setLaunchBehavior(event.target.value as typeof launchBehavior)
                 }
@@ -152,13 +197,13 @@ export default function CampaignScheduleModal({
             <button
               type="button"
               disabled={
-                working ||
+                working || Boolean(preview) ||
                 Boolean(
                   campaign.events &&
                   campaign.events.publication_status !== "published",
                 )
               }
-              onClick={generate}
+              onClick={() => generate()}
               className="rounded-xl bg-teal px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
               {generateLabel}
@@ -167,7 +212,7 @@ export default function CampaignScheduleModal({
         </div>
         {working && (
           <p role="status" className="mb-4 text-sm text-muted">
-            Generating proposals and refreshing the calendar…
+            {preview ? "Saving schedule…" : "Generating preview…"}
           </p>
         )}
         {error && (
@@ -175,13 +220,32 @@ export default function CampaignScheduleModal({
             {error}
           </p>
         )}
+        {preview && (
+          <div className="mb-4 rounded-2xl border border-line bg-surface p-4">
+            <div className="mb-3 flex flex-wrap items-center gap-3">
+              <p className="mr-auto text-sm font-semibold text-ink">
+                Unsaved schedule through {preview.generated_through}. Save to commit, or discard to undo generation.
+              </p>
+              <button type="button" disabled={working} onClick={() => { setPreview(null); setError(null); }}
+                className="rounded-xl border border-line px-4 py-2 text-sm font-semibold disabled:opacity-50">Discard</button>
+              <button type="button" disabled={working} onClick={() => generate(true)}
+              className="rounded-xl bg-teal px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Save</button>
+            </div>
+            <p className="mb-2 text-xs text-muted">Closing this window discards the unsaved generation.</p>
+            <p className="text-sm text-muted">
+              {previewPosts.length ? `${previewPosts.length} unsaved proposals shown in the calendar.` : "No new posts in this coverage period."}
+            </p>
+          </div>
+        )}
         <SocialPostsCalendar
           deliveries={deliveries}
+          previewPosts={previewPosts}
           campaignId={null}
           highlightCampaignId={campaign.id}
           canEdit={canEdit}
           canPublish={canPublish}
           canDelete={canDelete}
+          onCopied={onDeliveriesChanged}
           onUpdated={(updated) =>
             onDeliveriesChanged(
               deliveries.map((item) =>

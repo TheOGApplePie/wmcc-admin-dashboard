@@ -70,6 +70,7 @@ export default async function CampaignPage({
           {campaign.needs_review && <CampaignReviewPanel campaign={campaign} canReview={Boolean(publishPerm.data)} />}
 
           <CampaignPageActions
+            key={`${campaign.id}:${campaign.version}:${campaign.status}`}
             initialCampaign={campaign}
             initialDeliveries={deliveriesResult?.data ?? []}
             events={eventsResult?.data ?? []}

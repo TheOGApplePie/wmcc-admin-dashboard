@@ -45,12 +45,12 @@ export const AnnouncementZod = z
           path: ["poster_file"],
         });
       } else if (
-        !["image/jpeg", "image/jpg", "image/png"].includes(image.type)
+        !["image/jpeg", "image/jpg"].includes(image.type)
       ) {
         ctx.addIssue({
           code: "custom",
           message:
-            "The file you are uploading is of an unsupported type. Please only upload JPEG/JPG or PNG images",
+            "The file you are uploading is of an unsupported type. Please only upload JPG/JPEG images",
           path: ["poster_file"],
         });
       }

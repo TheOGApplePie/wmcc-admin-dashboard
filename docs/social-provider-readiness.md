@@ -5,39 +5,97 @@ account, credentials, validation, and manual acceptance cases are complete.
 
 ## Instagram
 
-### Account and authentication
+The account uses **Instagram Login** and `graph.instagram.com`.
 
-- Use an Instagram professional account and a Meta app configured for the selected Instagram
-  login model.
-- Obtain the content-publishing permission/scope required by that login model and a renewable,
-  server-accessible token. Do not depend on an interactive administrator session at cron time.
-- Configure the Graph API version and Instagram account ID.
-- Confirm Page Publishing Authorization if the connected account requires it.
-- Check content-publishing quota before enabling production batches.
+### Configuration and verification
 
-### Required publishing state machine
+1. In Meta App Dashboard → Instagram → API setup with Instagram login, confirm the
+   connected professional account and granted `instagram_business_basic` and
+   `instagram_business_content_publish` permissions. Account/app eligibility still
+   needs verification for each format, especially Stories.
+2. Set `INSTAGRAM_ACCOUNT_ID`, `INSTAGRAM_ACCESS_TOKEN`, and
+   `META_GRAPH_API_VERSION`. The local account and publishing-quota endpoints were
+   successfully checked without creating or publishing media. Meta returned API
+   version `v25.0`, now configured locally. Production needs its own configuration.
+3. Apply migration `037_instagram_publishing.sql` after 036.
+4. Configure a 32-byte hex `INSTAGRAM_TOKEN_ENCRYPTION_KEY` in production. A local
+   key was generated in `.env.local`; keep the same key across deployments so stored
+   credentials remain readable. Never expose it to browsers or commit it.
+5. Run `/api/cron/instagram-health` using `Authorization: Bearer <CRON_SECRET>`.
+   This performs read-only account/quota checks and may refresh the access token.
+   It does not publish a post. Meta's dashboard/token tools remain the place to
+   confirm the exact granted scopes and original token lifetime.
 
-1. Validate caption, media count, public URL, and media properties before scheduling.
-2. Create child containers for carousel items, then the carousel parent container; otherwise
-   create one image, Story, or Reel container.
-3. Persist the returned parent container ID immediately. Containers expire if they are not
-   published within 24 hours.
-4. Mark the delivery `provider_processing`; this is not a failed attempt.
-5. On the next worker run, query the container's `status_code`.
-6. `IN_PROGRESS`: retain the ID and poll later. `FINISHED`: call `media_publish` exactly once.
-   `ERROR` or `EXPIRED`: mark terminal and notify. `PUBLISHED`: reconcile as sent.
-7. Persist the published media ID and, where available, retrieve its permalink.
+### Basic two-step publication
 
-The adapter implements this parent-container lifecycle. Carousel child creation is not yet
-resumable independently: if parent creation fails after children are created, a retry may create
-new child containers. Add provider-state JSON if this becomes operationally significant.
+1. The delivery worker creates the image, Story, Reel, or carousel container.
+2. It checks readiness immediately. If `FINISHED`, it calls `media_publish` and
+   records the published media ID in the same run.
+3. If still `IN_PROGRESS`, the existing pending-delivery RPC saves the container
+   ID as `provider_processing`. A later five-minute run checks and publishes it.
+   There is no forced delay for ready containers and no long-running polling loop.
+4. A permalink is retrieved when possible. A permalink failure does not undo a
+   successful publication or cause another send.
+5. `ERROR`, `EXPIRED`, or an unexpected already-published container becomes a
+   normal failed delivery with a publisher notification. Check Instagram manually
+   before scheduling a replacement in those cases.
 
-### Media preflight still required
+There is no separate checkpoint RPC, Instagram-only claim/recovery function, or
+reconciliation workflow. The existing shared worker, retries, and stale-worker
+recovery are reused. Rare interruptions between Meta accepting a request and the
+CMS saving its response are handled manually rather than adding more infrastructure.
 
-Storage currently provides MIME type and byte size. Full readiness also requires inspecting
-image dimensions and video codec, dimensions, frame rate, duration, audio codec, and bitrate.
-That metadata should be captured when files enter Storage or by a trusted media-probe worker;
-do not download and probe large videos inside a Vercel cron invocation.
+### Delivery and processing follow-up
+
+GitHub Actions calls `/api/cron/delivery` every five minutes (:02, :07, …, :57).
+One worker starts due posts across platforms, handles existing retries, and checks
+Instagram containers that are ready for another poll. There are no separate slot
+or Instagram-processing cron endpoints. Calendar slot times remain unchanged;
+only posts due at the time of claiming are eligible. Pending container checks do not consume failure attempts.
+
+The worker uses `CRON_SECRET`, respects `SOCIAL_DELIVERY_ENABLED`, and shares cron
+logging. Follow the [GitHub setup and cutover](social-cron-github.md). Vercel's cron
+list is empty. GitHub timing is best effort, and private-repository runner minutes
+must be budgeted. Generation and daily token health remain separate jobs.
+
+### Token health and renewal
+
+A daily `/api/cron/instagram-health` job is configured at 11:00 UTC. It runs even
+when delivery is disabled, verifies account access and publishing quota, and
+refreshes eligible Instagram Login tokens weekly. Renewed tokens and their expiry
+are saved encrypted in the service-only `instagram_credentials` table. Publishing
+reads the renewed credential rather than the stale environment seed.
+
+The initial token must be long-lived, unexpired, and old enough for Meta refresh
+(at least 24 hours). A newly generated token may need its first refresh check the
+following day. Short-lived tokens must first be exchanged through Meta's documented
+flow; expired/revoked tokens need reconnection. No app secret or automatic initial
+short-to-long-lived exchange is configured here.
+
+Health failures and expiry warnings create CMS notifications for active publishers
+and structured cron logs. A successful health check is not proof that all media
+formats will publish. Neither token validity nor refresh can be guaranteed after
+revocation, permission changes, or service outages.
+
+To rotate a token, update `INSTAGRAM_ACCESS_TOKEN` and redeploy. The seed fingerprint
+causes the app to ignore a stored token derived from an older environment seed.
+
+
+### Remaining media and acceptance work
+
+The CMS validates Storage ownership, MIME type, image alt text, and format-specific
+media selection. Instagram images are checked from their actual bytes and must be
+JPEG (JPG/JPEG); PNG and other image formats are rejected. Every feed/carousel
+image must have an exact 4:5 displayed aspect ratio, such as 1080 × 1350. EXIF
+orientation is included in the dimension check. This is the CMS feed policy;
+Stories do not inherit that 4:5 restriction. Validation runs on scheduling/copying
+scheduled media and again before a new Instagram container is created. The picker
+and upload control check feed aspect ratio early; existing incompatible files are
+not automatically cropped or converted. Image uploads and media selection throughout the CMS accept JPG/JPEG only; PNG and other image formats are excluded.
+Full video metadata validation (codec, frame rate, duration, bitrate, audio) remains
+unimplemented.
+Perform controlled feed, carousel, Story, and Reel acceptance tests before enabling
+those formats. No real post was published during the read-only credential checks.
 
 ## TikTok
 
@@ -79,6 +137,8 @@ do not download and probe large videos inside a Vercel cron invocation.
 
 ## WhatsApp
 
-Deferred. A cron request has no administrator cookies, so it cannot recover a scheduling user's
-Supabase access token at delivery time. The endpoint must adopt a renewable server-to-server
-credential or another explicit machine-authentication contract before its adapter is enabled.
+Account pairing and publisher-approved machine sending are implemented. Follow
+[the WhatsApp setup and deployment notes](whatsapp-mvp.md). The sender rechecks the
+publisher's active status, publishing permission, account ownership, and connected
+session for each cron request. Retries already exist in the CMS; sender-side
+idempotency remains unimplemented.

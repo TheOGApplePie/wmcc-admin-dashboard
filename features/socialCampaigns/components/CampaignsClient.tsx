@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import type {
   AdminUserOption,
   CampaignEventOption,
+  CampaignStatus,
   SocialCalendarPost,
   SocialCampaign,
 } from "@/app/schemas/socialCampaigns";
@@ -15,6 +16,7 @@ import SocialPostsCalendar, {
 } from "./SocialPostsCalendar";
 import { CampaignForm } from "./CampaignForm";
 import ManualPostModal from "./ManualPostModal";
+import WhatsAppAccountButton from "./WhatsAppAccountButton";
 
 export default function CampaignsClient({
   initialCampaigns,
@@ -35,6 +37,7 @@ export default function CampaignsClient({
 }>) {
   const [campaigns, setCampaigns] = useState(initialCampaigns);
   const [deliveries, setDeliveries] = useState(calendarDeliveries);
+  const [statusFilter, setStatusFilter] = useState<CampaignStatus | "current" | "all">("current");
   const [creating, setCreating] = useState(false);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(
     null,
@@ -46,10 +49,20 @@ export default function CampaignsClient({
   } | null>(null);
   const sortedCampaigns = useMemo(
     () =>
-      [...campaigns].sort(
+      campaigns.filter((campaign) =>
+        statusFilter === "all" ||
+        (statusFilter === "current" ? campaign.status !== "archived" : campaign.status === statusFilter),
+      ).sort(
         (a, b) => Date.parse(b.created_at) - Date.parse(a.created_at),
       ),
-    [campaigns],
+    [campaigns, statusFilter],
+  );
+  const visibleDeliveries = useMemo(
+    () => deliveries.filter((delivery) =>
+      statusFilter === "all" ||
+      (statusFilter === "current" ? delivery.campaign_status !== "archived" : delivery.campaign_status === statusFilter),
+    ),
+    [deliveries, statusFilter],
   );
   const selectedDeliveries = useMemo(
     () =>
@@ -86,7 +99,8 @@ export default function CampaignsClient({
               </button>
             )}
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <WhatsAppAccountButton canPair={canPublish} />
             {canEdit && (
               <>
                 <button
@@ -119,18 +133,20 @@ export default function CampaignsClient({
             onCancel={() => setCreating(false)}
             onCreated={(campaign) => {
               setCampaigns((current) => [campaign, ...current]);
+              setStatusFilter("current"); setSelectedCampaignId(null);
               setCreating(false);
             }}
           />
         )}
         <div className="flex flex-col items-start gap-5 xl:flex-row">
           <SocialPostsCalendar
-            deliveries={deliveries}
+            deliveries={visibleDeliveries}
             campaignId={selectedCampaignId}
             canEdit={canEdit}
             canPublish={canPublish}
             canDelete={canDelete}
             onUpdated={updateDelivery}
+            onCopied={setDeliveries}
             onDeleted={removeDelivery}
             editingDelivery={editingDelivery}
             onEditDelivery={(delivery) => setEditDeliveryId(delivery.id)}
@@ -147,6 +163,27 @@ export default function CampaignsClient({
               <h2 className="font-semibold text-ink">Campaigns</h2>
               <span className="text-xs text-muted">Newest first</span>
             </div>
+            <label className="block px-1 text-xs font-semibold text-ink">
+              Campaign status
+              <select
+                value={statusFilter}
+                onChange={(event) => {
+                  setStatusFilter(event.target.value as typeof statusFilter); setSelectedCampaignId(null); setEditDeliveryId(null);
+                }}
+                className="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm font-normal"
+              >
+                <option value="current">Current (non-archived)</option>
+                <option value="active">Active</option>
+                <option value="draft">Draft</option>
+                <option value="paused">Paused</option>
+                <option value="completed">Completed</option>
+                <option value="archived">Archived</option>
+                <option value="all">All campaigns</option>
+              </select>
+            </label>
+            {sortedCampaigns.length === 0 && (
+              <p className="px-1 py-4 text-sm text-muted">No campaigns match this filter.</p>
+            )}
             {sortedCampaigns.map((campaign) => {
               const selected = campaign.id === selectedCampaignId;
               return (

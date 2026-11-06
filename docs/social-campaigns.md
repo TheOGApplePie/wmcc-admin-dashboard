@@ -40,7 +40,7 @@ The normal proposal contains:
 
 Instagram and TikTok Reels are optional and are placed manually in available slots. A campaign created fewer than 21 days before its event receives an initial post at the earliest valid opportunity and only reminders whose milestones have not passed. Event-day deliveries must use a slot before the event begins.
 
-One recurring campaign covers the whole series. If the series already started, campaign creation asks whether the next occurrence should receive the launch sequence. The selected launch occurrence receives the initial post and full reminder sequence. Later occurrences receive Instagram Story and WhatsApp reminders. Overlapping duplicate reminders are suppressed, identified, and flagged for review. RRULE exclusions receive no reminders.
+One recurring campaign covers the whole series. If the series already started, campaign creation asks whether the next occurrence should receive the launch sequence. The selected launch occurrence receives the initial post and full reminder sequence. Later occurrences receive Instagram Story and WhatsApp reminders. Each later occurrence’s promotion window starts the calendar day after the preceding occurrence in Toronto time. Earlier reminder milestones are omitted, and slot allocation cannot move reminders back outside that window. Overlapping duplicate reminders are suppressed, identified, and flagged for review. RRULE exclusions receive no reminders.
 
 Generation uses 28-day rolling coverage. A weekly generation job extends due campaigns, while campaign creation and event/RRULE changes prompt recalculation. Open-ended RRULEs keep the campaign end date null.
 
@@ -50,7 +50,7 @@ If an event date or recurrence rule changes, its campaign is flagged for review 
 
 All deliveries are automated. Delivery records retain provider IDs, attempts, errors, and idempotency keys so each platform adapter can retry safely and notify authorized staff when delivery fails. Asynchronous Instagram/TikTok work uses `provider_processing`; status polling does not consume a failure retry.
 
-The initial attempt and at most two retries are claimed atomically by the three daily delivery jobs. Accepted asynchronous provider jobs retain their provider ID so a retry checks the existing job rather than publishing a duplicate. A terminal failure creates an in-app notification for board members and members with social-send responsibility.
+The initial attempt and at most two retries are claimed atomically by the unified delivery job running every five minutes. Accepted asynchronous provider jobs retain their provider ID so a retry checks the existing job rather than publishing a duplicate. A terminal failure creates an in-app notification for board members and members with social-send responsibility.
 
 | Permission | Capability |
 | --- | --- |
@@ -63,3 +63,7 @@ The initial attempt and at most two retries are claimed atomically by the three 
 | `social.override` | Approve exceptional campaign-policy decisions |
 
 UI controls reflect permissions, while server actions and row-level security remain the security boundary.
+
+Schedule generation previews are read-only. Saving regenerates from the current
+event and calendar state using the existing database version checks; there is no
+additional preview fingerprint protocol.
