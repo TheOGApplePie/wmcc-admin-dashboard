@@ -1,3 +1,4 @@
+import { getInstagramConfig } from "@/features/socialCampaigns/instagram/config";
 import { NextRequest, NextResponse } from "next/server";
 import { checkInstagramHealth, InstagramHealthError } from "@/features/socialCampaigns/instagram/health";
 import { createServiceClient } from "@/utils/supabase/serviceRole";
@@ -11,7 +12,7 @@ async function notifyPublishers() {
   const recipients = (data ?? []).filter(profile => hasPerm(profile.role as MemberRole, profile.permission_overrides, "social", "publish"));
   if (!recipients.length) return;
   const { error: insertError } = await db.from("notifications").insert(recipients.map(profile => ({
-    user_id: profile.id, entity_type: "integration", entity_id: process.env.INSTAGRAM_ACCOUNT_ID ?? "instagram", type: "instagram_connection_warning", title: "Instagram connection needs attention",
+    user_id: profile.id, entity_type: "integration", entity_id: getInstagramConfig().accountId ?? "instagram", type: "instagram_connection_warning", title: "Instagram connection needs attention",
     body: "Instagram credential checks or renewal need attention. Review the instagram-health cron logs and the Meta dashboard.",
   })));
   if (insertError) throw new Error("Unable to save Instagram health notifications.");

@@ -13,7 +13,7 @@ The account uses **Instagram Login** and `graph.instagram.com`.
    connected professional account and granted `instagram_business_basic` and
    `instagram_business_content_publish` permissions. Account/app eligibility still
    needs verification for each format, especially Stories.
-2. Set `INSTAGRAM_ACCOUNT_ID`, `INSTAGRAM_ACCESS_TOKEN`, and
+2. Set the matching `INSTAGRAM_DEV_ACCOUNT_ID` / `INSTAGRAM_DEV_ACCESS_TOKEN` or `INSTAGRAM_PROD_ACCOUNT_ID` / `INSTAGRAM_PROD_ACCESS_TOKEN`, and
    `META_GRAPH_API_VERSION`. The local account and publishing-quota endpoints were
    successfully checked without creating or publishing media. Meta returned API
    version `v25.0`, now configured locally. Production needs its own configuration.
@@ -77,7 +77,7 @@ and structured cron logs. A successful health check is not proof that all media
 formats will publish. Neither token validity nor refresh can be guaranteed after
 revocation, permission changes, or service outages.
 
-To rotate a token, update `INSTAGRAM_ACCESS_TOKEN` and redeploy. The seed fingerprint
+To rotate a token, update the selected `INSTAGRAM_DEV_ACCESS_TOKEN` or `INSTAGRAM_PROD_ACCESS_TOKEN` and redeploy. The seed fingerprint
 causes the app to ignore a stored token derived from an older environment seed.
 
 
@@ -142,3 +142,5 @@ Account pairing and publisher-approved machine sending are implemented. Follow
 publisher's active status, publishing permission, account ownership, and connected
 session for each cron request. Retries already exist in the CMS; sender-side
 idempotency remains unimplemented.
+
+Instagram credentials: Vercel Production selects the `INSTAGRAM_PROD_*` pair; Preview and Development select `INSTAGRAM_DEV_*`. Outside Vercel, `NODE_ENV=production` selects PROD (including local `next start`); other modes select DEV. Missing selected credentials cause an error without falling back to the other pair or the former variable names. The encryption key and API version remain shared settings.

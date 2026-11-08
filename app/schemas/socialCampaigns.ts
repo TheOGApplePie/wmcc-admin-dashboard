@@ -77,12 +77,8 @@ const SocialPostFieldsZod = z
     version: z.number().int().positive(),
     title: z.string().trim().min(1).max(120),
     caption: z.string().max(2_200),
-    description: z.string().max(2_000),
-    media_url: z.union([HttpsUrlZod, z.literal("")]),
     media_items: z.array(SocialMediaItemZod).max(10).default([]),
     hashtags: z.array(z.string().trim().min(1).max(100)).max(30).default([]),
-    call_to_action_link: z.union([HttpsUrlZod, z.literal("")]),
-    call_to_action_caption: z.string().max(100).default(""),
     channel: SocialPostChannelZod,
     scheduled_date: z.iso.date().nullable(),
     time_slot: z.enum(["morning", "afternoon", "evening"]).nullable(),
@@ -91,7 +87,7 @@ const SocialPostFieldsZod = z
 
 export const UpdateSocialPostZod = SocialPostFieldsZod
   .superRefine((data, ctx) => {
-    const mediaCount = data.media_items.length || (data.media_url ? 1 : 0);
+    const mediaCount = data.media_items.length;
     if (data.channel !== "instagram_feed" && mediaCount > 1) {
       ctx.addIssue({
         code: "custom",
@@ -99,8 +95,20 @@ export const UpdateSocialPostZod = SocialPostFieldsZod
         message: "Only Instagram Feed supports multiple media links.",
       });
     }
+    if (data.channel === "whatsapp" && data.media_items.some(item => {
+      const url = new URL(item.url);
+      let path: string;
+      try { path = decodeURIComponent(url.pathname); } catch { return true; }
+      return !path.startsWith("/storage/v1/object/public/event-posters/public/") || !/\.jpe?g$/i.test(path) || path.split("/").some(segment => segment === "." || segment === "..");
+    })) ctx.addIssue({code: "custom", path: ["media_items"], message: "WhatsApp media must be a JPEG poster from event-posters/public. Videos are unsupported."});
+    if (data.channel === "instagram_feed" || data.channel === "instagram_reel") {
+      const combined = [data.caption.trim(), data.hashtags.map(tag => `#${tag.replace(/^#/, "")}`).join(" ")].filter(Boolean).join("\n\n");
+      if (combined.length > 2200) ctx.addIssue({code: "custom", path: ["hashtags"], message: "Caption and hashtags together must be 2,200 characters or fewer."});
+      const count = (combined.match(/#[^\s#]+/g) ?? []).length;
+      if (count > 30) ctx.addIssue({code: "custom", path: ["hashtags"], message: "Use at most 30 hashtags across the caption and hashtag field."});
+    }
     if (data.status === "scheduled") {
-      if (!data.caption.trim()) ctx.addIssue({code: "custom", path: ["caption"], message: "Caption is required to schedule."});
+      if (data.channel !== "instagram_story" && !data.caption.trim()) ctx.addIssue({code: "custom", path: ["caption"], message: "Caption is required to schedule."});
       if (data.channel !== "whatsapp" && !data.media_items.length) ctx.addIssue({code: "custom", path: ["media_items"], message: "Media is required for this platform."});
       if (!data.scheduled_date)
         ctx.addIssue({
@@ -115,8 +123,7 @@ export const UpdateSocialPostZod = SocialPostFieldsZod
           message: "Time slot is required.",
         });
       if (
-        data.channel.startsWith("instagram_") &&
-        data.channel !== "instagram_reel" &&
+        data.channel === "instagram_feed" &&
         data.media_items.some((item) => !item.alt_text.trim())
       ) {
         ctx.addIssue({
@@ -163,12 +170,8 @@ export interface SocialCalendarPost {
   review_reason: string | null;
   post_title: string;
   caption: string;
-  description: string;
-  media_url: string | null;
   media_items: Array<{ url: string; alt_text: string }>;
   hashtags: string[];
-  call_to_action_link: string | null;
-  call_to_action_caption: string | null;
   channel: SocialPostChannel;
   schedule_platform: "instagram" | "whatsapp" | "tiktok";
   scheduled_date: string | null;

@@ -9,7 +9,7 @@ It removes `social_campaign_occurrences`, `social_post_variants`, `social_delive
 
 ## Post fields
 
-Content has separate columns: `title`, `caption`, `description`, `hashtags`, `media_urls`, `media_alt_texts`, `cover_media_url`, `overlay_text`, `call_to_action_link` and `call_to_action_caption`. Media URLs and alt text are ordered PostgreSQL arrays with matching lengths. There are no JSON columns on posts. RPC transport and provider requests may assemble JSON without storing content in a JSON column.
+After migration 038, post content consists of `title`, `caption`, `hashtags`, `media_urls`, and `media_alt_texts`. Ordered media and alt-text arrays have matching lengths. There are no post notes, cover-image, overlay, or CTA columns. `title` identifies the post internally. The application transports ordered `media_items` without a duplicate `media_url`. Campaign/event descriptions are separate from post content and remain supported.
 
 `channel` identifies the publication format. `scheduled_date` and `time_slot` can be proposed on drafts. `scheduled_at` is populated on approval. Status tracks draft, proposed, scheduled, due, processing, provider processing, sent, failed, skipped or cancelled. Existing fixed UTC slot times are unchanged.
 

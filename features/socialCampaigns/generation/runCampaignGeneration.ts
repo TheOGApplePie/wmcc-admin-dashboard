@@ -193,11 +193,8 @@ export async function runCampaignGeneration(
       sequence,
       title: `${proposal.kind === "initial" ? "Initial post" : `${proposal.milestoneDays}-day reminder`}: ${event.title}`,
       caption: occurrence.description,
-      description: occurrence.description,
       mediaUrl: occurrence.poster_url,
       mediaAlt: occurrence.poster_alt,
-      callToActionLink: occurrence.call_to_action_link,
-      callToActionCaption: occurrence.call_to_action_caption,
     };
   });
   if (options?.preview) return {

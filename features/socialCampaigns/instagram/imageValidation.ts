@@ -1,4 +1,5 @@
 import sharp from "sharp";
+import { assertImageRatio } from "../lib/imageDimensions";
 import { createServiceClient } from "@/utils/supabase/serviceRole";
 
 export class InstagramImageValidationError extends Error {}
@@ -32,10 +33,10 @@ export async function validateInstagramImageBuffer(
     throw new InstagramImageValidationError(
       "Unable to determine Instagram image dimensions.",
     );
-  if (requirePortrait && width * 5 !== height * 4) {
-    throw new InstagramImageValidationError(
-      `Instagram feed images must have a 4:5 aspect ratio (for example, 1080 × 1350). This image is ${width} × ${height}.`,
-    );
+  try {
+    assertImageRatio(width, height, requirePortrait ? "4:5" : "9:16");
+  } catch (error) {
+    throw new InstagramImageValidationError((error as Error).message);
   }
 }
 
