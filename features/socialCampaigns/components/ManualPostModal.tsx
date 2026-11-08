@@ -161,7 +161,7 @@ export default function ManualPostModal({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 Media{" "}
-                <span className="font-normal text-muted">{selectedChannel === "instagram_feed" ? "Up to 10 finished 4:5 JPEGs (1080 × 1350); the first is the carousel cover." : selectedChannel === "instagram_story" ? "One finished 9:16 JPEG (1080 × 1920). Include all text in the image." : selectedChannel === "instagram_reel" ? "One MP4/MOV video. 3 seconds–15 minutes; 9:16 recommended." : selectedChannel === "whatsapp" ? "Optional: one JPEG poster. No aspect ratio requirement. Put links directly in your message." : "Required to schedule except WhatsApp"}</span>
+                <span className="font-normal text-muted">{selectedChannel === "instagram_feed" ? "Up to 10 finished 4:5 JPEGs (1080 × 1350); the first is the carousel cover." : selectedChannel === "instagram_story" ? "One finished 9:16 JPEG (1080 × 1920). Include all text in the image." : selectedChannel === "instagram_reel" ? "One MP4 video. 3 seconds–15 minutes; 9:16 recommended." : selectedChannel === "whatsapp" ? "Optional: one JPEG poster. No aspect ratio requirement. Put links directly in your message." : "Required to schedule except WhatsApp"}</span>
               </div>
               {canEdit && <button type="button" disabled={!selectedChannel} onClick={() => setMediaPickerOpen(true)} className="rounded-lg border border-teal px-3 py-2 text-xs font-semibold text-teal disabled:opacity-40">Choose from Storage</button>}
             </div>

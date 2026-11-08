@@ -50,7 +50,6 @@ export function ScheduleForm({
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const [dirty, setDirty] = useState(false);
   const discard = useUnsavedChanges(dirty);
@@ -128,7 +127,7 @@ export function ScheduleForm({
   }
   async function save(e: SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (busy || uploading) return;
+    if (busy) return;
     setError("");
     try {
       const fields = parse(new FormData(e.currentTarget));
@@ -157,7 +156,7 @@ export function ScheduleForm({
   }
   return (
     <form
-      aria-busy={busy || uploading}
+      aria-busy={busy}
       onSubmit={save}
       onChange={() => {
         setDirty(true);
@@ -169,7 +168,7 @@ export function ScheduleForm({
         Times use America/Toronto. Existing individual overrides and completed
         sessions are preserved.
       </p>
-      <fieldset disabled={busy || uploading} className="space-y-4">
+      <fieldset disabled={busy} className="space-y-4">
         <Field label="Schedule label">
           <input
             name="label"
@@ -350,11 +349,9 @@ export function ScheduleForm({
           />
         </Field>
         <PosterFields
-          title={event.title}
           url={schedule?.poster_url ?? null}
           alt={schedule?.poster_alt ?? ""}
           inherited={event}
-          onBusy={setUploading}
           onChange={() => {
             setDirty(true);
           }}
@@ -375,7 +372,6 @@ export function ScheduleForm({
         </div>
       </fieldset>
       {busy && <p role="status">Saving schedule…</p>}
-      {uploading && <p role="status">Uploading poster…</p>}
       {error && (
         <p role="alert" className="whitespace-pre-wrap text-sm text-coral">
           {error}

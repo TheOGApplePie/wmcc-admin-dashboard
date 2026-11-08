@@ -13,6 +13,7 @@ import CarouselPreview from "./CarouselPreview";
 import PreviewHeader from "./PreviewHeader";
 import AnnouncementTabs, { type AnnouncementTab } from "./AnnouncementTabs";
 import InspectorPanel from "./InspectorPanel";
+import { useAnnouncementModal } from "../modalContext";
 
 interface AnnouncementsClientProps {
   currentAnnouncements: Announcement[];
@@ -29,10 +30,14 @@ export default function AnnouncementsClient({
   const reorderingRef = useRef(false);
   const canEdit = useCan("announcements.edit");
   const router = useRouter();
+  const { modal } = useAnnouncementModal();
+  const modalOpen = modal.type !== "NONE";
   useEffect(() => {
+    // Keep background updates from interrupting an active editor or confirmation.
+    if (modalOpen) return;
     const timer = setInterval(() => router.refresh(), 30_000);
     return () => clearInterval(timer);
-  }, [router]);
+  }, [router, modalOpen]);
   const [liveItems, setLiveItems] = useState(currentAnnouncements);
   const [selected, setSelected] = useState<Announcement | null>(
     currentAnnouncements[0] ?? null,

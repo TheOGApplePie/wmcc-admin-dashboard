@@ -34,14 +34,13 @@ export function BaseEventForm({
     event?.call_to_action_link || event?.call_to_action_caption ? "link" : "form",
   );
   const [busy, setBusy] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const [dirty, setDirty] = useState(false);
   const discard = useUnsavedChanges(dirty);
   const requestId = useRequestId();
   async function save(e: SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (busy || uploading) return;
+    if (busy) return;
     setError("");
     setBusy(true);
     try {
@@ -83,13 +82,13 @@ export function BaseEventForm({
   }
   return (
     <form
-      aria-busy={busy || uploading}
+      aria-busy={busy}
       onSubmit={save}
       onChange={() => setDirty(true)}
       className="space-y-4"
     >
       <fieldset
-        disabled={busy || uploading}
+        disabled={busy}
         className="space-y-4 disabled:opacity-60"
       >
         <Field label="Title">
@@ -134,10 +133,8 @@ export function BaseEventForm({
           </Field>
         </div>
         <PosterFields
-          title={event?.title ?? "event"}
           url={event?.poster_url ?? null}
           alt={event?.poster_alt ?? ""}
-          onBusy={setUploading}
           onChange={() => setDirty(true)}
         />
         <Field label="Event action">
@@ -189,7 +186,7 @@ export function BaseEventForm({
       {onClose && (
         <button
           type="button"
-          disabled={busy || uploading}
+          disabled={busy}
           className="text-sm underline"
           onClick={() => {
             if (discard()) onClose();
@@ -199,7 +196,6 @@ export function BaseEventForm({
         </button>
       )}
       {busy && <p role="status">Saving event…</p>}
-      {uploading && <p role="status">Uploading poster…</p>}
       {error && (
         <p role="alert" className="whitespace-pre-wrap text-sm text-coral">
           {error}

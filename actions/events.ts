@@ -1,8 +1,5 @@
 "use server";
-import {
-  EVENT_FIELD_LIMITS,
-  MAX_EVENT_POSTER_BYTES,
-} from "@/features/events/constants";
+
 
 import { createSafeActionClient } from "next-safe-action";
 import { revalidatePath } from "next/cache";
@@ -21,7 +18,6 @@ import {
   readEventDetail,
 } from "@/features/events/server";
 import { ok, fail } from "@/utils/actionResponse";
-import { resolveStorageUrl } from "@/utils/uploadFiles";
 import { scheduleDateIndex } from "@/features/events/domain";
 const client = createSafeActionClient();
 function message(error: unknown) {
@@ -125,31 +121,6 @@ export const changeScheduleException = client
         scheduleDateIndex(schedule, parsedInput.original_date);
       }
       return ok(await mutate("exception", parsedInput, parsedInput.request_id));
-    } catch (error) {
-      return fail(message(error));
-    }
-  });
-export const uploadEventPoster = client
-  .inputSchema(
-    z.object({
-      file: z
-        .file()
-        .max(MAX_EVENT_POSTER_BYTES)
-        .mime(["image/jpeg", "image/jpg"]),
-      title: z.string().min(1).max(EVENT_FIELD_LIMITS.shortTextMax),
-    }),
-  )
-  .action(async ({ parsedInput }) => {
-    try {
-      const { supabase } = await requirePermission("events", "edit");
-      return ok(
-        await resolveStorageUrl(
-          supabase,
-          parsedInput.file,
-          null,
-          parsedInput.title,
-        ),
-      );
     } catch (error) {
       return fail(message(error));
     }

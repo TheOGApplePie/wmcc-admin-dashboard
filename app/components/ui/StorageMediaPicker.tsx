@@ -23,8 +23,8 @@ function matchesMedia(entry: StorageEntry, kind: MediaKind) {
   const mime = entry.mimeType || inferredMime(entry.name);
   if (kind === "instagram_image") return mime === "image/jpeg";
   if (kind === "image") return mime === "image/jpeg" || mime === "image/jpg";
-  if (kind === "video") return mime.startsWith("video/");
-  return mime === "image/jpeg" || mime === "image/jpg" || mime.startsWith("video/");
+  if (kind === "video") return mime === "video/mp4";
+  return mime === "image/jpeg" || mime === "image/jpg" || mime === "video/mp4";
 }
 
 function inferredMime(name: string) {

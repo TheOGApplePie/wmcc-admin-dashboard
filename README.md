@@ -167,7 +167,7 @@ Available formats in the editor do not establish production readiness. See
 | --- | --- | --- |
 | Instagram Story | One finished 9:16 JPEG, e.g. 1080 × 1920 | Text must already be in the image; no caption, hashtag, or alt-text fields |
 | Instagram Feed | One to ten 4:5 JPEGs, e.g. 1080 × 1350 | Caption, optional hashtags, required alt text per image |
-| Instagram Reel | One MP4/MOV video; 9:16 recommended | Caption and optional hashtags |
+| Instagram Reel | One MP4 video; 9:16 recommended | Caption and optional hashtags |
 | WhatsApp | Optional single JPEG poster from `event-posters/public/`; no ratio requirement | Required message; put links directly in the message |
 
 Posts retain an internal title, campaign, format, date, time slot, and draft or
@@ -299,8 +299,7 @@ Uploads go to the current bucket and folder using a signed upload URL and unique
   e.g. 1080 × 1920; checked at selection, upload, scheduling, and publishing.
 - WhatsApp: one optional JPG/JPEG poster from `event-posters/public/`, with no
   aspect-ratio restriction; the picker stays within that folder and its subfolders.
-- Video uploads: up to 50 MB; MP4 only. Existing MP4/MOV files can be selected
-  for Instagram Reels. Meta validates video codecs, frame rate, bitrate, and
+- Video uploads: up to 50 MB; Instagram Reels and TikTok accept MP4 only in this app. Meta validates video codecs, frame rate, bitrate, and
   duration; the app does not preflight all video properties.
 
 Uploads are saved immediately, even if the picker is cancelled. They are selected automatically
