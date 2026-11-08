@@ -14,7 +14,6 @@ export type ClaimedDelivery = {
     | "whatsapp"
     | "tiktok_reel";
   caption: string;
-  description: string;
   media_items: Array<{ url: string; alt_text: string }>;
   attempt_number: number;
   idempotency_key: string;
@@ -137,11 +136,10 @@ async function finishInstagramContainer(
 }
 
 async function publishInstagram(delivery: ClaimedDelivery): Promise<PublishResult> {
-  const accountId = process.env.INSTAGRAM_ACCOUNT_ID;
-  if (!accountId || !process.env.META_GRAPH_API_VERSION || !process.env.INSTAGRAM_ACCESS_TOKEN) return { success: false, retryable: false, error: "Instagram publishing configuration is incomplete." };
+  if (!process.env.META_GRAPH_API_VERSION) return { success: false, retryable: false, error: "Instagram publishing configuration is incomplete." };
   let containerId = delivery.external_id ?? undefined;
   try {
-    const { token } = await getInstagramCredential();
+    const { token, accountId } = await getInstagramCredential();
     const existingContainerId = delivery.external_id;
     if (existingContainerId) {
       return await finishInstagramContainer(accountId, existingContainerId, token);
@@ -153,6 +151,9 @@ async function publishInstagram(delivery: ClaimedDelivery): Promise<PublishResul
         retryable: false,
         error: "Instagram requires media.",
       };
+    if (delivery.channel !== "instagram_story" && (delivery.caption.length > 2200 || (delivery.caption.match(/#[^\s#]+/g) ?? []).length > 30)) {
+      return { success: false, retryable: false, error: "Instagram captions must be at most 2,200 characters and contain at most 30 hashtags." };
+    }
     if (delivery.channel === "instagram_feed" ||delivery.channel === "instagram_story") {
       for (const item of delivery.media_items) {
         try { await assertInstagramImageUrl(item.url, delivery.channel === "instagram_feed"); }

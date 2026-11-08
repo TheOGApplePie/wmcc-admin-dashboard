@@ -67,3 +67,28 @@ UI controls reflect permissions, while server actions and row-level security rem
 Schedule generation previews are read-only. Saving regenerates from the current
 event and calendar state using the existing database version checks; there is no
 additional preview fingerprint protocol.
+
+
+## Instagram post requirements
+
+- Stories: one finished 9:16 JPEG (for example 1080 × 1920). The app requires this ratio at selection, upload, save, and publication. All text must already be in the image. Caption, hashtags, CTA fields, and alt text are not exposed for Stories.
+- Feed: one to ten 4:5 JPEG images (for example 1080 × 1350), caption, optional comma-separated hashtags, and alt text for each image. 4:5 and required alt text are app policies.
+- Reels: one MP4/MOV video, caption, and optional comma-separated hashtags. 9:16 is recommended. The storage uploader currently accepts MP4 up to 50 MB; existing MOV files can be selected. Server checks verify MIME type; Meta performs codec, bitrate, frame-rate, and duration validation. These properties are not preflighted locally.
+- Instagram images are checked server-side as JPEGs up to 8 MB; the shared uploader has a stricter 5 MB limit.
+- Feed/Reel hashtags are appended to the caption when the worker claims the post. Combined caption length is limited to 2,200 characters; application validation counts hashtags in both fields against 30.
+- Instagram has no CTA, collaborator, overlay text, or positioning controls in this workflow. Unused post content columns are removed by migration 038.
+
+Apply migration `038_instagram_post_requirements.sql` before deploying these changes. It removes Story caption/alt-text scheduling requirements and includes hashtags in claimed Feed/Reel captions. Existing Story images are checked against 9:16 at publication and may need replacement.
+
+Meta sources checked November 7, 2026:
+- https://www.postman.com/meta/instagram/folder/830j7my/reels-publishing (official Meta collection: MOV/MP4, HEVC/H.264, AAC, 23–60 FPS, 3 seconds–15 minutes, 9:16 recommended).
+- https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user/media/ (direct access returned HTTP 429; do not treat our stricter 9:16/4:5 policies as a fresh verification of all Meta image limits).
+
+
+## WhatsApp post requirements and shared editor
+
+The connected WhatsApp service uses a paired account (Baileys), not Meta's Cloud API. Its current contract is a nonempty message with zero or one JPEG poster from this project's `event-posters/public/` storage folder. Videos, carousels, separate alt text, hashtag fields, and CTA buttons are unsupported. Put URLs and any desired hashtag text directly in the message. No image aspect ratio is enforced. The editor retains its existing 2,200-character message limit and 5 MB image upload limit as app policies.
+
+Approving a WhatsApp post records the approving user as publisher and requires that user's paired WhatsApp account. The internal title is never included in the message. The service chooses the destination group; this editor does not choose recipients.
+
+Pending migration 038 validates WhatsApp poster paths and normalizes future saves: Story captions, Story/WhatsApp separate hashtags, and non-Feed alt text are cleared on save. It drops post `description`, `cover_media_url`, `overlay_text`, `call_to_action_link`, and `call_to_action_caption`, including stored values. The duplicate application `media_url` property is removed; ordered `media_items` is the only media transport. Campaign and event descriptions and CTA fields belong to those separate features and are retained. Do not run migrations against a database missing earlier dependencies; verify the migration history first.

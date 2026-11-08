@@ -71,10 +71,10 @@ export default function CopyPostDetailsModal({ source, details, canPublish, onCl
         {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
         <fieldset disabled={working || applied} className="mt-4 space-y-3">
           <legend className="mb-2 font-semibold text-ink">{step === "fields" ? "Choose fields to copy" : "Choose posts in this campaign"}</legend>
-          {step === "fields" ? (Object.entries(COPY_FIELDS) as [CopyField, string][]).map(([field, label]) => (
+          {step === "fields" ? (Object.entries(COPY_FIELDS) as [CopyField, string][]).filter(([field]) => !(["instagram_story", "whatsapp"].includes(source.channel) && field === "hashtags") && !(source.channel === "instagram_story" && field === "caption")).map(([field, label]) => (
             <label key={field} className="flex items-center gap-3 text-sm text-ink">
               <input type="checkbox" checked={fields.includes(field)} onChange={(event) => setFields((current) => event.target.checked ? [...current, field] : current.filter((item) => item !== field))} />
-              {label}
+              {field === "media_items" && source.channel !== "instagram_feed" ? "Media" : field === "caption" && source.channel === "whatsapp" ? "Message" : label}
             </label>
           )) : <>
             <p className="text-xs text-muted">Copying: {fields.map((field) => COPY_FIELDS[field]).join(", ")}. Scheduled posts remain scheduled. Media must fit every selected format.</p>

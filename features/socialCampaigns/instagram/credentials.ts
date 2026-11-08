@@ -6,6 +6,8 @@ import {
 } from "node:crypto";
 import { createServiceClient } from "@/utils/supabase/serviceRole";
 
+import { getInstagramConfig } from "./config";
+
 function encryptionKey() {
   const key = process.env.INSTAGRAM_TOKEN_ENCRYPTION_KEY ?? "";
   if (!/^[a-f0-9]{64}$/i.test(key))
@@ -39,10 +41,9 @@ export function decryptToken(value: string): string {
 }
 
 export async function getInstagramCredential() {
-  const accountId = process.env.INSTAGRAM_ACCOUNT_ID;
-  const seed = process.env.INSTAGRAM_ACCESS_TOKEN;
+  const { accountId, seed, prefix } = getInstagramConfig();
   if (!accountId || !seed)
-    throw new Error("Instagram account ID and access token are required.");
+    throw new Error(`${prefix}_ACCOUNT_ID and ${prefix}_ACCESS_TOKEN are required.`);
   const fingerprint = createHash("sha256").update(seed).digest("hex");
   const db = createServiceClient();
   const { data, error } = await db

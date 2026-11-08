@@ -103,14 +103,23 @@ async function assertSocialMediaSelection(
         "Instagram image publishing requires a JPEG from the event-posters bucket.",
       );
     }
-    if (requiresImage) await assertInstagramImageUrl(item.url,
-      channel === "instagram_feed");
+    if (requiresImage)
+      await assertInstagramImageUrl(item.url, channel === "instagram_feed");
     if (
       channel === "whatsapp" &&
-      !IMAGE_MIME_TYPES.has(mimeType) &&
-      !VIDEO_MIME_TYPES.has(mimeType)
+      (bucket !== "event-posters" ||
+        !IMAGE_MIME_TYPES.has(mimeType) ||
+        !path.startsWith("public/") ||
+        path
+          .split("/")
+          .some((segment) => segment === "." || segment === "..") ||
+        !/\.jpe?g$/i.test(path) ||
+        url.username ||
+        url.password)
     ) {
-      throw new Error("WhatsApp media must be a JPG/JPEG image or supported video.");
+      throw new Error(
+        "WhatsApp supports one JPG/JPEG poster from event-posters/public, or a message without media. Videos are unsupported.",
+      );
     }
   }
 }
@@ -122,7 +131,9 @@ async function getEventSnapshot(
   if (!eventId) return {};
   const { data, error } = await supabase
     .from("events")
-    .select("id,title,publication_status,version,event_schedules(*,recurrence_rule(*))")
+    .select(
+      "id,title,publication_status,version,event_schedules(*,recurrence_rule(*))",
+    )
     .eq("id", eventId)
     .single();
   if (error) throw new Error(error.message);
@@ -165,9 +176,12 @@ export const getSocialCalendarPosts = actionClient.action(async () => {
     const { supabase } = await requirePermission("social", "view");
     const deliveries: SocialCalendarPost[] = [];
     for (let offset = 0; ; offset += 500) {
-      const { data, error } = await supabase.from("social_posts")
+      const { data, error } = await supabase
+        .from("social_posts")
         .select("*, social_campaigns!inner(id,name,status)")
-        .neq("status", "cancelled").order("id").range(offset, offset + 499);
+        .neq("status", "cancelled")
+        .order("id")
+        .range(offset, offset + 499);
       if (error) throw new Error(error.message);
       for (const row of data ?? []) {
         deliveries.push({
@@ -175,8 +189,10 @@ export const getSocialCalendarPosts = actionClient.action(async () => {
           campaign_name: row.social_campaigns.name,
           campaign_status: row.social_campaigns.status,
           post_title: row.title,
-          media_url: row.media_urls[0] ?? null,
-          media_items: row.media_urls.map((url: string, i: number) => ({url, alt_text: row.media_alt_texts[i] ?? ""})),
+          media_items: row.media_urls.map((url: string, i: number) => ({
+            url,
+            alt_text: row.media_alt_texts[i] ?? "",
+          })),
         } as SocialCalendarPost);
       }
       if (!data || data.length < 500) break;
@@ -195,50 +211,88 @@ export const copySocialPostDetails = actionClient
   .action(async ({ parsedInput: input }) => {
     try {
       const { supabase } = await requirePermission("social", "edit");
-      const { data: source, error: sourceError } = await supabase.from("social_posts")
-        .select("id").eq("id", input.source_id).eq("campaign_id", input.campaign_id).single();
-      if (sourceError || !source) return clientFail("Source post is not in this campaign.");
+      const { data: source, error: sourceError } = await supabase
+        .from("social_posts")
+        .select("id")
+        .eq("id", input.source_id)
+        .eq("campaign_id", input.campaign_id)
+        .single();
+      if (sourceError || !source)
+        return clientFail("Source post is not in this campaign.");
       const { data: targets, error } = await supabase
         .from("social_posts")
-        .select("*").eq("campaign_id", input.campaign_id).in("id", input.targets.map((target) => target.id));
+        .select("*")
+        .eq("campaign_id", input.campaign_id)
+        .in(
+          "id",
+          input.targets.map((target) => target.id),
+        );
       if (error) throw new Error(error.message);
-      if (targets.length !== input.targets.length) return clientFail("Some selected posts are no longer available.");
-      const details = Object.fromEntries(input.fields.map((field) => [field, input.details[field]]));
+      if (targets.length !== input.targets.length)
+        return clientFail("Some selected posts are no longer available.");
+      const details = Object.fromEntries(
+        input.fields.map((field) => [field, input.details[field]]),
+      );
       const verifiedMediaChannels = new Set<string>();
       for (const target of targets) {
         if (!["draft", "proposed", "scheduled"].includes(target.status))
           return clientFail(`"${target.title}" can no longer be edited.`);
         const merged = {
-          description: target.description, caption: target.caption,
-          media_items: target.media_urls.map((url: string, index: number) => ({ url, alt_text: target.media_alt_texts[index] ?? "" })),
-          hashtags: target.hashtags, call_to_action_link: target.call_to_action_link ?? "",
-          call_to_action_caption: target.call_to_action_caption ?? "", ...details,
+          caption: target.caption,
+          media_items: target.media_urls.map((url: string, index: number) => ({
+            url,
+            alt_text: target.media_alt_texts[index] ?? "",
+          })),
+          hashtags: target.hashtags,
+          ...details,
         };
         const validation = UpdateSocialPostZod.safeParse({
-          ...merged, id: target.id, version: target.version, title: target.title,
-          media_url: merged.media_items[0]?.url ?? "", channel: target.channel,
-          scheduled_date: target.scheduled_date, time_slot: target.time_slot,
+          ...merged,
+          id: target.id,
+          version: target.version,
+          title: target.title,
+          channel: target.channel,
+          scheduled_date: target.scheduled_date,
+          time_slot: target.time_slot,
           status: target.status === "scheduled" ? "scheduled" : "draft",
         });
-        if (!validation.success) return clientFail(`"${target.title}": ${validation.error.issues[0].message} No posts were changed.`);
+        if (!validation.success)
+          return clientFail(
+            `"${target.title}": ${validation.error.issues[0].message} No posts were changed.`,
+          );
         if (target.status === "scheduled")
-        await requirePermission("social", "publish");
-        if (input.fields.includes("media_items") && !verifiedMediaChannels.has(target.channel)) {
-          try { await assertSocialMediaSelection(target.channel, validation.data.media_items); }
-          catch (failure) { return clientFail(`"${target.title}": ${failure instanceof Error ? failure.message : String(failure)} No posts were changed.`); }
+          await requirePermission("social", "publish");
+        if (
+          input.fields.includes("media_items") &&
+          !verifiedMediaChannels.has(target.channel)
+        ) {
+          try {
+            await assertSocialMediaSelection(
+              target.channel,
+              validation.data.media_items,
+            );
+          } catch (failure) {
+            return clientFail(
+              `"${target.title}": ${failure instanceof Error ? failure.message : String(failure)} No posts were changed.`,
+            );
+          }
           verifiedMediaChannels.add(target.channel);
         }
       }
-      const { error: copyError } = await supabase.rpc("copy_social_post_details", {
-        p_source_id: input.source_id, p_campaign_id: input.campaign_id,
-        p_targets: input.targets, p_details: details,
-      });
+      const { error: copyError } = await supabase.rpc(
+        "copy_social_post_details",
+        {
+          p_source_id: input.source_id,
+          p_campaign_id: input.campaign_id,
+          p_targets: input.targets,
+          p_details: details,
+        },
+      );
       if (copyError) throw new Error(copyError.message);
       revalidatePath(REVALIDATE);
       return ok({ count: input.targets.length }, "Post details copied.");
     } catch (error) {
-      return fail(
-        error instanceof Error ? error.message : String(error));
+      return fail(error instanceof Error ? error.message : String(error));
     }
   });
 
@@ -254,7 +308,15 @@ export const updateSocialPost = actionClient
         .eq("id", parsedInput.id)
         .single();
       if (existingError) throw new Error(existingError.message);
-      if (["due", "processing", "provider_processing", "sent", "skipped"].includes(existing.status)) {
+      if (
+        [
+          "due",
+          "processing",
+          "provider_processing",
+          "sent",
+          "skipped",
+        ].includes(existing.status)
+      ) {
         return clientFail("This post can no longer be edited.");
       }
       if (parsedInput.status === "scheduled") {
@@ -309,26 +371,24 @@ export const updateSocialPost = actionClient
           parsedInput.media_items,
         );
       }
-      const { data: saved, error: updateError } = await supabase.rpc(
-        "save_social_post",
-        {
+      const { data: saved, error: updateError } = await supabase
+        .rpc("save_social_post", {
           p_id: parsedInput.id,
           p_version: parsedInput.version,
           p_campaign_id: existing.campaign_id,
           p_title: parsedInput.title,
-          p_description: parsedInput.description,
           p_caption: parsedInput.caption,
           p_media_urls: parsedInput.media_items.map((item) => item.url),
-          p_media_alt_texts: parsedInput.media_items.map((item) => item.alt_text),
+          p_media_alt_texts: parsedInput.media_items.map(
+            (item) => item.alt_text,
+          ),
           p_hashtags: parsedInput.hashtags,
-          p_call_to_action_link: parsedInput.call_to_action_link,
-          p_call_to_action_caption: parsedInput.call_to_action_caption,
           p_channel: parsedInput.channel,
           p_mode: parsedInput.status,
           p_scheduled_date: parsedInput.scheduled_date,
           p_time_slot: parsedInput.time_slot,
-        },
-      ).single<{ id: string; version: number }>();
+        })
+        .single<{ id: string; version: number }>();
       if (updateError) throw new Error(updateError.message);
 
       await logAudit(
@@ -408,15 +468,22 @@ export const createManualSocialPost = actionClient
         );
       }
       const post = parsedInput;
-      const { data, error } = await supabase.rpc("save_social_post", {
-        p_id: null, p_version: null, p_campaign_id: post.campaign_id,
-        p_title: post.title, p_description: post.description, p_caption: post.caption,
-        p_media_urls: post.media_items.map((item) => item.url),
-        p_media_alt_texts: post.media_items.map((item) => item.alt_text),
-        p_hashtags: post.hashtags, p_call_to_action_link: post.call_to_action_link,
-        p_call_to_action_caption: post.call_to_action_caption, p_channel: post.channel,
-        p_mode: post.mode, p_scheduled_date: post.scheduled_date, p_time_slot: post.time_slot,
-      }).single<{ id: string; version: number }>();
+      const { data, error } = await supabase
+        .rpc("save_social_post", {
+          p_id: null,
+          p_version: null,
+          p_campaign_id: post.campaign_id,
+          p_title: post.title,
+          p_caption: post.caption,
+          p_media_urls: post.media_items.map((item) => item.url),
+          p_media_alt_texts: post.media_items.map((item) => item.alt_text),
+          p_hashtags: post.hashtags,
+          p_channel: post.channel,
+          p_mode: post.mode,
+          p_scheduled_date: post.scheduled_date,
+          p_time_slot: post.time_slot,
+        })
+        .single<{ id: string; version: number }>();
       if (error) throw new Error(error.message);
       await logAudit(
         supabase,
@@ -679,12 +746,16 @@ export const generateCampaignProposal = actionClient
         { preview: parsedInput.preview },
       );
       if (result.skipped) return clientFail(result.skipped);
-      if (parsedInput.preview) return ok({
-        proposals: result.proposals ?? [],
-          generated_through: result.generatedThrough,
-          suppressed: result.suppressed,
-        inserted: 0,
-      }, "Schedule preview generated. Save to commit it.");
+      if (parsedInput.preview)
+        return ok(
+          {
+            proposals: result.proposals ?? [],
+            generated_through: result.generatedThrough,
+            suppressed: result.suppressed,
+            inserted: 0,
+          },
+          "Schedule preview generated. Save to commit it.",
+        );
       await logAudit(
         supabase,
         "social_campaign",

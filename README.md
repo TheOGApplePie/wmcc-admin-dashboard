@@ -34,9 +34,14 @@ Available checks and production commands:
 
 ```bash
 npm run lint
+npx tsc --noEmit
+node scripts/test-instagram-requirements.cjs
 npm run build
 npm start
 ```
+
+The regression script checks social-post validation, image ratios, and Instagram
+credential selection. It does not connect to providers or publish posts.
 
 ## Environment variables
 
@@ -55,8 +60,10 @@ CRON_SECRET=
 # Social delivery
 SOCIAL_DELIVERY_ENABLED=false
 META_GRAPH_API_VERSION=
-INSTAGRAM_ACCOUNT_ID=
-INSTAGRAM_ACCESS_TOKEN=
+INSTAGRAM_DEV_ACCOUNT_ID=
+INSTAGRAM_DEV_ACCESS_TOKEN=
+INSTAGRAM_PROD_ACCOUNT_ID=
+INSTAGRAM_PROD_ACCESS_TOKEN=
 INSTAGRAM_TOKEN_ENCRYPTION_KEY=
 WHATSAPP_SERVICE_URL=
 WHATSAPP_API_TOKEN=
@@ -73,6 +80,28 @@ secret, shared only between the CMS and the separate sender service.
 characters. Keep it stable across deployments so refreshed tokens remain readable.
 Provider credentials and this key stay on the application servers, not in GitHub
 Actions. Instagram uses the Instagram Login API at `graph.instagram.com`.
+
+### Instagram account selection
+
+| Runtime | Account ID and token |
+| --- | --- |
+| Vercel Production | `INSTAGRAM_PROD_ACCOUNT_ID`, `INSTAGRAM_PROD_ACCESS_TOKEN` |
+| Vercel Preview or Development | `INSTAGRAM_DEV_ACCOUNT_ID`, `INSTAGRAM_DEV_ACCESS_TOKEN` |
+| Outside Vercel, `NODE_ENV=production` | PROD pair, including local `next start` |
+| Other local modes, including `npm run dev` | DEV pair |
+
+`VERCEL_ENV` takes precedence over `NODE_ENV`. Configure the matching account ID
+and token together. Missing selected credentials cause an error; the app never
+falls back to the other account or the former `INSTAGRAM_ACCOUNT_ID` and
+`INSTAGRAM_ACCESS_TOKEN` names. `INSTAGRAM_LOGIN_MODE` is unused.
+
+Publishing, token refresh, and health notifications use the same account selection.
+The encryption key and API version are shared settings. Refreshed credentials are
+stored per account ID. To rotate a token, replace the selected environment token
+and restart or redeploy; the app detects the changed seed fingerprint.
+
+Each environment has one Instagram destination: changing credentials redirects
+all Instagram work processed there, including queued posts, to the selected account.
 
 ## Database
 
@@ -92,9 +121,15 @@ The current integration migrations are:
 | `035` | Link CMS users to their WhatsApp accounts |
 | `036` | Record the approving publisher and expose permission checks for the sender |
 | `037` | Store refreshed Instagram tokens encrypted, accessible only to the service role |
+| `038` | Align post fields and channel requirements, publish Instagram hashtags, and drop obsolete post columns |
 
 Migration 037 only adds credential storage. Publishing uses the existing social-post
-claim, pending-state, completion, and recovery functions.
+claim, pending-state, completion, and recovery functions. Migration 038 replaces
+the save RPC signature and worker claim result, updates copying and generation,
+and drops post `description`, `cover_media_url`, `overlay_text`,
+`call_to_action_link`, and `call_to_action_caption`, including stored values.
+Deploy the matching application code with this migration; older save requests are
+incompatible. Campaign and event fields are unaffected.
 
 ## Social scheduling
 
@@ -126,6 +161,25 @@ notify publishers. Expired or revoked tokens require reconnecting through Meta.
 Available formats in the editor do not establish production readiness. See
 [provider readiness](docs/social-provider-readiness.md) before enabling a provider.
 
+### Post content
+
+| Format | Media | Published text |
+| --- | --- | --- |
+| Instagram Story | One finished 9:16 JPEG, e.g. 1080 × 1920 | Text must already be in the image; no caption, hashtag, or alt-text fields |
+| Instagram Feed | One to ten 4:5 JPEGs, e.g. 1080 × 1350 | Caption, optional hashtags, required alt text per image |
+| Instagram Reel | One MP4/MOV video; 9:16 recommended | Caption and optional hashtags |
+| WhatsApp | Optional single JPEG poster from `event-posters/public/`; no ratio requirement | Required message; put links directly in the message |
+
+Posts retain an internal title, campaign, format, date, time slot, and draft or
+scheduled status. There are no post notes, CTA buttons, collaborator invitations,
+or text-positioning controls. The app uses one ordered `media_items` list, stored
+as matching `media_urls` and `media_alt_texts` arrays without a duplicate `media_url`.
+
+Feed/Reel hashtags are appended to the caption at delivery. Combined text must be
+at most 2,200 characters with at most 30 hashtags across both fields. WhatsApp
+retains the app's 2,200-character message limit. Its connected paired-account
+service supports text and JPEG posters, not videos or interactive CTA buttons.
+
 ### Cron routes
 
 | Route                  |   UTC schedule | Purpose                                   |
@@ -139,7 +193,7 @@ GitHub Actions schedules three endpoints; Vercel's cron list is empty. The unifi
 all platforms, including Instagram containers awaiting processing. Morning,
 afternoon, and evening remain calendar slots, not separate cron jobs.
 Workflows remain gated until `SOCIAL_CRON_ENABLED=true` is set. Apply migration
-037 before enabling. See [GitHub setup and cutover](docs/social-cron-github.md).
+038 before enabling. See [GitHub setup and cutover](docs/social-cron-github.md).
 
 The workflow files live in [`.github/workflows`](.github/workflows). Each calls the
 shared workflow, which runs [`scripts/run-social-cron.mjs`](scripts/run-social-cron.mjs)
@@ -191,7 +245,7 @@ The application is deployed through Vercel.
 Before enabling scheduled work:
 
 1. Keep GitHub's `SOCIAL_CRON_ENABLED` unset or `false`, and CMS delivery disabled.
-2. Apply pending migrations in numeric order, including 037.
+2. Apply pending migrations in numeric order, through 038.
 3. Configure production CMS and sender credentials, using Node.js 22 or newer.
 4. Push workflows to the default branch and deploy the CMS. Confirm Vercel's old
    cron schedules are removed; `vercel.json` intentionally has an empty cron list.
@@ -241,8 +295,13 @@ Uploads go to the current bucket and folder using a signed upload URL and unique
   from uploads and picker selection.
 - Instagram feed/carousel images: exact 4:5 displayed ratio, e.g. 1080 × 1350,
   checked before scheduling and publishing. Every carousel image must comply.
-- Instagram Stories: JPEG-only; the feed's 4:5 requirement does not apply.
-- Videos: up to 50 MB; MP4 only.
+- Instagram Stories: one finished JPEG with an exact 9:16 displayed ratio,
+  e.g. 1080 × 1920; checked at selection, upload, scheduling, and publishing.
+- WhatsApp: one optional JPG/JPEG poster from `event-posters/public/`, with no
+  aspect-ratio restriction; the picker stays within that folder and its subfolders.
+- Video uploads: up to 50 MB; MP4 only. Existing MP4/MOV files can be selected
+  for Instagram Reels. Meta validates video codecs, frame rate, bitrate, and
+  duration; the app does not preflight all video properties.
 
 Uploads are saved immediately, even if the picker is cancelled. They are selected automatically
 when the selection limit permits. **Use selected media** requires a non-empty selection and

@@ -4,21 +4,21 @@ import { useState } from "react";
 import Image from "next/image";
 import toast from "react-hot-toast";
 import { createManualSocialPost, deleteSocialPost, getSocialCalendarPosts, updateSocialPost } from "@/actions/socialCampaigns";
+import { CreateManualSocialPostZod } from "@/app/schemas/socialCampaigns";
 import type { SocialCalendarPost, SocialCampaign, SocialPostChannel } from "@/app/schemas/socialCampaigns";
 import { localSlotLabel, scheduledAtFor } from "@/features/socialCampaigns/scheduling/slots";
 import CopyPostDetailsModal from "./CopyPostDetailsModal";
 import StorageMediaPicker from "@/app/components/ui/StorageMediaPicker";
 
 type PostDraft = { channel: SocialPostChannel;
-  hashtags: string; call_to_action_link: string;
-  call_to_action_caption: string;
+  hashtags: string;
 };
 const EMPTY = (channel: SocialPostChannel): PostDraft => ({
   channel,
-  hashtags: "", call_to_action_link: "", call_to_action_caption: "",
+  hashtags: "",
 });
 const isVideoUrl = (url: string) => /\.(?:mp4|mov|m4v|webm)(?:\?|$)/i.test(url);
-const mediaKindFor = (channel: SocialPostChannel) => channel === "instagram_reel" || channel === "tiktok_reel" ? "video" : channel === "whatsapp" ? "image_or_video" : "instagram_image";
+const mediaKindFor = (channel: SocialPostChannel) => channel === "instagram_reel" || channel === "tiktok_reel" ? "video" : channel === "whatsapp" ? "image" : "instagram_image";
 
 export default function ManualPostModal({
   campaigns = [],
@@ -44,14 +44,12 @@ export default function ManualPostModal({
 }>) {
   const [campaignId, setCampaignId] = useState(delivery?.campaign_id ?? initialCampaignId ?? "");
   const [title, setTitle] = useState(delivery?.post_title ?? "");
-  const [description, setDescription] = useState(delivery?.description ?? "");
   const [sharedCaption, setSharedCaption] = useState(delivery?.caption ?? "");
-  const [mediaItems, setMediaItems] = useState<SocialCalendarPost["media_items"]>(delivery?.media_items?.length ? delivery.media_items
-      : delivery?.media_url ? [{ url: delivery.media_url, alt_text: "" }] : [],
+  const [mediaItems, setMediaItems] = useState<SocialCalendarPost["media_items"]>(delivery?.media_items ?? [],
   );
   const [date, setDate] = useState(delivery?.scheduled_date ?? initialDate ?? "");
   const [slot, setSlot] = useState<"morning" | "afternoon" | "evening" | "">(delivery?.time_slot ?? "");
-  const [postDraft, setPostDraft] = useState<PostDraft | null>(delivery ? { ...EMPTY(delivery.channel), hashtags: delivery.hashtags.join(", "), call_to_action_link: delivery.call_to_action_link ?? "", call_to_action_caption: delivery.call_to_action_caption ?? "" } : null);
+  const [postDraft, setPostDraft] = useState<PostDraft | null>(delivery ? { ...EMPTY(delivery.channel), hashtags: delivery.hashtags.join(", ") } : null);
   const [copying, setCopying] = useState(false);
   const [saving, setSaving] = useState(false);
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
@@ -65,7 +63,7 @@ export default function ManualPostModal({
     if (channel && previousChannel) {
       const previousKind = mediaKindFor(previousChannel);
       const nextKind = mediaKindFor(channel);
-      if (nextKind !== "image_or_video" && previousKind !== nextKind) {
+      if (previousKind !== nextKind) {
         setMediaItems([]);
       }
     }
@@ -73,9 +71,12 @@ export default function ManualPostModal({
   };
   const updatePostDraft = (changes: Partial<PostDraft>) => setPostDraft((current) => current ? { ...current, ...changes } : null);
   const effective = postDraft ? {
-    ...postDraft, caption: sharedCaption,
-    media_url: mediaItems[0]?.url ?? "", media_items: mediaItems,
+    ...postDraft, caption: selectedChannel === "instagram_story" ? "" : sharedCaption,
+    hashtags: selectedChannel === "instagram_story" || selectedChannel === "whatsapp" ? "" : postDraft.hashtags,
+    media_items: mediaItems,
   } : null;
+  const hashtagText = effective?.hashtags.split(",").map(tag => tag.trim().replace(/^#/, "")).filter(Boolean).map(tag => `#${tag}`).join(" ") ?? "";
+  const publishedTextLength = [effective?.caption.trim() ?? "", hashtagText].filter(Boolean).join("\n\n").length;
   const selectedMediaUrls = mediaItems.map(item => item.url);
   const setSelectedMediaUrls = (urls: string[]) => setMediaItems(current => {
     const altByUrl = new Map(current.map(item => [item.url, item.alt_text]));
@@ -94,29 +95,34 @@ export default function ManualPostModal({
     if (!title.trim()) return toast.error("Enter an internal title.");
     if (!effective) return toast.error("Select a platform.");
     if (mode === "scheduled" && date && slot && Date.parse(scheduledAtFor(date, slot)) <= Date.now()) return toast.error("Choose a future time slot.");
+    const validation = CreateManualSocialPostZod.safeParse({
+      ...effective, campaign_id: campaignId, title, mode,
+      hashtags: effective.hashtags.split(",").map(item => item.trim().replace(/^#/, "")).filter(Boolean),
+      scheduled_date: date || null, time_slot: slot || null,
+    });
+    if (!validation.success) return toast.error(validation.error.issues[0].message);
     setSaving(true);
     if (delivery) {
       const variant = effective;
       const result = await updateSocialPost({
         id: delivery.id, version: delivery.version,
-        title, description, caption: variant.caption, media_url: variant.media_url, media_items: variant.media_items,
+        title, caption: variant.caption, media_items: variant.media_items,
         hashtags: variant.hashtags.split(",").map((item) => item.trim().replace(/^#/, "")).filter(Boolean),
-        call_to_action_link: variant.call_to_action_link, call_to_action_caption: variant.call_to_action_caption,
         channel: variant.channel, scheduled_date: date || null, time_slot: slot || null,
         status: mode,
       });
       setSaving(false);
       if (!result?.data || result.data.error) return toast.error(result?.data?.error || result?.serverError || "Unable to save post.");
       const schedulePlatform = variant.channel.startsWith("instagram_") ? "instagram" : variant.channel === "whatsapp" ? "whatsapp" : "tiktok";
-      onUpdated?.({ ...delivery, version: result?.data?.data?.version ?? delivery.version + 1, needs_review: mode === "scheduled" ? false : delivery.needs_review, review_reason: mode === "scheduled" ? null : delivery.review_reason, post_title: title, description, caption: variant.caption, media_url: variant.media_url || null, media_items: variant.media_items, hashtags: variant.hashtags.split(",").map((item) => item.trim().replace(/^#/, "")).filter(Boolean), call_to_action_link: variant.call_to_action_link || null, call_to_action_caption: variant.call_to_action_caption || null, channel: variant.channel, schedule_platform: schedulePlatform, scheduled_date: date || null, time_slot: slot || null, scheduled_at: mode === "scheduled" && date && slot ? scheduledAtFor(date, slot) : null, status: mode });
+      onUpdated?.({ ...delivery, version: result?.data?.data?.version ?? delivery.version + 1, needs_review: mode === "scheduled" ? false : delivery.needs_review, review_reason: mode === "scheduled" ? null : delivery.review_reason, post_title: title, caption: variant.caption, media_items: variant.media_items, hashtags: variant.hashtags.split(",").map((item) => item.trim().replace(/^#/, "")).filter(Boolean), channel: variant.channel, schedule_platform: schedulePlatform, scheduled_date: date || null, time_slot: slot || null, scheduled_at: mode === "scheduled" && date && slot ? scheduledAtFor(date, slot) : null, status: mode });
       toast.success(mode === "scheduled" ? "Post scheduled." : "Draft saved.");
       onClose();
       return;
     }
     const variant = effective;
     const result = await createManualSocialPost({
-      campaign_id: campaignId, title, description, scheduled_date: date || null, time_slot: slot || null, mode,
-      channel: variant.channel, caption: variant.caption, media_url: variant.media_url, media_items: variant.media_items, hashtags: variant.hashtags.split(",").map((item) => item.trim().replace(/^#/, "")).filter(Boolean), call_to_action_link: variant.call_to_action_link, call_to_action_caption: variant.call_to_action_caption,
+      campaign_id: campaignId, title, scheduled_date: date || null, time_slot: slot || null, mode,
+      channel: variant.channel, caption: variant.caption, media_items: variant.media_items, hashtags: variant.hashtags.split(",").map((item) => item.trim().replace(/^#/, "")).filter(Boolean),
     });
     if (!result?.data || result.data.error) { setSaving(false); return toast.error(result?.data?.error || result?.serverError || "Unable to save post."); }
     const refreshed = await getSocialCalendarPosts();
@@ -144,23 +150,24 @@ export default function ManualPostModal({
         <fieldset disabled={locked || saving || !canEdit} className="grid gap-4 disabled:opacity-75 md:grid-cols-2">
           <label className="flex flex-col gap-1 text-sm font-medium text-ink">Campaign<select value={campaignId} disabled={Boolean(delivery)} onChange={(event) => setCampaignId(event.target.value)} className="rounded-xl border border-line bg-white px-3 py-2 font-normal">{delivery && <option value={delivery.campaign_id}>{delivery.campaign_name}</option>}<option value="">Select campaign</option>{activeCampaigns.map((campaign) => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}</select></label>
           <label className="flex flex-col gap-1 text-sm font-medium text-ink">Internal title<input value={title} onChange={(event) => setTitle(event.target.value)} className="rounded-xl border border-line bg-white px-3 py-2 font-normal" /></label>
-          <label className="flex flex-col gap-1 text-sm font-medium text-ink md:col-span-2">Content brief<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={2} className="rounded-xl border border-line bg-white px-3 py-2 font-normal" /></label>
-          <label className="flex flex-col gap-1 text-sm font-medium text-ink md:col-span-2">
-            Caption/message{" "}
+           <label className="flex flex-col gap-1 text-sm font-medium text-ink md:col-span-2">Platform and format<select value={selectedChannel} onChange={(event) => selectChannel(event.target.value as SocialPostChannel | "")} className="rounded-xl border border-line bg-white px-3 py-2 font-normal"><option value="">Select one platform</option><option value="instagram_feed">Instagram Feed</option><option value="instagram_story">Instagram Story</option><option value="instagram_reel">Instagram Reel</option><option value="whatsapp">WhatsApp</option><option value="tiktok_reel">TikTok Reel</option></select></label>
+          {selectedChannel !== "instagram_story" && <label className="flex flex-col gap-1 text-sm font-medium text-ink md:col-span-2">
+            {selectedChannel === "whatsapp" ? "Message" : "Caption"}{" "}
             <span className="font-normal text-red-600">Required to schedule</span>
-            <textarea value={sharedCaption} onChange={(event) => setSharedCaption(event.target.value)} rows={3} className="rounded-xl border border-line bg-white px-3 py-2 font-normal" />
-          </label>
+            <textarea value={sharedCaption} onChange={(event) => setSharedCaption(event.target.value)} rows={3} maxLength={2200} className="rounded-xl border border-line bg-white px-3 py-2 font-normal" />
+            <span className="text-xs font-normal text-muted">{publishedTextLength} / 2,200 characters{selectedChannel === "instagram_feed" || selectedChannel === "instagram_reel" ? " including hashtags" : ""}</span>
+          </label>}
           <div className="flex flex-col gap-2 text-sm font-medium text-ink md:col-span-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 Media{" "}
-                <span className="font-normal text-muted">{selectedChannel === "instagram_feed" ? "Up to 10 images; the first is the carousel cover." : selectedChannel === "whatsapp" ? "Optional" : "Required to schedule except WhatsApp"}</span>
+                <span className="font-normal text-muted">{selectedChannel === "instagram_feed" ? "Up to 10 finished 4:5 JPEGs (1080 × 1350); the first is the carousel cover." : selectedChannel === "instagram_story" ? "One finished 9:16 JPEG (1080 × 1920). Include all text in the image." : selectedChannel === "instagram_reel" ? "One MP4/MOV video. 3 seconds–15 minutes; 9:16 recommended." : selectedChannel === "whatsapp" ? "Optional: one JPEG poster. No aspect ratio requirement. Put links directly in your message." : "Required to schedule except WhatsApp"}</span>
               </div>
               {canEdit && <button type="button" disabled={!selectedChannel} onClick={() => setMediaPickerOpen(true)} className="rounded-lg border border-teal px-3 py-2 text-xs font-semibold text-teal disabled:opacity-40">Choose from Storage</button>}
             </div>
             {selectedMediaUrls.length ? <div className="space-y-2">{selectedMediaUrls.map((url, index) => <div key={`${url}-${index}`} className="flex items-center gap-3 rounded-xl border border-line bg-canvas p-2"><div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-lg">{isVideoUrl(url) ? <video src={url} muted preload="metadata" className="h-full w-full object-cover" /> : <Image src={url} alt="" fill sizes="56px" className="object-cover" />}</div><p className="min-w-0 flex-1 truncate text-xs font-normal text-muted">{url.split("/").at(-1)}</p>{selectedChannel === "instagram_feed" && <div className="flex gap-1"><button type="button" disabled={index === 0} onClick={() => moveMedia(index, -1)} className="rounded border border-line px-2 py-1 disabled:opacity-30" aria-label="Move image earlier">↑</button><button type="button" disabled={index === selectedMediaUrls.length - 1} onClick={() => moveMedia(index, 1)} className="rounded border border-line px-2 py-1 disabled:opacity-30" aria-label="Move image later">↓</button></div>}<button type="button" onClick={() => setSelectedMediaUrls(selectedMediaUrls.filter((_, itemIndex) => itemIndex !== index))} className="rounded border border-red-200 px-2 py-1 text-xs text-red-700">Remove</button></div>)}</div> : <p className="rounded-xl border border-dashed border-line p-4 text-center text-xs font-normal text-muted">No media selected.</p>}
           </div>
-          {selectedChannel.startsWith("instagram_") && selectedChannel !== "instagram_reel" && (<label className="flex flex-col gap-1 text-sm font-medium text-ink md:col-span-2">
+          {selectedChannel === "instagram_feed" && (<label className="flex flex-col gap-1 text-sm font-medium text-ink md:col-span-2">
                 Image alt text{" "}
                 <span className="font-normal text-red-600">Required to schedule; one line per image</span>
                 <textarea
@@ -168,18 +175,18 @@ export default function ManualPostModal({
                   onChange={(event) => {
                     const lines = event.target.value.split(/\r?\n/);
                     setMediaItems(current => current.map((item, index) => ({ ...item, alt_text: lines[index] ?? "" })));
-                  }} rows={selectedChannel === "instagram_feed" ? 4 : 2} className="rounded-xl border border-line bg-white px-3 py-2 font-normal" placeholder={selectedChannel === "instagram_feed" ? "Description for image 1\nDescription for image 2" : "Describe the image for screen-reader users"}
+                  }} rows={4} className="rounded-xl border border-line bg-white px-3 py-2 font-normal" placeholder="Description for image 1\nDescription for image 2"
                 />
               </label>
             )}
-           <label className="flex flex-col gap-1 text-sm font-medium text-ink md:col-span-2">Platform and format<select value={selectedChannel} onChange={(event) => selectChannel(event.target.value as SocialPostChannel | "")} className="rounded-xl border border-line bg-white px-3 py-2 font-normal"><option value="">Select one platform</option><option value="instagram_feed">Instagram Feed</option><option value="instagram_story">Instagram Story</option><option value="instagram_reel">Instagram Reel</option><option value="whatsapp">WhatsApp</option><option value="tiktok_reel">TikTok Reel</option></select></label>
+
           <label className="flex flex-col gap-1 text-sm font-medium text-ink">Date<input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="rounded-xl border border-line bg-white px-3 py-2 font-normal" /></label>
           <label className="flex flex-col gap-1 text-sm font-medium text-ink">
             Time slot{" "}
             <select value={slot} onChange={(event) => setSlot(event.target.value as typeof slot)} className="rounded-xl border border-line bg-white px-3 py-2 font-normal"><option value="">Select slot</option><option value="morning">{localSlotLabel(labelDate, "morning")}</option><option value="afternoon">{localSlotLabel(labelDate, "afternoon")}</option><option value="evening">{localSlotLabel(labelDate, "evening")}</option></select>
           </label>
         </fieldset>
-        {postDraft && postDraft.channel !== "whatsapp" && <fieldset disabled={locked || saving || !canEdit} className="mt-5 grid gap-3 rounded-xl border border-line p-4 disabled:opacity-75 md:grid-cols-2"><legend className="px-1 text-sm font-semibold text-ink">Optional platform details</legend><label className="flex flex-col gap-1 text-xs font-semibold text-muted">Hashtags<input value={postDraft.hashtags} onChange={(event) => updatePostDraft( { hashtags: event.target.value })} placeholder="community, event" className="rounded-lg border border-line px-3 py-2 font-normal text-ink" /></label><label className="flex flex-col gap-1 text-xs font-semibold text-muted">CTA label<input value={postDraft.call_to_action_caption} onChange={(event) => updatePostDraft( { call_to_action_caption: event.target.value })} className="rounded-lg border border-line px-3 py-2 font-normal text-ink" /></label><label className="flex flex-col gap-1 text-xs font-semibold text-muted md:col-span-2">CTA link<input type="url" value={postDraft.call_to_action_link} onChange={(event) => updatePostDraft( { call_to_action_link: event.target.value })} className="rounded-lg border border-line px-3 py-2 font-normal text-ink" /></label></fieldset>}
+        {postDraft && postDraft.channel !== "whatsapp" && postDraft.channel !== "instagram_story" && <fieldset disabled={locked || saving || !canEdit} className="mt-5 grid gap-3 rounded-xl border border-line p-4 disabled:opacity-75 md:grid-cols-2"><legend className="px-1 text-sm font-semibold text-ink">Optional platform details</legend><label className="flex flex-col gap-1 text-xs font-semibold text-muted">Hashtags<input value={postDraft.hashtags} onChange={(event) => updatePostDraft( { hashtags: event.target.value })} placeholder="community, event" className="rounded-lg border border-line px-3 py-2 font-normal text-ink" /></label></fieldset>}
         {delivery &&
           canEdit &&
           onCopied &&
@@ -226,15 +233,12 @@ export default function ManualPostModal({
         <CopyPostDetailsModal
           source={delivery}
           details={{
-            description,
             caption: effective.caption,
             media_items: effective.media_items,
             hashtags: effective.hashtags
               .split(",")
               .map((item) => item.trim().replace(/^#/, ""))
               .filter(Boolean),
-            call_to_action_link: effective.call_to_action_link,
-            call_to_action_caption: effective.call_to_action_caption,
           }}
           canPublish={canPublish}
           onClose={() => setCopying(false)}
@@ -248,7 +252,7 @@ export default function ManualPostModal({
       {mediaPickerOpen && (
         <StorageMediaPicker
           context="social" selectedUrls={selectedMediaUrls} maximum={selectedChannel === "instagram_feed" ? 10 : 1} mediaKind={mediaKindFor(selectedChannel as SocialPostChannel)}
-          instagramPortrait={selectedChannel === "instagram_feed"} onChange={setSelectedMediaUrls} onClose={() => setMediaPickerOpen(false)}
+          whatsappPoster={selectedChannel === "whatsapp"} instagramPortrait={selectedChannel === "instagram_feed"} instagramStory={selectedChannel === "instagram_story"} onChange={setSelectedMediaUrls} onClose={() => setMediaPickerOpen(false)}
         />
       )}
     </div>

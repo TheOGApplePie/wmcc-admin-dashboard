@@ -2,24 +2,15 @@ import { z } from "zod";
 import { SocialMediaItemZod } from "@/app/schemas/socialCampaigns";
 
 export const COPY_FIELDS = {
-  description: "Content brief",
   caption: "Caption / message",
   media_items: "Media and alt text",
   hashtags: "Hashtags",
-  call_to_action_link: "CTA link",
-  call_to_action_caption: "CTA label",
 } as const;
 export type CopyField = keyof typeof COPY_FIELDS;
 export const CopyDetailsZod = z.object({
-  description: z.string().max(2000),
   caption: z.string().max(2200),
   media_items: z.array(SocialMediaItemZod).max(10),
   hashtags: z.array(z.string().min(1).max(100)).max(30),
-  call_to_action_link: z.union([
-    z.url().refine((url) => new URL(url).protocol === "https:"),
-    z.literal(""),
-  ]),
-  call_to_action_caption: z.string().max(100),
 });
 export const CopyPostDetailsZod = z
   .object({

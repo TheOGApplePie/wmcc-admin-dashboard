@@ -99,12 +99,14 @@ function StorageResults({ loading, error, entries, selected, searching, hasMore,
   </div>;
 }
 
-export default function StorageMediaPicker({ context, selectedUrls, maximum, mediaKind, instagramPortrait = false, onChange, onClose }: Readonly<{
+export default function StorageMediaPicker({ context, selectedUrls, maximum, mediaKind, instagramPortrait = false, instagramStory = false, whatsappPoster = false, onChange, onClose }: Readonly<{
   context: "social" | "announcements" | "events";
   selectedUrls: string[];
   maximum: number;
   mediaKind: MediaKind;
   instagramPortrait?: boolean;
+  instagramStory?: boolean;
+  whatsappPoster?: boolean;
   onChange: (urls: string[]) => void;
   onClose: () => void;
 }>) {
@@ -184,17 +186,17 @@ export default function StorageMediaPicker({ context, selectedUrls, maximum, med
     className="fixed inset-0 m-auto w-[calc(100%_-_2rem)] max-w-5xl rounded-2xl bg-surface p-0 shadow-xl backdrop:bg-black/55">
     <div className="flex max-h-[90dvh] flex-col overflow-hidden">
       <header className="flex flex-wrap items-center gap-3 border-b border-line p-4">
-        <div className="mr-auto"><h2 id={titleId} className="text-lg font-semibold text-ink">Choose from Supabase Storage</h2><p className="text-xs text-muted">{instagramPortrait ? "JPG/JPEG only · 4:5 aspect ratio, such as 1080 × 1350. Applies to every carousel image." :selectionHint(mediaKind, maximum)}</p></div>
+        <div className="mr-auto"><h2 id={titleId} className="text-lg font-semibold text-ink">Choose from Supabase Storage</h2><p className="text-xs text-muted">{instagramStory ? "JPG/JPEG only · 9:16 aspect ratio, such as 1080 × 1920. Include all text in the image." : instagramPortrait ? "JPG/JPEG only · 4:5 aspect ratio, such as 1080 × 1350. Applies to every carousel image." :selectionHint(mediaKind, maximum)}</p></div>
         <select aria-label="Media bucket" disabled={uploading || mediaKind !== "image_or_video"} value={bucket} onChange={(event) => { setLoadError(null); setSearch(""); setLoading(true); setOffset(0); setBucket(event.target.value as Bucket); setPrefix("public"); }} className="rounded-lg border border-line bg-white px-3 py-2 text-sm"><option value="event-posters">Event posters</option><option value="videos">Videos</option></select>
         <input aria-label="Filter this folder" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Filter this folder" className="rounded-lg border border-line bg-white px-3 py-2 text-sm" />
         <button type="button" disabled={uploading} onClick={onClose} className="rounded-lg border border-line px-3 py-2 text-sm">Close</button>
       </header>
       <div className="flex items-center gap-2 border-b border-line px-4 py-2 text-xs text-muted">
-        <button type="button" disabled={uploading || !prefix} onClick={() => openFolder(parentFolder(prefix))} className="rounded-md border border-line px-2 py-1 disabled:opacity-40">Up</button>
+        <button type="button" disabled={uploading || !prefix || (whatsappPoster && prefix === "public")} onClick={() => openFolder(parentFolder(prefix))} className="rounded-md border border-line px-2 py-1 disabled:opacity-40">Up</button>
         <span className="truncate">/{prefix}</span>
       </div>
       <div className="border-b border-line px-4 py-3">
-        <StorageUploadButton context={context} bucket={bucket} prefix={prefix} mediaKind={mediaKind} instagramPortrait={instagramPortrait}
+        <StorageUploadButton context={context} bucket={bucket} prefix={prefix} mediaKind={mediaKind} instagramPortrait={instagramPortrait} instagramStory={instagramStory}
           uploading={uploading} onUploading={setUploading} onUploaded={(url) => {
             setLoadError(null);
             setSearch("");
@@ -213,8 +215,8 @@ export default function StorageMediaPicker({ context, selectedUrls, maximum, med
         <StorageResults loading={loading} error={loadError} entries={visible} selected={selected}
           searching={Boolean(search.trim())} hasMore={hasMore}
           onClearSearch={() => setSearch("")} onOpenFolder={openFolder} onSelect={(url) => {
-            if (!instagramPortrait ||selected.includes(url)) { toggle(url); return; }
-            void checkImageUrlRatio(url).then(() => toggle(url)).catch((error) => toast.error(error instanceof Error ? error.message : "Unable to read image dimensions."));
+            if ((!instagramPortrait && !instagramStory) || selected.includes(url)) { toggle(url); return; }
+            void checkImageUrlRatio(url, instagramStory ? "9:16" : "4:5").then(() => toggle(url)).catch((error) => toast.error(error instanceof Error ? error.message : "Unable to read image dimensions."));
           }}
           onRetry={() => { setLoadError(null); setLoading(true); setRefreshVersion((version) => version + 1); }} />
         {!loading && !loadError && hasMore && <div className="mt-4 text-center"><button type="button" disabled={uploading || loadingMore} onClick={() => { setLoadingMore(true); setOffset(entries.length); }} className="rounded-lg border border-line px-4 py-2 text-sm font-semibold text-ink disabled:opacity-50">{loadingMore ? "Loading…" : "Load more"}</button></div>}
