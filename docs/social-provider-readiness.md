@@ -144,3 +144,5 @@ session for each cron request. Retries already exist in the CMS; sender-side
 idempotency remains unimplemented.
 
 Instagram credentials: Vercel Production selects the `INSTAGRAM_PROD_*` pair; Preview and Development select `INSTAGRAM_DEV_*`. Outside Vercel, `NODE_ENV=production` selects PROD (including local `next start`); other modes select DEV. Missing selected credentials cause an error without falling back to the other pair or the former variable names. The encryption key and API version remain shared settings.
+
+Set `INSTAGRAM_ENV=dev` or `INSTAGRAM_ENV=prod` for explicit server-side account selection. Restart after local configuration changes, or redeploy after changing hosted variables. If unset or blank, runtime defaults apply. The selection affects publishing, health checks, and token refresh together; queued work uses the selected account.
