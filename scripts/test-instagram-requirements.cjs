@@ -45,3 +45,10 @@ assert.equal(getInstagramConfig({...env,NODE_ENV:'production',VERCEL_ENV:'previe
 assert.equal(getInstagramConfig({...env,VERCEL_ENV:'production'}).seed,'live-token');
 assert.equal(getInstagramConfig({INSTAGRAM_DEV_ACCESS_TOKEN:'test-token',VERCEL_ENV:'production'}).seed,undefined);
 console.log('Instagram environment selection checks passed.');
+
+assert.equal(getInstagramConfig({...env,INSTAGRAM_ENV:'dev',VERCEL_ENV:'production'}).accountId,'test');
+assert.equal(getInstagramConfig({...env,INSTAGRAM_ENV:'prod',NODE_ENV:'development'}).accountId,'live');
+assert.equal(getInstagramConfig({...env,INSTAGRAM_ENV:'',NODE_ENV:'development'}).accountId,'test');
+assert.throws(()=>getInstagramConfig({...env,INSTAGRAM_ENV:'invalid'}),/INSTAGRAM_ENV/);
+assert.equal(getInstagramConfig({INSTAGRAM_ENV:'prod',INSTAGRAM_DEV_ACCESS_TOKEN:'test-token'}).seed,undefined);
+console.log('Explicit Instagram account override checks passed.');

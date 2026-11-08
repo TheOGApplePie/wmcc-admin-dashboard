@@ -60,6 +60,8 @@ CRON_SECRET=
 # Social delivery
 SOCIAL_DELIVERY_ENABLED=false
 META_GRAPH_API_VERSION=
+# Optional explicit account selection: dev or prod; blank uses runtime defaults
+INSTAGRAM_ENV=
 INSTAGRAM_DEV_ACCOUNT_ID=
 INSTAGRAM_DEV_ACCESS_TOKEN=
 INSTAGRAM_PROD_ACCOUNT_ID=
@@ -90,7 +92,11 @@ Actions. Instagram uses the Instagram Login API at `graph.instagram.com`.
 | Outside Vercel, `NODE_ENV=production` | PROD pair, including local `next start` |
 | Other local modes, including `npm run dev` | DEV pair |
 
-`VERCEL_ENV` takes precedence over `NODE_ENV`. Configure the matching account ID
+Set `INSTAGRAM_ENV=dev` or `INSTAGRAM_ENV=prod` to override the defaults above.
+Change it in `.env.local` and restart the local server; on Vercel, update the
+server environment variable and redeploy. Invalid values fail rather than selecting
+an account. With the override unset or blank, `VERCEL_ENV` takes precedence over
+`NODE_ENV`. Configure the matching account ID
 and token together. Missing selected credentials cause an error; the app never
 falls back to the other account or the former `INSTAGRAM_ACCOUNT_ID` and
 `INSTAGRAM_ACCESS_TOKEN` names. `INSTAGRAM_LOGIN_MODE` is unused.
