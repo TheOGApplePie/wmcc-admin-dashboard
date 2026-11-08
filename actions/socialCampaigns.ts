@@ -39,11 +39,7 @@ const SELECT =
 type SocialMediaItemInput = { url: string; alt_text: string };
 
 const IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/jpg"]);
-const VIDEO_MIME_TYPES = new Set([
-  "video/mp4",
-  "video/quicktime",
-  "video/webm",
-]);
+const VIDEO_MIME_TYPES = new Set(["video/mp4"]);
 
 async function assertSocialMediaSelection(
   channel: SocialChannel,
@@ -84,15 +80,12 @@ async function assertSocialMediaSelection(
       channel === "instagram_reel" || channel === "tiktok_reel";
     const requiresImage =
       channel === "instagram_feed" || channel === "instagram_story";
-    const allowedVideo =
-      channel === "instagram_reel"
-        ? new Set(["video/mp4", "video/quicktime"]).has(mimeType)
-        : VIDEO_MIME_TYPES.has(mimeType);
+    const allowedVideo = VIDEO_MIME_TYPES.has(mimeType);
     if (requiresVideo && (bucket !== "videos" || !allowedVideo)) {
       throw new Error(
         channel === "instagram_reel"
-          ? "Instagram Reel requires an MP4 or MOV video from the videos bucket."
-          : "TikTok requires an MP4, MOV, or WebM video from the videos bucket.",
+          ? "Instagram Reel requires an MP4 video from the videos bucket."
+          : "TikTok requires an MP4 video from the videos bucket.",
       );
     }
     if (

@@ -6,6 +6,8 @@ interface InterceptableNavigateEvent extends Event {
   canIntercept: boolean;
   downloadRequest: string | null;
   hashChange: boolean;
+  navigationType: "push" | "replace" | "reload" | "traverse";
+  destination: { url: string; sameDocument: boolean };
 }
 
 type NavigationTarget = EventTarget;
@@ -42,6 +44,14 @@ export function useUnsavedChanges(
           event.hashChange
         )
           return;
+
+        // Framework history bookkeeping does not leave the editor. Actual
+        // reloads and history traversal must still receive the discard warning.
+        if (
+          event.destination.sameDocument &&
+          event.destination.url === window.location.href &&
+          (event.navigationType === "push" || event.navigationType === "replace")
+        ) return;
 
         if (!globalThis.confirm(message)) event.preventDefault();
       };

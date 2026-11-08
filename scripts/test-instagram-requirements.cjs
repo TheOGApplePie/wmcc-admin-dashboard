@@ -1,12 +1,13 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- Standalone CommonJS regression runner. */
 // Run with node scripts/test-instagram-requirements.cjs.
 const fs = require('node:fs');
 const assert = require('node:assert/strict');
 const ts = require('typescript');
 function load(path) {
-  const module = { exports: {} };
+  const loadedModule = { exports: {} };
   const js = ts.transpileModule(fs.readFileSync(path, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
-  new Function('require', 'module', 'exports', js)(require, module, module.exports);
-  return module.exports;
+  new Function('require', 'module', 'exports', js)(require, loadedModule, loadedModule.exports);
+  return loadedModule.exports;
 }
 const { UpdateSocialPostZod } = load('app/schemas/socialCampaigns.ts');
 const { assertImageRatio } = load('features/socialCampaigns/lib/imageDimensions.ts');

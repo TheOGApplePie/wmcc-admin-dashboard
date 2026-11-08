@@ -73,7 +73,7 @@ additional preview fingerprint protocol.
 
 - Stories: one finished 9:16 JPEG (for example 1080 × 1920). The app requires this ratio at selection, upload, save, and publication. All text must already be in the image. Caption, hashtags, CTA fields, and alt text are not exposed for Stories.
 - Feed: one to ten 4:5 JPEG images (for example 1080 × 1350), caption, optional comma-separated hashtags, and alt text for each image. 4:5 and required alt text are app policies.
-- Reels: one MP4/MOV video, caption, and optional comma-separated hashtags. 9:16 is recommended. The storage uploader currently accepts MP4 up to 50 MB; existing MOV files can be selected. Server checks verify MIME type; Meta performs codec, bitrate, frame-rate, and duration validation. These properties are not preflighted locally.
+- Reels: one MP4 video, caption, and optional comma-separated hashtags. 9:16 is recommended. The storage uploader accepts MP4 up to 50 MB. Server checks verify MIME type; Meta performs codec, bitrate, frame-rate, and duration validation. These properties are not preflighted locally.
 - Instagram images are checked server-side as JPEGs up to 8 MB; the shared uploader has a stricter 5 MB limit.
 - Feed/Reel hashtags are appended to the caption when the worker claims the post. Combined caption length is limited to 2,200 characters; application validation counts hashtags in both fields against 30.
 - Instagram has no CTA, collaborator, overlay text, or positioning controls in this workflow. Unused post content columns are removed by migration 038.
