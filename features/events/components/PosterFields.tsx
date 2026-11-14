@@ -31,6 +31,7 @@ export function PosterFields({
         <Field label="Poster source">
           <select
             className={inputClass}
+            name="poster_source"
             value={override ? "override" : "inherit"}
             onChange={(e) => {
               setOverride(e.target.value === "override");

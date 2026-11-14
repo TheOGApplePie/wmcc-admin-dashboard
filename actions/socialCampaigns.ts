@@ -1,5 +1,13 @@
 "use server";
+import { initializePlatformDefaults } from "@/features/socialCampaigns/lib/platformDefaults";
 
+import { z } from "zod";
+import {
+  CALENDAR_POST_FIELDS,
+  calendarPost,
+  readCalendarPost,
+} from "@/features/socialCampaigns/calendarPosts";
+import { SocialPostQuery } from "@/features/socialCampaigns/lib/query";
 import { createSafeActionClient } from "next-safe-action";
 import { revalidatePath } from "next/cache";
 import {
@@ -14,8 +22,8 @@ import {
   UpdateCampaignZod,
   type CampaignEventOption,
   type AdminUserOption,
-  type SocialCalendarPost,
   type SocialCampaign,
+  type SocialCampaignSummary,
 } from "@/app/schemas/socialCampaigns";
 import { assertInstagramImageUrl } from "@/features/socialCampaigns/instagram/imageValidation";
 import { runCampaignGeneration } from "@/features/socialCampaigns/generation/runCampaignGeneration";
@@ -28,6 +36,11 @@ import {
   scheduledAtFor,
   type SocialChannel,
 } from "@/features/socialCampaigns/scheduling";
+
+import {
+  ApproveSocialPostsZod,
+  BulkSocialPostActionZod,
+} from "@/features/socialCampaigns/lib/postApproval";
 
 import { CopyPostDetailsZod } from "@/features/socialCampaigns/lib/copyPostDetails";
 
@@ -146,75 +159,146 @@ async function assertAssignableUser(userId: string | null | undefined) {
   }
 }
 
-export const getSocialCampaigns = actionClient.action(async () => {
-  try {
-    const { supabase } = await requirePermission("social", "view");
-    const { data, error } = await supabase
-      .from("social_campaigns")
-      .select(SELECT)
-      .order("needs_review", { ascending: false })
-      .order("updated_at", { ascending: false });
-    if (error) throw new Error(error.message);
-    return ok((data ?? []) as SocialCampaign[]);
-  } catch (error) {
-    return fail(
-      error instanceof Error ? error.message : String(error),
-      "Failed to load campaigns.",
-    );
-  }
-});
-
-export const getSocialCalendarPosts = actionClient.action(async () => {
-  try {
-    const { supabase } = await requirePermission("social", "view");
-    const deliveries: SocialCalendarPost[] = [];
-    for (let offset = 0; ; offset += 500) {
-      const { data, error } = await supabase
-        .from("social_posts")
-        .select("*, social_campaigns!inner(id,name,status)")
-        .neq("status", "cancelled")
+export const getSocialCampaigns = actionClient
+  .inputSchema(
+    z.object({
+      status: z
+        .enum([
+          "all",
+          "current",
+          "draft",
+          "active",
+          "paused",
+          "completed",
+          "archived",
+        ])
+        .default("current"),
+      page: z.number().int().min(1).max(100000).default(1),
+    }),
+  )
+  .action(async ({ parsedInput }) => {
+    try {
+      const { supabase } = await requirePermission("social", "view");
+      let query = supabase
+        .from("social_campaigns")
+        .select("id,name,description,status,created_at", { count: "exact" });
+      if (parsedInput.status === "current")
+        query = query.neq("status", "archived");
+      else if (parsedInput.status !== "all")
+        query = query.eq("status", parsedInput.status);
+      const { data, error, count } = await query
+        .order("created_at", { ascending: false })
         .order("id")
-        .range(offset, offset + 499);
+        .range((parsedInput.page - 1) * 30, parsedInput.page * 30 - 1);
       if (error) throw new Error(error.message);
-      for (const row of data ?? []) {
-        deliveries.push({
-          ...row,
-          campaign_name: row.social_campaigns.name,
-          campaign_status: row.social_campaigns.status,
-          post_title: row.title,
-          media_items: row.media_urls.map((url: string, i: number) => ({
-            url,
-            alt_text: row.media_alt_texts[i] ?? "",
-          })),
-        } as SocialCalendarPost);
-      }
-      if (!data || data.length < 500) break;
+      return {
+        ...ok((data ?? []) as SocialCampaignSummary[]),
+        total: count ?? 0,
+      };
+    } catch (error) {
+      return fail(
+        error instanceof Error ? error.message : String(error),
+        "Failed to load campaigns.",
+      );
     }
-    return ok(deliveries);
-  } catch (error) {
-    return fail(
-      error instanceof Error ? error.message : String(error),
-      "Failed to load the social calendar.",
-    );
-  }
-});
+  });
+
+export const getSocialCalendarPosts = actionClient
+  .inputSchema(SocialPostQuery.optional())
+  .action(async ({ parsedInput }) => {
+    try {
+      const input = SocialPostQuery.parse(parsedInput ?? {});
+      const { supabase } = await requirePermission("social", "view");
+      let query = supabase
+        .from("social_posts")
+        .select(CALENDAR_POST_FIELDS, { count: "exact" })
+        .neq("status", "cancelled");
+      if (input.campaignId) query = query.eq("campaign_id", input.campaignId);
+      if (input.excludeCampaignId)
+        query = query.neq("campaign_id", input.excludeCampaignId);
+      if (input.campaignStatus === "current")
+        query = query.neq("social_campaigns.status", "archived");
+      else if (input.campaignStatus !== "all")
+        query = query.eq("social_campaigns.status", input.campaignStatus);
+      if (input.platform !== "all")
+        query = query.eq("schedule_platform", input.platform);
+      if (input.status !== "all") query = query.eq("status", input.status);
+      if (input.copySourceId || input.copyTargets) {
+        const { data: allowed, error: permissionError } = await supabase.rpc(
+          "has_perm",
+          { p_module: "social", p_action: "publish" },
+        );
+        if (permissionError) throw new Error(permissionError.message);
+        query = query
+          .not("social_campaigns.status", "in", "(archived,completed)");
+        if (input.copySourceId) query = query.neq("id", input.copySourceId);
+        query = query.is("provider_processing_started_at", null);
+        query = allowed
+          ? query.or(
+              `status.in.(draft,proposed),and(status.eq.failed,retryable.eq.false,next_attempt_at.is.null,external_id.is.null),and(status.eq.scheduled,scheduled_at.gt.${new Date().toISOString()})`,
+            )
+          : query.or("status.in.(draft,proposed),and(status.eq.failed,retryable.eq.false,next_attempt_at.is.null,external_id.is.null)");
+      }
+      // Default reads are bounded to the current calendar month, including its grid padding.
+      // Campaign-specific lists are separately paginated and include unscheduled drafts.
+      if (!input.campaignId && !input.from && !input.through) {
+        const now = new Date();
+        input.from = new Date(
+          Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), -6),
+        )
+          .toISOString()
+          .slice(0, 10);
+        input.through = new Date(
+          Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 8),
+        )
+          .toISOString()
+          .slice(0, 10);
+      }
+      if (input.from) query = query.gte("scheduled_date", input.from);
+      if (input.through) query = query.lt("scheduled_date", input.through);
+      const { data, error, count } = await query
+        .order("scheduled_date", { nullsFirst: false })
+        .order("time_slot")
+        .order("id")
+        .range(
+          (input.page - 1) * input.pageSize,
+          input.page * input.pageSize - 1,
+        );
+      if (error) throw new Error(error.message);
+      const deliveries = (data ?? []).map((row) =>
+        calendarPost(row as unknown as Parameters<typeof calendarPost>[0]),
+      );
+      return {
+        ...ok(deliveries),
+        total: count ?? 0,
+        hasMore: input.page * input.pageSize < (count ?? 0),
+      };
+    } catch (error) {
+      return fail(
+        error instanceof Error ? error.message : String(error),
+        "Failed to load the social calendar.",
+      );
+    }
+  });
 
 export const copySocialPostDetails = actionClient
   .inputSchema(CopyPostDetailsZod)
   .action(async ({ parsedInput: input }) => {
     try {
       const { supabase } = await requirePermission("social", "edit");
-      const { data: source, error: sourceError } = await supabase
-        .from("social_posts")
-        .select("id")
-        .eq("id", input.source_id)
-        .eq("campaign_id", input.campaign_id)
-        .single();
-      if (sourceError || !source)
-        return clientFail("Source post is not in this campaign.");
+      if (input.source_id) {
+        const { data: source, error: sourceError } = await supabase
+          .from("social_posts")
+          .select("id")
+          .eq("id", input.source_id)
+          .eq("campaign_id", input.campaign_id)
+          .single();
+        if (sourceError || !source)
+          return clientFail("Source post is not in this campaign.");
+      }
       const { data: targets, error } = await supabase
         .from("social_posts")
-        .select("*")
+        .select("id,version,title,status,caption,media_urls,media_alt_texts,hashtags,channel,scheduled_date,time_slot,retryable,next_attempt_at,provider_processing_started_at,external_id")
         .eq("campaign_id", input.campaign_id)
         .in(
           "id",
@@ -223,12 +307,14 @@ export const copySocialPostDetails = actionClient
       if (error) throw new Error(error.message);
       if (targets.length !== input.targets.length)
         return clientFail("Some selected posts are no longer available.");
+      if (input.platform && targets.some(target => schedulePlatformFor(target.channel) !== input.platform))
+        return clientFail("Select posts belonging to the default's platform.");
       const details = Object.fromEntries(
         input.fields.map((field) => [field, input.details[field]]),
       );
       const verifiedMediaChannels = new Set<string>();
       for (const target of targets) {
-        if (!["draft", "proposed", "scheduled"].includes(target.status))
+        if (!["draft", "proposed", "scheduled", "failed"].includes(target.status) || target.provider_processing_started_at || (target.status === "failed" && (target.retryable || target.next_attempt_at || target.external_id)))
           return clientFail(`"${target.title}" can no longer be edited.`);
         const merged = {
           caption: target.caption,
@@ -247,7 +333,7 @@ export const copySocialPostDetails = actionClient
           channel: target.channel,
           scheduled_date: target.scheduled_date,
           time_slot: target.time_slot,
-          status: target.status === "scheduled" ? "scheduled" : "draft",
+          status: "draft",
         });
         if (!validation.success)
           return clientFail(
@@ -275,7 +361,7 @@ export const copySocialPostDetails = actionClient
       const { error: copyError } = await supabase.rpc(
         "copy_social_post_details",
         {
-          p_source_id: input.source_id,
+          p_source_id: input.source_id ?? null,
           p_campaign_id: input.campaign_id,
           p_targets: input.targets,
           p_details: details,
@@ -283,7 +369,9 @@ export const copySocialPostDetails = actionClient
       );
       if (copyError) throw new Error(copyError.message);
       revalidatePath(REVALIDATE);
-      return ok({ count: input.targets.length }, "Post details copied.");
+      const { data: updated, error: refreshError } = await supabase.from("social_posts").select(CALENDAR_POST_FIELDS).in("id", input.targets.map(target => target.id));
+      if (refreshError) return clientFail("Content was copied, but refreshing failed. Reload posts before retrying.");
+      return ok((updated ?? []).map(row => calendarPost(row as unknown as Parameters<typeof calendarPost>[0])), "Post details copied. Posts require approval.");
     } catch (error) {
       return fail(error instanceof Error ? error.message : String(error));
     }
@@ -297,12 +385,13 @@ export const updateSocialPost = actionClient
 
       const { data: existing, error: existingError } = await supabase
         .from("social_posts")
-        .select("status, campaign_id, scheduled_date, time_slot")
+        .select("status, campaign_id, scheduled_date, time_slot,retryable,next_attempt_at,provider_processing_started_at,external_id")
         .eq("id", parsedInput.id)
         .single();
       if (existingError) throw new Error(existingError.message);
-      if (
+      if (existing.provider_processing_started_at || (existing.status === "failed" && (existing.retryable || existing.next_attempt_at || existing.external_id)) ||
         [
+          "cancelled",
           "due",
           "processing",
           "provider_processing",
@@ -392,19 +481,104 @@ export const updateSocialPost = actionClient
         `${schedulePlatform}:${parsedInput.scheduled_date}:${parsedInput.time_slot}`,
       );
       revalidatePath(REVALIDATE);
-      return ok(
-        {
-          ...parsedInput,
-          version: saved.version as number,
-          schedule_platform: schedulePlatform,
-          scheduled_at: scheduledAt,
-        },
-        "Post updated.",
-      );
+      return ok(await readCalendarPost(supabase, saved.id), "Post updated.");
     } catch (error) {
       return fail(
         error instanceof Error ? error.message : String(error),
         "Failed to update post.",
+      );
+    }
+  });
+
+export const approveSocialPosts = actionClient
+  .inputSchema(ApproveSocialPostsZod)
+  .action(async ({ parsedInput }) => {
+    try {
+      const { supabase } = await requirePermission("social", "edit");
+      await requirePermission("social", "publish");
+      const { data: posts, error } = await supabase
+        .from("social_posts")
+        .select(
+          "id,version,status,title,caption,channel,media_urls,media_alt_texts,hashtags,scheduled_date,time_slot",
+        )
+        .in(
+          "id",
+          parsedInput.posts.map((post) => post.id),
+        );
+      if (error) throw new Error(error.message);
+      if (posts.length !== parsedInput.posts.length)
+        return clientFail(
+          "A selected post is unavailable. Reload before approving.",
+        );
+      for (const post of posts) {
+        const expected = parsedInput.posts.find((item) => item.id === post.id);
+        if (
+          post.version !== expected?.version ||
+          !["draft", "proposed"].includes(post.status)
+        )
+          return clientFail(
+            `"${post.title}" changed. Reload before approving.`,
+          );
+        const validation = UpdateSocialPostZod.safeParse({
+          ...post,
+          status: "scheduled",
+          media_items: post.media_urls.map((url: string, index: number) => ({
+            url,
+            alt_text: post.media_alt_texts[index] ?? "",
+          })),
+        });
+        if (!validation.success)
+          return clientFail(
+            `"${post.title}": ${validation.error.issues[0].message} No posts were approved.`,
+          );
+        try {
+          await assertSocialMediaSelection(
+            validation.data.channel,
+            validation.data.media_items,
+          );
+        } catch (failure) {
+          return clientFail(
+            `"${post.title}": ${failure instanceof Error ? failure.message : String(failure)} No posts were approved.`,
+          );
+        }
+      }
+      const { data: count, error: approvalError } = await supabase.rpc(
+        "bulk_social_post_action",
+        { p_posts: parsedInput.posts, p_action: "approve" },
+      );
+      if (approvalError) throw new Error(approvalError.message);
+      revalidatePath(REVALIDATE, "layout");
+      return ok({ count: count as number }, "Selected posts approved.");
+    } catch (error) {
+      return fail(
+        error instanceof Error ? error.message : String(error),
+        "Failed to approve selected posts.",
+      );
+    }
+  });
+
+export const bulkSocialPostAction = actionClient
+  .inputSchema(BulkSocialPostActionZod)
+  .action(async ({ parsedInput }) => {
+    try {
+      const { supabase } = await requirePermission(
+        "social",
+        parsedInput.action === "delete" ? "delete" : "edit",
+      );
+      const { data: count, error } = await supabase.rpc(
+        "bulk_social_post_action",
+        {
+          p_posts: parsedInput.posts,
+          p_action: parsedInput.action,
+        },
+      );
+      if (error) throw new Error(error.message);
+      revalidatePath(REVALIDATE, "layout");
+      return ok({ count: count as number }, "Selected posts updated.");
+    } catch (error) {
+      return fail(
+        error instanceof Error ? error.message : String(error),
+        "Failed to update selected posts.",
       );
     }
   });
@@ -487,7 +661,7 @@ export const createManualSocialPost = actionClient
       );
       revalidatePath(REVALIDATE);
       return ok(
-        { id: String(data.id) },
+        await readCalendarPost(supabase, String(data.id)),
         parsedInput.mode === "scheduled" ? "Post scheduled." : "Draft saved.",
       );
     } catch (error) {
@@ -538,64 +712,49 @@ export const resolveCampaignReview = actionClient
     }
   });
 
-export const getCampaignEventOptions = actionClient.action(async () => {
-  try {
-    const { supabase } = await requirePermission("social", "edit");
-    const [
-      { data: events, error: eventsError },
-      { data: linked, error: linkedError },
-    ] = await Promise.all([
-      supabase
-        .from("events")
-        .select(
-          "id, title, publication_status, event_schedules(id, recurrence_rule_id)",
-        )
-        .order("title", { ascending: true }),
-      supabase
-        .from("social_campaigns")
-        .select("id, event_id")
-        .not("event_id", "is", null),
-    ]);
-    if (eventsError) throw new Error(eventsError.message);
-    if (linkedError) throw new Error(linkedError.message);
-    const campaignByEvent = new Map(
-      (linked ?? []).map((row) => [row.event_id, row.id]),
-    );
-    return ok(
-      (events ?? []).map((event) => ({
-        ...event,
-        is_recurring:
-          event.event_schedules.length > 1 ||
-          event.event_schedules.some((schedule) =>
-            Boolean(schedule.recurrence_rule_id),
-          ),
-        campaign_id: campaignByEvent.get(event.id) ?? null,
-      })) as CampaignEventOption[],
-    );
-  } catch (error) {
-    return fail(
-      error instanceof Error ? error.message : String(error),
-      "Failed to load events.",
-    );
-  }
-});
+export const getCampaignEventOptions = actionClient
+  .inputSchema(z.object({ campaignId: z.uuid().optional() }))
+  .action(async ({ parsedInput }) => {
+    try {
+      const { supabase } = await requirePermission("social", "edit");
+      const options: CampaignEventOption[] = [];
+      for (let offset = 0; ; offset += 500) {
+        const { data, error } = await supabase
+          .rpc("campaign_event_options", {
+            p_campaign_id: parsedInput.campaignId ?? null,
+          })
+          .range(offset, offset + 499);
+        if (error) throw new Error(error.message);
+        options.push(...((data ?? []) as CampaignEventOption[]));
+        if (!data || data.length < 500) break;
+      }
+      return ok(options);
+    } catch (error) {
+      return fail(
+        error instanceof Error ? error.message : String(error),
+        "Failed to load events.",
+      );
+    }
+  });
 
 export const getSocialAdminUsers = actionClient.action(async () => {
   try {
     await requirePermission("social", "edit");
     const service = createServiceClient();
-    const { data, error } = await service.auth.admin.listUsers();
-    if (error) throw new Error(error.message);
-    return ok(
-      (data.users ?? [])
-        .filter((user): user is typeof user & { email: string } =>
-          Boolean(user.email),
-        )
-        .map((user) => ({
-          id: user.id,
-          email: user.email,
-        })) as AdminUserOption[],
-    );
+    const users: AdminUserOption[] = [];
+    for (let offset = 0; ; offset += 500) {
+      const { data, error } = await service
+        .from("profiles")
+        .select("id,email")
+        .eq("status", "active")
+        .order("email")
+        .order("id")
+        .range(offset, offset + 499);
+      if (error) throw new Error(error.message);
+      users.push(...(data ?? []));
+      if (!data || data.length < 500) break;
+    }
+    return ok(users);
   } catch (error) {
     return fail(
       error instanceof Error ? error.message : String(error),
@@ -603,6 +762,18 @@ export const getSocialAdminUsers = actionClient.action(async () => {
     );
   }
 });
+
+async function readInitialDefaults(supabase: Awaited<ReturnType<typeof requirePermission>>["supabase"], eventId?: number | null) {
+  if (!eventId) return initializePlatformDefaults();
+  const { data, error } = await supabase.from("events").select("description,poster_url,poster_alt").eq("id", eventId).single();
+  if (error) throw new Error(error.message);
+  return initializePlatformDefaults(data);
+}
+export const getInitialCampaignDefaults = actionClient.inputSchema(z.object({ event_id: z.number().int().positive().nullable() }))
+  .action(async ({ parsedInput }) => {
+    const { supabase } = await requirePermission("social", "edit");
+    return readInitialDefaults(supabase, parsedInput.event_id);
+  });
 
 export const createSocialCampaign = actionClient
   .inputSchema(CreateCampaignZod)
@@ -618,6 +789,7 @@ export const createSocialCampaign = actionClient
         .from("social_campaigns")
         .insert({
           ...parsedInput,
+          platform_defaults: parsedInput.platform_defaults ?? await readInitialDefaults(supabase, parsedInput.event_id),
           event_id: parsedInput.event_id ?? null,
           generation_enabled: Boolean(parsedInput.event_id),
           schedule_event_snapshot: eventSnapshot,
@@ -650,7 +822,7 @@ export const updateSocialCampaign = actionClient
       if (parsedInput.status === "archived") {
         return clientFail("Archive campaigns through the archive action.");
       }
-      const { id, ...changes } = parsedInput;
+      const { id, version, ...changes } = parsedInput;
       const { data: existing, error: existingError } = await supabase
         .from("social_campaigns")
         .select("event_id, status, schedule_event_snapshot")
@@ -676,8 +848,10 @@ export const updateSocialCampaign = actionClient
         })
         .eq("id", id)
         .neq("status", "archived")
+        .eq("version", version)
         .select(SELECT)
         .single();
+      if (error?.code === "PGRST116") return clientFail("Campaign changed. Reload before saving; your current form edits have been retained.");
       if (error) throw new Error(error.message);
       await logAudit(supabase, "social_campaign", id, "update", data.name);
       revalidatePath(REVALIDATE);

@@ -15,6 +15,7 @@ export function ScheduleCard({
   onEdit,
   replacement,
   onSplit,
+  children, expanded, dateOpen, onDateEdit, onDateClose, otherEditorOpen,
 }: Readonly<{
   event: BaseEvent;
   schedule: Schedule;
@@ -22,10 +23,15 @@ export function ScheduleCard({
   busy: boolean;
   onEdit: () => void;
   replacement: boolean;
-  onSplit: (date: string) => void;
+  onSplit: (date: string, remainingCount: number | null) => void;
+  children?: React.ReactNode;
+  expanded: boolean;
+  dateOpen: boolean;
+  onDateEdit: () => void;
+  onDateClose: () => void;
+  otherEditorOpen: boolean;
 }>) {
   const canEdit = useCan("events.edit");
-  const [dateOpen, setDateOpen] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [restore, setRestore] = useState(false);
   function remove() {
@@ -43,34 +49,39 @@ export function ScheduleCard({
     <article className="space-y-3 rounded-xl border border-line bg-surface p-4">
       <h3 className="font-semibold">{schedule.label || "Untitled schedule"}</h3>
       <p className="text-sm text-muted">
-        {formatTorontoDateTime(schedule.start_at)} �{" "}
+        {formatTorontoDateTime(schedule.start_at)} ·{" "}
         {schedule.recurrence_rule
           ? `Repeats ${schedule.recurrence_rule.frequency}`
           : "One date"}
       </p>
       {canEdit && (
-        <div className="flex gap-3 text-sm">
+        <div className="flex flex-wrap gap-3 text-sm">
           <button
             type="button"
-            disabled={busy || dateOpen || removing}
+            disabled={busy || removing}
             className="underline"
+            aria-label={`${expanded ? "Collapse editor" : "Edit schedule"}: ${schedule.label || "Untitled schedule"}`}
+            aria-expanded={expanded}
+            aria-controls={`schedule-editor-${schedule.id}`}
             onClick={onEdit}
           >
-            Edit schedule
+            {expanded ? "Collapse editor" : "Edit schedule"}
           </button>
           {schedule.recurrence_rule && (
             <button
               type="button"
-              disabled={busy || removing || dateOpen}
+              disabled={busy || removing}
               className="underline"
-              onClick={() => setDateOpen(!dateOpen)}
+              aria-expanded={dateOpen}
+              aria-controls={`schedule-date-${schedule.id}`}
+              onClick={onDateEdit}
             >
               Change one date
             </button>
           )}
           <button
             type="button"
-            disabled={busy || dateOpen}
+            disabled={busy || otherEditorOpen}
             className="underline"
             onClick={() => setRemoving(true)}
           >
@@ -78,15 +89,16 @@ export function ScheduleCard({
           </button>
         </div>
       )}
+      <div id={`schedule-editor-${schedule.id}`} hidden={!expanded}>{children}</div>
       {dateOpen && (
-        <ScheduleDateForm
+        <div id={`schedule-date-${schedule.id}`}><ScheduleDateForm
           event={event}
           schedule={schedule}
           busy={busy}
           run={run}
-          onClose={() => setDateOpen(false)}
+          onClose={onDateClose}
           onSplit={onSplit}
-        />
+        /></div>
       )}
       {removing && (
         <div className="space-y-3 rounded-xl bg-amber-50 p-3 text-sm">
@@ -95,6 +107,7 @@ export function ScheduleCard({
             <label className="flex items-center gap-2">
               <input
                 type="checkbox"
+                disabled={busy || otherEditorOpen}
                 checked={restore}
                 onChange={(e) => setRestore(e.target.checked)}
               />
@@ -103,7 +116,7 @@ export function ScheduleCard({
           )}
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || otherEditorOpen}
             className="mr-3 underline"
             onClick={remove}
           >

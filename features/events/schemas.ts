@@ -6,7 +6,6 @@ import {
   EVENT_FIELD_LIMITS,
 } from "./constants";
 import { z } from "zod";
-import { validateSchedule } from "./domain";
 const https = z
   .url()
   .refine((value) => URL.canParse(value) && new URL(value).protocol === "https:", "Use an HTTPS URL.");
@@ -144,15 +143,8 @@ export const scheduleFields = z
         message: "Describe the override poster.",
       });
     validateRuleShape(data.recurrence_rule, ctx);
-    try {
-      validateSchedule(data);
-    } catch (error) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["recurrence_rule"],
-        message: error instanceof Error ? error.message : "Invalid schedule.",
-      });
-    }
+    if (Date.parse(data.end_at) <= Date.parse(data.start_at))
+      ctx.addIssue({ code: "custom", path: ["end_at"], message: "End must be after start." });
   });
 export const saveEventSchema = z.object({
   id: z.number().int().positive().optional(),

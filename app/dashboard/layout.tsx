@@ -1,3 +1,4 @@
+import { UnsavedChangesProvider } from "@/features/navigation/UnsavedChangesProvider";
 import SideNav from "./SideNav";
 import NotificationInit from "../components/NotificationInit";
 import SignoutButton from "@/app/components/signoutButton";
@@ -26,6 +27,7 @@ export default async function DashboardLayout({
 
   return (
     <StoreProvider access={access}>
+      <UnsavedChangesProvider>
       <div className="flex min-h-dvh bg-canvas">
         <AccessSync />
         <NotificationInit />
@@ -34,6 +36,7 @@ export default async function DashboardLayout({
           <main className="flex-1 flex flex-col">{children}</main>
         </div>
       </div>
+    </UnsavedChangesProvider>
     </StoreProvider>
   );
 }

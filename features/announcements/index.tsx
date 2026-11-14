@@ -51,11 +51,12 @@ function AnnouncementsHeaderActions() {
 }
 
 export function AnnouncementPage({
-  currentAnnouncements,
+  currentAnnouncements, initialTab = "live",
   expiredAnnouncements,
   scheduledAnnouncements,
 }: Readonly<{
   currentAnnouncements: Announcement[];
+  initialTab?: "live" | "scheduled" | "expired";
   expiredAnnouncements: Announcement[];
   scheduledAnnouncements: Announcement[];
 }>) {
@@ -69,7 +70,8 @@ export function AnnouncementPage({
         actions={<AnnouncementsHeaderActions />}
       >
         <AnnouncementsClient
-          key={announcementStateKey}
+          key={`${initialTab}:${announcementStateKey}`}
+          initialTab={initialTab}
           currentAnnouncements={currentAnnouncements}
           expiredAnnouncements={expiredAnnouncements}
           scheduledAnnouncements={scheduledAnnouncements}

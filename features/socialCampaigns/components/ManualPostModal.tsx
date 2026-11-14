@@ -1,12 +1,13 @@
 "use client";
 
+import { postStatusLabel } from "../lib/postApproval";
 import { useState } from "react";
 import Image from "next/image";
 import toast from "react-hot-toast";
-import { createManualSocialPost, deleteSocialPost, getSocialCalendarPosts, updateSocialPost } from "@/actions/socialCampaigns";
+import { createManualSocialPost, deleteSocialPost, updateSocialPost } from "@/actions/socialCampaigns";
 import { CreateManualSocialPostZod } from "@/app/schemas/socialCampaigns";
 import type { SocialCalendarPost, SocialCampaign, SocialPostChannel } from "@/app/schemas/socialCampaigns";
-import { localSlotLabel, scheduledAtFor } from "@/features/socialCampaigns/scheduling/slots";
+import { localSlotLabel } from "@/features/socialCampaigns/scheduling/slots";
 import CopyPostDetailsModal from "./CopyPostDetailsModal";
 import StorageMediaPicker from "@/app/components/ui/StorageMediaPicker";
 
@@ -34,7 +35,7 @@ export default function ManualPostModal({
   onDeleted,
   onCopied,
 }: Readonly<{
-  campaigns?: SocialCampaign[]; initialCampaignId: string | null; initialDate: string | null;
+  campaigns?: Pick<SocialCampaign, "id" | "name" | "status">[]; initialCampaignId: string | null; initialDate: string | null;
   delivery?: SocialCalendarPost | null;
   canEdit?: boolean; canPublish?: boolean;
   canDelete?: boolean;
@@ -94,7 +95,6 @@ export default function ManualPostModal({
     if (!campaignId) return toast.error("Select a campaign.");
     if (!title.trim()) return toast.error("Enter an internal title.");
     if (!effective) return toast.error("Select a platform.");
-    if (mode === "scheduled" && date && slot && Date.parse(scheduledAtFor(date, slot)) <= Date.now()) return toast.error("Choose a future time slot.");
     const validation = CreateManualSocialPostZod.safeParse({
       ...effective, campaign_id: campaignId, title, mode,
       hashtags: effective.hashtags.split(",").map(item => item.trim().replace(/^#/, "")).filter(Boolean),
@@ -102,6 +102,7 @@ export default function ManualPostModal({
     });
     if (!validation.success) return toast.error(validation.error.issues[0].message);
     setSaving(true);
+    try {
     if (delivery) {
       const variant = effective;
       const result = await updateSocialPost({
@@ -113,8 +114,7 @@ export default function ManualPostModal({
       });
       setSaving(false);
       if (!result?.data || result.data.error) return toast.error(result?.data?.error || result?.serverError || "Unable to save post.");
-      const schedulePlatform = variant.channel.startsWith("instagram_") ? "instagram" : variant.channel === "whatsapp" ? "whatsapp" : "tiktok";
-      onUpdated?.({ ...delivery, version: result?.data?.data?.version ?? delivery.version + 1, needs_review: mode === "scheduled" ? false : delivery.needs_review, review_reason: mode === "scheduled" ? null : delivery.review_reason, post_title: title, caption: variant.caption, media_items: variant.media_items, hashtags: variant.hashtags.split(",").map((item) => item.trim().replace(/^#/, "")).filter(Boolean), channel: variant.channel, schedule_platform: schedulePlatform, scheduled_date: date || null, time_slot: slot || null, scheduled_at: mode === "scheduled" && date && slot ? scheduledAtFor(date, slot) : null, status: mode });
+      if (result.data.data) onUpdated?.(result.data.data);
       toast.success(mode === "scheduled" ? "Post scheduled." : "Draft saved.");
       onClose();
       return;
@@ -125,11 +125,11 @@ export default function ManualPostModal({
       channel: variant.channel, caption: variant.caption, media_items: variant.media_items, hashtags: variant.hashtags.split(",").map((item) => item.trim().replace(/^#/, "")).filter(Boolean),
     });
     if (!result?.data || result.data.error) { setSaving(false); return toast.error(result?.data?.error || result?.serverError || "Unable to save post."); }
-    const refreshed = await getSocialCalendarPosts();
     setSaving(false);
-    if (refreshed?.data?.data) onCreated?.(refreshed.data.data);
+    if (result.data.data) onCreated?.([result.data.data]);
     toast.success(mode === "scheduled" ? "Post scheduled." : "Draft saved.");
     onClose();
+    } catch { toast.error("Unable to save. Your edits are retained; reload the post if the connection was interrupted."); } finally { setSaving(false); }
   };
   const remove = async () => {
     if (!delivery) return;
@@ -140,12 +140,14 @@ export default function ManualPostModal({
     if (!result?.data || result.data.error) return toast.error(result?.data?.error || result?.serverError || "Unable to save post.");
     onDeleted?.(delivery.id); onClose(); toast.success("Post removed from the calendar.");
   };
-  const locked = Boolean(delivery && ["due", "processing", "provider_processing", "sent", "skipped"].includes(delivery.status));
+  const locked = Boolean(delivery && (["due", "processing", "provider_processing", "sent", "skipped", "cancelled"].includes(delivery.status) || delivery.provider_processing_started_at || (delivery.status === "failed" && (delivery.retryable || delivery.next_attempt_at || delivery.external_id))));
 
   return ( <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section role="dialog" aria-modal="true" aria-labelledby="manual-post-title" className="max-h-[92dvh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-surface p-6 shadow-xl">
         <div className="mb-5 flex items-center justify-between"><div><h2 id="manual-post-title" className="text-xl font-semibold text-ink">{delivery ? "Edit campaign post" : "New campaign post"}</h2><p className="text-sm text-muted">Required fields depend on the selected platform.</p></div><button type="button" onClick={onClose} className="px-3 py-2 text-sm text-muted">Close</button></div>
+        {locked && <p role="status" className="mb-3 text-sm text-amber-700">This post cannot be edited while publication, retry, or provider reconciliation is pending, or after completion.</p>}
         {delivery?.needs_review && <p className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">{delivery.review_reason ?? "Review this post's content and date before publishing."}</p>}
+        {delivery && <p className="mb-3 text-sm font-semibold">Status: {postStatusLabel(delivery.status)}</p>}
         {delivery?.status === "failed" && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800"><p className="font-semibold">{delivery.retryable ? `Retry pending after attempt ${delivery.attempt_count} of 3` : "Manual intervention required"}</p><p className="mt-1 text-xs">{delivery.provider_error ?? "The provider did not return an error message."}</p>{!delivery.retryable && canPublish && <p className="mt-1 text-xs">Correct the content or configuration, then schedule the post again to start a fresh attempt cycle.</p>}</div>}
         <fieldset disabled={locked || saving || !canEdit} className="grid gap-4 disabled:opacity-75 md:grid-cols-2">
           <label className="flex flex-col gap-1 text-sm font-medium text-ink">Campaign<select value={campaignId} disabled={Boolean(delivery)} onChange={(event) => setCampaignId(event.target.value)} className="rounded-xl border border-line bg-white px-3 py-2 font-normal">{delivery && <option value={delivery.campaign_id}>{delivery.campaign_name}</option>}<option value="">Select campaign</option>{activeCampaigns.map((campaign) => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}</select></label>
@@ -219,9 +221,9 @@ export default function ManualPostModal({
           <div className="flex gap-2">
             {canEdit && !locked && (
               <>
-                <button type="button" disabled={saving} onClick={() => submit("draft")} className="rounded-xl border border-line px-4 py-2 text-sm font-semibold text-ink disabled:opacity-50">Save draft</button>
+                <button type="button" disabled={saving} onClick={() => submit("draft")} className="rounded-xl border border-line px-4 py-2 text-sm font-semibold text-ink disabled:opacity-50">Save as Draft</button>
                 {canPublish && ( <button type="button" disabled={saving || !campaignCanSchedule} onClick={() => submit("scheduled")} className="rounded-xl bg-teal px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
-                    { selectedChannel === "whatsapp" ? "Approve & schedule as me" : "Approve & schedule"}
+                    { selectedChannel === "whatsapp" ? "Save & Approve as me" : "Save & Approve"}
                   </button>
                 )}
               </>

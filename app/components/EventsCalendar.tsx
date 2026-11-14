@@ -9,7 +9,6 @@ import {
   eventFromCalendarApi,
   eventFromCalendarClick,
 } from "@/features/events/lib/calendarEventAdapter";
-import rrulePlugin from "@fullcalendar/rrule";
 import luxonFormatPlugin from "@fullcalendar/format-luxon3";
 import FullCalendar, {
   type EventApi,
@@ -29,7 +28,6 @@ import styles from "./EventsCalendar.module.css";
 import { CALENDAR_VISIBLE_EVENTS_PER_DAY } from "@/features/events/constants";
 
 const CALENDAR_PLUGINS = [
-  rrulePlugin,
   themePlugin,
   dayGridPlugin,
   luxonFormatPlugin,
@@ -38,6 +36,7 @@ const CALENDAR_PLUGINS = [
 
 export default function EventsCalendar() {
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [detailsCollapsed, setDetailsCollapsed] = useState(false);
   const [calendarOccurrences, setCalendarOccurrences] = useState<Event[]>([]);
   const router = useRouter();
   const [isCalendarReady, setIsCalendarReady] = useState(false);
@@ -114,7 +113,12 @@ export default function EventsCalendar() {
       <div
         className={`${styles.surface} min-w-0 w-full flex-1 rounded-2xl bg-surface p-4`}
       >
-        <CalendarToolbar controller={controller} onAdd={openAddModal} />
+        <CalendarToolbar
+          controller={controller}
+          onAdd={openAddModal}
+          detailsCollapsed={detailsCollapsed}
+          onToggleDetails={() => setDetailsCollapsed((collapsed) => !collapsed)}
+        />
 
         {error && (
           <div
@@ -164,7 +168,12 @@ export default function EventsCalendar() {
         </div>
       </div>
 
-      <aside className="sticky top-18.25 flex w-full shrink-0 flex-col self-start overflow-hidden rounded-2xl border border-line bg-surface lg:w-87.5">
+      <aside
+        id="event-details-sidebar"
+        aria-label="Event details"
+        hidden={detailsCollapsed}
+        className={`${detailsCollapsed ? "hidden" : "flex"} sticky top-18.25 w-full shrink-0 flex-col self-start overflow-hidden rounded-2xl border border-line bg-surface lg:w-87.5`}
+      >
         <div className="border-b border-line px-5 py-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted">
             {selectedEvents.length ? "Events on selected day" : "Events"}

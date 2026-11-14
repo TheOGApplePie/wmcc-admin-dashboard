@@ -1,7 +1,6 @@
 "use server";
 import { Announcement, AnnouncementZod, ReorderAnnouncementsZod } from "@/app/schemas/announcement";
 import { createSafeActionClient } from "next-safe-action";
-import { createClient } from "../../utils/supabase/server";
 import z from "zod";
 import { revalidatePath } from "next/cache";
 import { resolveStorageUrl } from "@/utils/uploadFiles";
@@ -92,22 +91,31 @@ export const deleteAnnouncement = actionClient
     }
   });
 
-export const fetchAnnouncements = actionClient.action(async () => {
-  try {
-    const supabase = await createClient();
-
-    const { data: announcements, error } = await supabase
-      .from("announcements")
-      .select()
-      .order("display_order", { ascending: true, nullsFirst: false })
-      .order("id", { ascending: true })
-      .overrideTypes<Announcement[]>();
+export const fetchAnnouncements = actionClient.inputSchema(z.object({
+  scheduledPage: z.number().int().min(1).max(100000).default(1),
+  expiredPage: z.number().int().min(1).max(100000).default(1),
+})).action(async ({ parsedInput }) => {
+  const { supabase } = await requirePermission("announcements", "view");
+  const now = new Date().toISOString();
+  const fields = "id,publish_at,title,description,poster_url,poster_alt,call_to_action_link,call_to_action_caption,expires_at,created_at,display_order";
+  const base = () => supabase.from("announcements").select(fields, { count: "exact" })
+    .order("display_order", { ascending: true, nullsFirst: false }).order("id");
+  const [scheduled, expired] = await Promise.all([
+    base().gt("publish_at", now).range((parsedInput.scheduledPage - 1) * 50, parsedInput.scheduledPage * 50 - 1),
+    base().or(`publish_at.is.null,publish_at.lte.${now}`).lte("expires_at", now)
+      .range((parsedInput.expiredPage - 1) * 50, parsedInput.expiredPage * 50 - 1),
+  ]);
+  if (scheduled.error || expired.error) throw new Error(scheduled.error?.message ?? expired.error?.message);
+  // The live rotation is a single reorderable form. Load only active rows, in database pages.
+  const live: Announcement[] = [];
+  for (let offset = 0; ; offset += 500) {
+    const { data, error } = await base().or(`publish_at.is.null,publish_at.lte.${now}`).gt("expires_at", now).range(offset, offset + 499);
     if (error) throw new Error(error.message);
-    return announcements;
-  } catch (error) {
-    console.error(error);
-    throw error;
+    live.push(...(data ?? []) as unknown as Announcement[]);
+    if (!data || data.length < 500) break;
   }
+  return { live, scheduled: scheduled.data as unknown as Announcement[], expired: expired.data as unknown as Announcement[],
+    scheduledTotal: scheduled.count ?? 0, expiredTotal: expired.count ?? 0 };
 });
 
 export const reorderAnnouncements = actionClient

@@ -1,6 +1,12 @@
+import "server-only";
 import { formatInTimeZone } from "date-fns-tz";
 import { addCalendarDays, calendarDayDifference } from "./dates";
-import { SOCIAL_TIME_ZONE, type EventMilestone, type EventScheduleInput, type ScheduleProposal } from "./types";
+import {
+  SOCIAL_TIME_ZONE,
+  type EventMilestone,
+  type EventScheduleInput,
+  type ScheduleProposal,
+} from "./types";
 
 const REMINDERS: ReadonlyArray<{ milestone: EventMilestone; days: number }> = [
   { milestone: "two_weeks", days: 14 },
@@ -15,13 +21,17 @@ export function eventLocalDate(eventOccurrenceAt: string): string {
   return formatInTimeZone(eventOccurrenceAt, SOCIAL_TIME_ZONE, "yyyy-MM-dd");
 }
 
-export function proposeEventSchedule(input: EventScheduleInput
+export function proposeEventSchedule(
+  input: EventScheduleInput,
 ): ScheduleProposal[] {
   const eventDate = eventLocalDate(input.eventOccurrenceAt);
   if (eventDate < input.today) return [];
 
   const first = input.isFirstOccurrence ?? true;
-  const daysAvailable = calendarDayDifference(eventDate, input.campaignCreatedOn);
+  const daysAvailable = calendarDayDifference(
+    eventDate,
+    input.campaignCreatedOn,
+  );
   const compressed = daysAvailable < 21;
   const proposals: ScheduleProposal[] = [];
   const promotionStartsOn = input.previousOccurrenceAt
@@ -29,8 +39,12 @@ export function proposeEventSchedule(input: EventScheduleInput
     : undefined;
 
   if (first) {
-    const initialDate = input.campaignCreatedOn < input.today ? input.today : input.campaignCreatedOn;
-    if (initialDate <= eventDate &&
+    const initialDate =
+      input.campaignCreatedOn < input.today
+        ? input.today
+        : input.campaignCreatedOn;
+    if (
+      initialDate <= eventDate &&
       (!promotionStartsOn || initialDate >= promotionStartsOn)
     ) {
       proposals.push({
@@ -49,7 +63,9 @@ export function proposeEventSchedule(input: EventScheduleInput
 
   for (const reminder of REMINDERS) {
     const targetDate = addCalendarDays(eventDate, -reminder.days);
-    if (targetDate < input.today || targetDate < input.campaignCreatedOn ||
+    if (
+      targetDate < input.today ||
+      targetDate < input.campaignCreatedOn ||
       (promotionStartsOn && targetDate < promotionStartsOn)
     )
       continue;
@@ -75,7 +91,9 @@ export function proposeRecurringSchedule(
   eventOccurrences: string[],
   today: string,
 ): ScheduleProposal[] {
-  const sorted = [...new Set(eventOccurrences)].sort((a, b) => Date.parse(a) - Date.parse(b));
+  const sorted = [...new Set(eventOccurrences)].sort(
+    (a, b) => Date.parse(a) - Date.parse(b),
+  );
   const seenReminderDeliveries = new Set<string>();
   const output: ScheduleProposal[] = [];
 
@@ -100,7 +118,8 @@ export function proposeRecurringSchedule(
         seenReminderDeliveries.add(key);
         return true;
       });
-      if (remainingChannels.length > 0) output.push({ ...proposal, channels: remainingChannels });
+      if (remainingChannels.length > 0)
+        output.push({ ...proposal, channels: remainingChannels });
     }
   });
 

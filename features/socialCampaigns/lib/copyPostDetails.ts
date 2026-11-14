@@ -14,7 +14,8 @@ export const CopyDetailsZod = z.object({
 });
 export const CopyPostDetailsZod = z
   .object({
-    source_id: z.uuid(),
+    source_id: z.uuid().optional(),
+    platform: z.enum(["instagram", "whatsapp", "tiktok"]).optional(),
     campaign_id: z.uuid(),
     fields: z
       .array(z.enum(Object.keys(COPY_FIELDS) as [CopyField, ...CopyField[]]))
@@ -26,13 +27,14 @@ export const CopyPostDetailsZod = z
       .max(500),
   })
   .superRefine((input, ctx) => {
+    if (!input.source_id && !input.platform) ctx.addIssue({ code: "custom", message: "Choose a source post or campaign platform." });
     if (input.fields.some((field) => input.details[field] === undefined))
       ctx.addIssue({
         code: "custom",
         message: "Provide every selected field.",
       });
     const ids = input.targets.map((target) => target.id);
-    if (ids.includes(input.source_id) || new Set(ids).size !== ids.length)
+    if ((input.source_id && ids.includes(input.source_id)) || new Set(ids).size !== ids.length)
       ctx.addIssue({
         code: "custom",
         message: "Select other posts without duplicates.",

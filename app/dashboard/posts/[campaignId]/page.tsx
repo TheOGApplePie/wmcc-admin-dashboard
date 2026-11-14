@@ -30,8 +30,8 @@ export default async function CampaignPage({
     deletePerm,
   ] = await Promise.all([
     getSocialCampaign({ id: campaignId }),
-    getSocialCalendarPosts(),
-    getCampaignEventOptions(),
+    getSocialCalendarPosts({ campaignId }),
+    getCampaignEventOptions({ campaignId }),
     getSocialAdminUsers(),
     supabase.rpc("has_perm", { p_module: "social", p_action: "edit" }),
     supabase.rpc("has_perm", { p_module: "social", p_action: "publish" }),
@@ -51,9 +51,12 @@ export default async function CampaignPage({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Link
               href="/dashboard/posts"
-              className="text-sm font-semibold text-teal"
+              className="inline-flex items-center gap-2 text-sm font-semibold text-teal"
             >
-              ← All campaigns
+              <svg aria-hidden="true" className="shrink-0" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m12 5-7 7 7 7M5 12h14" />
+              </svg>
+              All campaigns
             </Link>
             <CampaignLifecycleControls
               id={campaign.id}

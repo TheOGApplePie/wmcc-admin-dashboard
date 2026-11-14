@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
-import { Toaster } from "react-hot-toast";
+import AppToaster from "./components/AppToaster";
 
 const plusJakartaSans = Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -25,7 +25,7 @@ export default function RootLayout({
       <body className={plusJakartaSans.variable}>
         {children}
         <div id="modal-root" />
-        <Toaster />
+        <AppToaster />
       </body>
     </html>
   );

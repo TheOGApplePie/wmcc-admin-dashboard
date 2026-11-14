@@ -63,7 +63,7 @@ export default function CampaignLifecycleControls({
   const remove = async () => {
     if (
       !confirm(
-        "Remove this campaign? An empty draft is permanently deleted; otherwise it is archived and its history is preserved.",
+        "Remove this campaign? An empty draft is permanently deleted; otherwise it is archived, pending posts are cancelled, and its history is preserved.",
       )
     )
       return;

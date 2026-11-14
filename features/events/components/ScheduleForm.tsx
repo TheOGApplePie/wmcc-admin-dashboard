@@ -10,19 +10,19 @@ import {
 
 import { useRequestId } from "../hooks/useRequestId";
 
-import { useState, type SubmitEvent } from "react";
+import { useEffect, useRef, useState, useTransition, type SubmitEvent } from "react";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { Temporal } from "temporal-polyfill";
 import { saveEventSchedule } from "@/actions/events";
 import { scheduleFields } from "../schemas";
 import {
-  scheduleDateIndex,
   type BaseEvent,
   type Rule,
   type Schedule,
 } from "../domain";
-import { useUnsavedChanges } from "../hooks/useUnsavedChanges";
+import { useTrackedForm } from "../hooks/useTrackedForm";
+import { useCan } from "@/store/hooks";
 import { formatDateTimeLocal } from "@/app/utils/date";
 import {
   assertResponse,
@@ -40,23 +40,29 @@ import { PosterFields } from "./PosterFields";
 export function ScheduleForm({
   event,
   schedule,
-  splitFrom,
+  splitFrom, remainingCount: splitRemainingCount,
   onClose,
 }: {
   event: BaseEvent;
   schedule?: Schedule;
   splitFrom?: string;
+  remainingCount?: number | null;
   onClose: () => void;
 }) {
+  const formRef = useRef<HTMLFormElement>(null);
   const router = useRouter();
+  const [baselineVersion] = useState(schedule?.version);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [dirty, setDirty] = useState(false);
-  const discard = useUnsavedChanges(dirty);
+  const canEdit = useCan("events.edit");
+  const [refreshing, startRefresh] = useTransition();
+  const [saved, setSaved] = useState(false);
+  useEffect(() => { if (saved && !refreshing) onClose(); }, [saved, refreshing, onClose]);
+  const tracked = useTrackedForm("schedule", formRef, busy || refreshing, onClose);
   const requestId = useRequestId();
   const remainingCount =
     schedule?.recurrence_rule?.count && splitFrom
-      ? schedule.recurrence_rule.count - scheduleDateIndex(schedule, splitFrom)
+      ? splitRemainingCount ?? schedule.recurrence_rule.count
       : schedule?.recurrence_rule?.count;
   const [frequency, setFrequency] = useState(
     schedule?.recurrence_rule?.frequency ?? "once",
@@ -127,7 +133,7 @@ export function ScheduleForm({
   }
   async function save(e: SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (busy) return;
+    if (tracked.blocked || !canEdit) return;
     setError("");
     try {
       const fields = parse(new FormData(e.currentTarget));
@@ -135,7 +141,7 @@ export function ScheduleForm({
       const payload = {
         event_id: event.id,
         id: schedule?.id,
-        version: schedule?.version,
+        version: baselineVersion,
         fields,
         split_from: splitFrom,
       };
@@ -144,10 +150,10 @@ export function ScheduleForm({
         request_id: requestId(payload),
       });
       assertResponse(result);
-      setDirty(false);
+      tracked.commit();
       toast.success("Schedule saved.");
-      onClose();
-      router.refresh();
+      setSaved(true);
+      startRefresh(() => router.refresh());
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -156,11 +162,10 @@ export function ScheduleForm({
   }
   return (
     <form
-      aria-busy={busy}
+      ref={formRef}
+      aria-busy={busy || refreshing}
       onSubmit={save}
-      onChange={() => {
-        setDirty(true);
-      }}
+      onChange={tracked.changed}
       className="space-y-4 rounded-2xl border border-line bg-surface p-5"
     >
       <h3 className="font-semibold">{scheduleTitle(splitFrom, schedule)}</h3>
@@ -168,7 +173,7 @@ export function ScheduleForm({
         Times use America/Toronto. Existing individual overrides and completed
         sessions are preserved.
       </p>
-      <fieldset disabled={busy} className="space-y-4">
+      <fieldset disabled={tracked.blocked || !canEdit} className="space-y-4">
         <Field label="Schedule label">
           <input
             name="label"
@@ -202,6 +207,7 @@ export function ScheduleForm({
         <Field label="Repeat">
           <select
             className={inputClass}
+            name="frequency"
             value={frequency}
             onChange={(e) => setFrequency(e.target.value as typeof frequency)}
           >
@@ -228,6 +234,7 @@ export function ScheduleForm({
               <Field label="Monthly pattern">
                 <select
                   className={inputClass}
+                  name="monthly_mode"
                   value={monthlyMode}
                   onChange={(e) => setMonthlyMode(e.target.value)}
                 >
@@ -266,6 +273,8 @@ export function ScheduleForm({
                     <label key={v} className="text-sm">
                       <input
                         type="checkbox"
+                        name="positions"
+                        value={v}
                         checked={positions.includes(Number(v))}
                         onChange={(e) =>
                           setPositions(
@@ -288,6 +297,8 @@ export function ScheduleForm({
                   <label key={day} className="text-sm">
                     <input
                       type="checkbox"
+                      name="weekdays"
+                      value={day}
                       checked={weekdays.includes(day)}
                       onChange={(e) =>
                         setWeekdays(
@@ -305,6 +316,7 @@ export function ScheduleForm({
             <Field label="End recurrence">
               <select
                 className={inputClass}
+                name="termination"
                 value={termination}
                 onChange={(e) => setTermination(e.target.value)}
               >
@@ -352,19 +364,17 @@ export function ScheduleForm({
           url={schedule?.poster_url ?? null}
           alt={schedule?.poster_alt ?? ""}
           inherited={event}
-          onChange={() => {
-            setDirty(true);
-          }}
+          onChange={tracked.changed}
         />
         <div className="flex gap-3">
-          <button type="submit" className={buttonClass}>
-            {busy ? "Saving�" : "Save schedule"}
+          <button type="submit" className={buttonClass} disabled={Boolean(schedule) && !splitFrom && !tracked.dirty}>
+            {busy ? "Saving…" : "Save schedule"}
           </button>
           <button
             type="button"
             className="text-sm underline"
             onClick={() => {
-              if (discard()) onClose();
+              tracked.cancel(onClose);
             }}
           >
             Cancel

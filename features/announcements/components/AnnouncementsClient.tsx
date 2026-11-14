@@ -17,12 +17,13 @@ import { useAnnouncementModal } from "../modalContext";
 
 interface AnnouncementsClientProps {
   currentAnnouncements: Announcement[];
+  initialTab: AnnouncementTab;
   expiredAnnouncements: Announcement[];
   scheduledAnnouncements: Announcement[];
 }
 
 export default function AnnouncementsClient({
-  currentAnnouncements,
+  currentAnnouncements, initialTab,
   expiredAnnouncements,
   scheduledAnnouncements,
 }: Readonly<AnnouncementsClientProps>) {
@@ -40,10 +41,10 @@ export default function AnnouncementsClient({
   }, [router, modalOpen]);
   const [liveItems, setLiveItems] = useState(currentAnnouncements);
   const [selected, setSelected] = useState<Announcement | null>(
-    currentAnnouncements[0] ?? null,
+    (initialTab === "expired" ? expiredAnnouncements : initialTab === "scheduled" ? scheduledAnnouncements : currentAnnouncements)[0] ?? null,
   );
   const [isMobile, setIsMobile] = useState(false);
-  const [tab, setTab] = useState<AnnouncementTab>("live");
+  const [tab, setTab] = useState<AnnouncementTab>(initialTab);
 
   const handleDragEnd = useCallback(
     async (event: DragEndEvent) => {

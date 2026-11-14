@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import { GuardedLink as Link } from "@/features/navigation/UnsavedChangesProvider";
 import { Notification } from "@/app/schemas/notifications";
 import {
   fetchUnreadCount,
@@ -45,9 +45,9 @@ export default function NotificationBell() {
 
   useEffect(() => {
     if (!open || preview !== null) return;
-    fetchNotifications({}).then((res) => {
+    fetchNotifications({ pageSize: 5 }).then((res) => {
       if (res?.data) {
-        setPreview(res.data.notifications.slice(0, 5));
+        setPreview(res.data.notifications);
         setUnread(res.data.unreadCount);
       } else {
         setPreview([]);
@@ -58,7 +58,10 @@ export default function NotificationBell() {
   // Close dropdown when clicking outside.
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(e.target as Node)
+      ) {
         setOpen(false);
       }
     }
@@ -76,17 +79,23 @@ export default function NotificationBell() {
 
   const handleRead = async (n: Notification) => {
     if (!n.read_at) {
-      await markNotificationRead({ id: n.id });
+      const result = await markNotificationRead({ id: n.id });
+      if (!result?.data || result.data.error || result.serverError) return;
       setPreview((prev) =>
-        (prev ?? []).map((p) => (p.id === n.id ? { ...p, read_at: new Date().toISOString() } : p)),
+        (prev ?? []).map((p) =>
+          p.id === n.id ? { ...p, read_at: new Date().toISOString() } : p,
+        ),
       );
       setUnread((v) => Math.max(0, v - 1));
     }
   };
 
   const handleMarkAllRead = async () => {
-    await markAllNotificationsRead({});
-    setPreview((prev) => (prev ?? []).map((p) => ({ ...p, read_at: new Date().toISOString() })));
+    const result = await markAllNotificationsRead({});
+    if (!result?.data || result.data.error || result.serverError) return;
+    setPreview((prev) =>
+      (prev ?? []).map((p) => ({ ...p, read_at: new Date().toISOString() })),
+    );
     setUnread(0);
   };
 
@@ -138,7 +147,9 @@ export default function NotificationBell() {
                 <span className="loading loading-spinner loading-sm" />
               </li>
             ) : (preview ?? []).length === 0 ? (
-              <li className="text-center text-sm opacity-50 py-6">No notifications</li>
+              <li className="text-center text-sm opacity-50 py-6">
+                No notifications
+              </li>
             ) : (
               (preview ?? []).map((n) => (
                 <li key={n.id}>
@@ -147,18 +158,27 @@ export default function NotificationBell() {
                     className={`flex flex-col gap-0.5 px-4 py-3 hover:bg-base-200 transition ${
                       !n.read_at ? "bg-primary/5" : ""
                     }`}
-                    onClick={() => { handleRead(n); setOpen(false); }}
+                    onClick={() => {
+                      handleRead(n);
+                      setOpen(false);
+                    }}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <span className={`text-sm ${!n.read_at ? "font-semibold" : ""}`}>
+                      <span
+                        className={`text-sm ${!n.read_at ? "font-semibold" : ""}`}
+                      >
                         {n.title}
                       </span>
                       {!n.read_at && (
                         <span className="mt-1 w-2 h-2 rounded-full bg-primary shrink-0" />
                       )}
                     </div>
-                    <span className="text-xs opacity-60 line-clamp-2">{n.body}</span>
-                    <span className="text-xs opacity-40">{timeAgo(n.created_at)}</span>
+                    <span className="text-xs opacity-60 line-clamp-2">
+                      {n.body}
+                    </span>
+                    <span className="text-xs opacity-40">
+                      {timeAgo(n.created_at)}
+                    </span>
                   </Link>
                 </li>
               ))

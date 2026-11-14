@@ -1,5 +1,5 @@
 "use client";
-import Link from "next/link";
+import { GuardedLink as Link } from "@/features/navigation/UnsavedChangesProvider";
 import { usePathname } from "next/navigation";
 import { useCan } from "@/store/hooks";
 

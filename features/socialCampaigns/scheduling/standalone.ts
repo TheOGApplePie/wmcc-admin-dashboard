@@ -1,3 +1,4 @@
+import "server-only";
 import { calendarDayDifference, mondayWeekKey } from "./dates";
 
 export interface StandaloneCadenceResult {

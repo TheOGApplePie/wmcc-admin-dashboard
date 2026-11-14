@@ -2,13 +2,15 @@
 import styles from "@/features/socialCampaigns/components/CampaignLayout.module.css";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { getSocialCalendarPosts } from "@/actions/socialCampaigns";
+import { useEffect, useState } from "react";
 import type {
   AdminUserOption,
   CampaignEventOption,
   CampaignStatus,
   SocialCalendarPost,
-  SocialCampaign,
+  SocialCampaignSummary,
 } from "@/app/schemas/socialCampaigns";
 import SocialPostsCalendar, {
   CHANNEL_LABEL,
@@ -16,10 +18,11 @@ import SocialPostsCalendar, {
 } from "./SocialPostsCalendar";
 import { CampaignForm } from "./CampaignForm";
 import ManualPostModal from "./ManualPostModal";
+import PostStatusBadge from "./PostStatusBadge";
 import WhatsAppAccountButton from "./WhatsAppAccountButton";
 
 export default function CampaignsClient({
-  initialCampaigns,
+  initialCampaigns, statusFilter, page, total,
   calendarDeliveries,
   events,
   adminUsers,
@@ -27,7 +30,8 @@ export default function CampaignsClient({
   canPublish,
   canDelete,
 }: Readonly<{
-  initialCampaigns: SocialCampaign[];
+  initialCampaigns: SocialCampaignSummary[];
+  statusFilter: CampaignStatus | "current" | "all"; page: number; total: number;
   calendarDeliveries: SocialCalendarPost[];
   events: CampaignEventOption[];
   adminUsers: AdminUserOption[];
@@ -37,58 +41,51 @@ export default function CampaignsClient({
 }>) {
   const [campaigns, setCampaigns] = useState(initialCampaigns);
   const [deliveries, setDeliveries] = useState(calendarDeliveries);
-  const [statusFilter, setStatusFilter] = useState<CampaignStatus | "current" | "all">("current");
+  const router = useRouter();
+  const [campaignsCollapsed, setCampaignsCollapsed] = useState(false);
   const [creating, setCreating] = useState(false);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(
     null,
   );
-  const [editDeliveryId, setEditDeliveryId] = useState<string | null>(null);
+  // The selected DTO can come from the calendar, independently of the sidebar page.
+  const [editingDelivery, setEditingDelivery] = useState<SocialCalendarPost | null>(null);
   const [manualPostSeed, setManualPostSeed] = useState<{
     campaignId: string | null;
     date: string | null;
   } | null>(null);
-  const sortedCampaigns = useMemo(
-    () =>
-      campaigns.filter((campaign) =>
-        statusFilter === "all" ||
-        (statusFilter === "current" ? campaign.status !== "archived" : campaign.status === statusFilter),
-      ).sort(
-        (a, b) => Date.parse(b.created_at) - Date.parse(a.created_at),
-      ),
-    [campaigns, statusFilter],
-  );
-  const visibleDeliveries = useMemo(
-    () => deliveries.filter((delivery) =>
-      statusFilter === "all" ||
-      (statusFilter === "current" ? delivery.campaign_status !== "archived" : delivery.campaign_status === statusFilter),
-    ),
-    [deliveries, statusFilter],
-  );
-  const selectedDeliveries = useMemo(
-    () =>
-      deliveries
-        .filter((delivery) => delivery.campaign_id === selectedCampaignId)
-        .sort((a, b) =>
-          `${a.scheduled_date ?? "9999"}-${a.time_slot ?? ""}`.localeCompare(
-            `${b.scheduled_date ?? "9999"}-${b.time_slot ?? ""}`,
-          ),
-        ),
-    [deliveries, selectedCampaignId],
-  );
-  const editingDelivery =
-    deliveries.find((delivery) => delivery.id === editDeliveryId) ?? null;
-  const updateDelivery = (updated: SocialCalendarPost) =>
-    setDeliveries((current) =>
-      current.map((item) => (item.id === updated.id ? updated : item)),
-    );
-  const removeDelivery = (id: string) =>
+  const [selectedDeliveries, setSelectedDeliveries] = useState<SocialCalendarPost[]>([]);
+  const [postPage, setPostPage] = useState(1);
+  const [hasMorePosts, setHasMorePosts] = useState(false);
+  const [postsError, setPostsError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!selectedCampaignId) return;
+    let cancelled = false;
+    getSocialCalendarPosts({ campaignId: selectedCampaignId, page: postPage }).then(result => {
+      if (cancelled) return;
+      if (!result?.data?.data || result.data.error) { setPostsError(result?.data?.error || "Could not load posts."); return; }
+      setPostsError(null); setSelectedDeliveries(result.data.data);
+      setHasMorePosts("hasMore" in result.data && Boolean(result.data.hasMore));
+    }).catch(() => { if (!cancelled) setPostsError("Could not load posts."); });
+    return () => { cancelled = true; };
+  }, [selectedCampaignId, postPage, deliveries]);
+  const updateDelivery = (updated: SocialCalendarPost) => {
+    setDeliveries((current) => current.some((item) => item.id === updated.id)
+      ? current.map((item) => item.id === updated.id ? updated : item)
+      : [...current, updated]);
+    setSelectedDeliveries((current) => current.map((item) => item.id === updated.id ? updated : item));
+    setEditingDelivery((current) => current?.id === updated.id ? updated : current);
+  };
+  const removeDelivery = (id: string) => {
     setDeliveries((current) => current.filter((item) => item.id !== id));
+    setSelectedDeliveries((current) => current.filter((item) => item.id !== id));
+    setEditingDelivery((current) => current?.id === id ? null : current);
+  };
 
   return (
     <div className={`${styles.page} bg-canvas p-6`}>
       <div className={`${styles.container} mx-auto flex flex-col gap-5`}>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
+          <div className="flex flex-wrap items-center gap-2">
             {selectedCampaignId && (
               <button
                 type="button"
@@ -99,7 +96,7 @@ export default function CampaignsClient({
               </button>
             )}
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
             <WhatsAppAccountButton canPair={canPublish} />
             {canEdit && (
               <>
@@ -124,6 +121,15 @@ export default function CampaignsClient({
                 </button>
               </>
             )}
+            <button
+              type="button"
+              aria-expanded={!campaignsCollapsed}
+              aria-controls="campaigns-sidebar"
+              onClick={() => setCampaignsCollapsed((collapsed) => !collapsed)}
+              className="rounded-xl border border-line bg-surface px-3 py-2 text-xs font-semibold text-muted"
+            >
+              {campaignsCollapsed ? "Show campaigns" : "Hide campaigns"}
+            </button>
           </div>
         </div>
         {creating && (
@@ -133,14 +139,15 @@ export default function CampaignsClient({
             onCancel={() => setCreating(false)}
             onCreated={(campaign) => {
               setCampaigns((current) => [campaign, ...current]);
-              setStatusFilter("current"); setSelectedCampaignId(null);
+              router.refresh(); setSelectedCampaignId(null);
               setCreating(false);
             }}
           />
         )}
         <div className="flex flex-col items-start gap-5 xl:flex-row">
           <SocialPostsCalendar
-            deliveries={visibleDeliveries}
+            deliveries={deliveries}
+            campaignStatus={statusFilter}
             campaignId={selectedCampaignId}
             canEdit={canEdit}
             canPublish={canPublish}
@@ -149,8 +156,8 @@ export default function CampaignsClient({
             onCopied={setDeliveries}
             onDeleted={removeDelivery}
             editingDelivery={editingDelivery}
-            onEditDelivery={(delivery) => setEditDeliveryId(delivery.id)}
-            onCloseEditor={() => setEditDeliveryId(null)}
+            onEditDelivery={setEditingDelivery}
+            onCloseEditor={() => setEditingDelivery(null)}
             onDateSelect={
               canEdit
                 ? (date) =>
@@ -158,7 +165,7 @@ export default function CampaignsClient({
                 : undefined
             }
           />
-          <aside className={`${styles.sidebar} w-full shrink-0 space-y-3 xl:sticky xl:top-18.25 xl:w-96 xl:overflow-y-auto`}>
+          <aside id="campaigns-sidebar" aria-label="Campaigns" hidden={campaignsCollapsed} className={`${styles.sidebar} w-full shrink-0 space-y-3 xl:sticky xl:top-18.25 xl:w-96 xl:overflow-y-auto`}>
             <div className="flex items-center justify-between px-1">
               <h2 className="font-semibold text-ink">Campaigns</h2>
               <span className="text-xs text-muted">Newest first</span>
@@ -168,7 +175,7 @@ export default function CampaignsClient({
               <select
                 value={statusFilter}
                 onChange={(event) => {
-                  setStatusFilter(event.target.value as typeof statusFilter); setSelectedCampaignId(null); setEditDeliveryId(null);
+                  router.push(`?status=${event.target.value}&page=1`);
                 }}
                 className="mt-1 w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm font-normal"
               >
@@ -181,10 +188,10 @@ export default function CampaignsClient({
                 <option value="all">All campaigns</option>
               </select>
             </label>
-            {sortedCampaigns.length === 0 && (
+            {campaigns.length === 0 && (
               <p className="px-1 py-4 text-sm text-muted">No campaigns match this filter.</p>
             )}
-            {sortedCampaigns.map((campaign) => {
+            {campaigns.map((campaign) => {
               const selected = campaign.id === selectedCampaignId;
               return (
                 <article
@@ -235,7 +242,7 @@ export default function CampaignsClient({
                       <button
                         type="button"
                         onClick={() =>
-                          setSelectedCampaignId(selected ? null : campaign.id)
+                          { setSelectedDeliveries([]); setPostsError(null); setPostPage(1); setSelectedCampaignId(selected ? null : campaign.id); }
                         }
                         className="rounded-lg bg-ink px-2.5 py-1.5 text-xs font-semibold text-white"
                       >
@@ -249,11 +256,16 @@ export default function CampaignsClient({
                         Social posts
                       </p>
                       <div className="space-y-2">
+                        {postsError && <p role="alert">{postsError}</p>}
+                        <nav aria-label="Campaign post pages" className="flex justify-between text-xs">
+                          <button disabled={postPage === 1} onClick={() => { setSelectedDeliveries([]); setPostPage(value => value - 1); }}>Previous</button>
+                          <button disabled={!hasMorePosts} onClick={() => { setSelectedDeliveries([]); setPostPage(value => value + 1); }}>Next</button>
+                        </nav>
                         {selectedDeliveries.map((delivery) => (
                           <button
                             type="button"
                             key={delivery.id}
-                            onClick={() => setEditDeliveryId(delivery.id)}
+                            onClick={() => setEditingDelivery(delivery)}
                             disabled={!canEdit && !canDelete}
                             className="block w-full rounded-xl bg-canvas p-3 text-left transition hover:ring-1 hover:ring-teal disabled:cursor-default disabled:hover:ring-0"
                           >
@@ -264,9 +276,7 @@ export default function CampaignsClient({
                               >
                                 {CHANNEL_LABEL[delivery.channel]}
                               </span>
-                              <span className="text-micro font-semibold uppercase text-muted">
-                                {delivery.status}
-                              </span>
+                              <PostStatusBadge status={delivery.status} needsReview={delivery.needs_review} />
                             </span>
                             <span className="block mt-2 line-clamp-1 text-xs font-semibold text-ink">
                               {delivery.post_title}
@@ -289,6 +299,10 @@ export default function CampaignsClient({
                 </article>
               );
             })}
+            <nav aria-label="Campaign pages" className="flex justify-between text-sm">
+              {page > 1 ? <Link href={`?status=${statusFilter}&page=${page - 1}`}>Previous</Link> : <span />}
+              {page * 30 < total && <Link href={`?status=${statusFilter}&page=${page + 1}`}>Next</Link>}
+            </nav>
           </aside>
         </div>
         {manualPostSeed && (

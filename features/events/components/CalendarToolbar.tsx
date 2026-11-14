@@ -8,17 +8,21 @@ type CalendarController = ReturnType<typeof useCalendarController>;
 interface CalendarToolbarProps {
   controller: CalendarController;
   onAdd: () => void;
+  detailsCollapsed: boolean;
+  onToggleDetails: () => void;
 }
 
 export function CalendarToolbar({
   controller,
   onAdd,
+  detailsCollapsed,
+  onToggleDetails,
 }: Readonly<CalendarToolbarProps>) {
   const buttons = controller.getButtonState();
   const canEdit = useCan("events.edit");
 
   return (
-    <div className="flex justify-between py-4">
+    <div className="flex flex-wrap items-center justify-between gap-3 py-4">
       <div className="flex gap-3">
         <Btn
           className="btn border-0"
@@ -52,7 +56,7 @@ export function CalendarToolbar({
         </Btn>
       </div>
       <div className="toolbar-title">{controller.view?.title}</div>
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Link href="/dashboard/events/library" className="text-sm underline">
           All events
         </Link>
@@ -61,6 +65,15 @@ export function CalendarToolbar({
             Add Event
           </Btn>
         )}
+        <button
+          type="button"
+          aria-expanded={!detailsCollapsed}
+          aria-controls="event-details-sidebar"
+          onClick={onToggleDetails}
+          className="rounded-xl border border-line bg-surface px-3 py-2 text-xs font-semibold text-muted"
+        >
+          {detailsCollapsed ? "Show event details" : "Hide event details"}
+        </button>
       </div>
     </div>
   );
