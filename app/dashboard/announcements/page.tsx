@@ -3,18 +3,21 @@ import { AnnouncementPage } from "@/features/announcements";
 import { fetchAnnouncements } from "@/features/announcements/actions";
 import { requireViewerPermission } from "@/features/access/server";
 
-export default async function Announcements({ searchParams }: Readonly<{ searchParams: Promise<{ scheduledPage?: string; expiredPage?: string }> }>) {
+export default async function Announcements({ searchParams }: Readonly<{ searchParams: Promise<{ scheduledPage?: string; expiredPage?: string; reviewPage?: string }> }>) {
   await requireViewerPermission("announcements", "view");
   const params = await searchParams;
   const pageNumber = (value?: string) => Math.min(100000, Math.max(1, Math.floor(Number(value) || 1)));
-  const scheduledPage = pageNumber(params.scheduledPage), expiredPage = pageNumber(params.expiredPage);
-  const result = await fetchAnnouncements({ scheduledPage, expiredPage });
+  const scheduledPage = pageNumber(params.scheduledPage), expiredPage = pageNumber(params.expiredPage), reviewPage = pageNumber(params.reviewPage);
+  const result = await fetchAnnouncements({ scheduledPage, expiredPage, reviewPage });
   if (!result?.data || result.serverError) throw new Error("Unable to load announcements. Please try again.");
   const data = result.data;
   return <>
-    <AnnouncementPage currentAnnouncements={data.live} scheduledAnnouncements={data.scheduled} expiredAnnouncements={data.expired}
-      initialTab={params.expiredPage ? "expired" : params.scheduledPage ? "scheduled" : "live"} />
+    <AnnouncementPage currentAnnouncements={data.live} scheduledAnnouncements={data.scheduled} expiredAnnouncements={data.expired} reviewAnnouncements={data.review}
+      initialTab={params.reviewPage ? "review" : params.expiredPage ? "expired" : params.scheduledPage ? "scheduled" : "live"} />
     <nav aria-label="Announcement history pages" className="flex flex-wrap justify-center gap-6 p-4 text-sm">
+      <span>Review: {data.reviewTotal}</span>
+      {reviewPage > 1 && <Link href={`?reviewPage=${reviewPage - 1}`}>Previous review</Link>}
+      {reviewPage * 50 < data.reviewTotal && <Link href={`?reviewPage=${reviewPage + 1}`}>Next review</Link>}
       <span>Scheduled: {data.scheduledTotal}</span>
       {scheduledPage > 1 && <Link href={`?scheduledPage=${scheduledPage - 1}`}>Previous scheduled</Link>}
       {scheduledPage * 50 < data.scheduledTotal && <Link href={`?scheduledPage=${scheduledPage + 1}`}>Next scheduled</Link>}

@@ -316,7 +316,7 @@ export default function StorageMediaPicker({
             </h2>
             <p className="text-xs text-muted">
               {instagramStory
-                ? "JPG/JPEG only · 9:16 aspect ratio, such as 1080 × 1920. Include all text in the image."
+                ? "JPG/JPEG only · 4:5 aspect ratio, such as 1080 × 1350. Include all text in the image."
                 : instagramPortrait
                   ? "JPG/JPEG only · 4:5 aspect ratio, such as 1080 × 1350. Applies to every carousel image."
                   : selectionHint(mediaKind, maximum)}
@@ -426,7 +426,7 @@ export default function StorageMediaPicker({
                 toggle(url);
                 return;
               }
-              void checkImageUrlRatio(url, instagramStory ? "9:16" : "4:5")
+              void checkImageUrlRatio(url, "4:5")
                 .then(() => toggle(url))
                 .catch((error) =>
                   toast.error(

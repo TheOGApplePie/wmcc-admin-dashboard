@@ -137,7 +137,7 @@ export function AnnouncementModal({
       const response = isEdit ? await editAnnouncement(payload) : await createAnnouncement(payload);
       if (response?.data?.error) throw new Error(response.data.error);
       if (!response?.data?.success) throw new Error("Unable to save. Check the announcement details and try again.");
-      toast.success(isEdit ? "Announcement updated!" : "Announcement created!");
+      toast.success(isEdit ? "Announcement saved. Material edits require a new review." : "Draft created. Submit it for review when ready.");
       closeModal();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to save. Please try again.");
@@ -171,6 +171,7 @@ export function AnnouncementModal({
         {isEdit && <AnnouncementStatusBadge announcement={announcement} />}
       </div>
 
+      <p className="px-6 pt-3 text-sm text-muted">Saving material changes withdraws the announcement until a publisher approves it.</p>
       {/* Scrollable body */}
       <form onSubmit={handleSubmit(onSubmit)} aria-busy={isSubmitting}>
         <fieldset disabled={isSubmitting} className="min-w-0">

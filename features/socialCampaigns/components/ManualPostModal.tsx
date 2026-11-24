@@ -4,7 +4,7 @@ import { postStatusLabel } from "../lib/postApproval";
 import { useState } from "react";
 import Image from "next/image";
 import toast from "react-hot-toast";
-import { createManualSocialPost, deleteSocialPost, updateSocialPost } from "@/actions/socialCampaigns";
+import { createManualSocialPost, deleteSocialPost, updateSocialPost, reconcileSocialPost } from "@/actions/socialCampaigns";
 import { CreateManualSocialPostZod } from "@/app/schemas/socialCampaigns";
 import type { SocialCalendarPost, SocialCampaign, SocialPostChannel } from "@/app/schemas/socialCampaigns";
 import { localSlotLabel } from "@/features/socialCampaigns/scheduling/slots";
@@ -53,6 +53,7 @@ export default function ManualPostModal({
   const [postDraft, setPostDraft] = useState<PostDraft | null>(delivery ? { ...EMPTY(delivery.channel), hashtags: delivery.hashtags.join(", ") } : null);
   const [copying, setCopying] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [evidence, setEvidence] = useState("");
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
   const activeCampaigns = campaigns.filter((campaign) => campaign.status !== "archived" && campaign.status !== "completed");
   const selectedCampaignStatus = delivery?.campaign_status ?? campaigns.find((campaign) => campaign.id === campaignId)?.status;
@@ -140,7 +141,21 @@ export default function ManualPostModal({
     if (!result?.data || result.data.error) return toast.error(result?.data?.error || result?.serverError || "Unable to save post.");
     onDeleted?.(delivery.id); onClose(); toast.success("Post removed from the calendar.");
   };
-  const locked = Boolean(delivery && (["due", "processing", "provider_processing", "sent", "skipped", "cancelled"].includes(delivery.status) || delivery.provider_processing_started_at || (delivery.status === "failed" && (delivery.retryable || delivery.next_attempt_at || delivery.external_id))));
+  const reconcile = async (outcome: "sent" | "draft") => {
+    if (!delivery) return;
+    if (evidence.trim().length < 5) return toast.error("Describe how you confirmed the provider outcome.");
+    if (!confirm(outcome === "sent" ? "Mark this post as already sent? Check the provider first." : "Confirm this post was not sent? You can then choose a new schedule.")) return;
+    setSaving(true);
+    try {
+      const result = await reconcileSocialPost({ id: delivery.id, version: delivery.version, outcome, evidence });
+      if (!result?.data || result.data.error) throw new Error(result?.data?.error || result?.serverError || "Unable to reconcile the post.");
+      if (result.data.data) onUpdated?.(result.data.data);
+      toast.success(!result.data.data ? "Outcome recorded. Reload the calendar to see the result." : outcome === "sent" ? "Post marked as sent." : "Post returned to draft. Choose a new time and approve it.");
+      onClose();
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Unable to reconcile the post."); }
+    finally { setSaving(false); }
+  };
+  const locked = Boolean(delivery && (delivery.reconciliation_required || ["due", "processing", "provider_processing", "sent", "skipped", "cancelled"].includes(delivery.status) || delivery.provider_processing_started_at || (delivery.status === "failed" && (delivery.retryable || delivery.next_attempt_at || delivery.external_id))));
 
   return ( <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section role="dialog" aria-modal="true" aria-labelledby="manual-post-title" className="max-h-[92dvh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-surface p-6 shadow-xl">
@@ -148,7 +163,12 @@ export default function ManualPostModal({
         {locked && <p role="status" className="mb-3 text-sm text-amber-700">This post cannot be edited while publication, retry, or provider reconciliation is pending, or after completion.</p>}
         {delivery?.needs_review && <p className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">{delivery.review_reason ?? "Review this post's content and date before publishing."}</p>}
         {delivery && <p className="mb-3 text-sm font-semibold">Status: {postStatusLabel(delivery.status)}</p>}
-        {delivery?.status === "failed" && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800"><p className="font-semibold">{delivery.retryable ? `Retry pending after attempt ${delivery.attempt_count} of 3` : "Manual intervention required"}</p><p className="mt-1 text-xs">{delivery.provider_error ?? "The provider did not return an error message."}</p>{!delivery.retryable && canPublish && <p className="mt-1 text-xs">Correct the content or configuration, then schedule the post again to start a fresh attempt cycle.</p>}</div>}
+        {delivery?.reconciliation_required && canPublish && <div className="mb-4 space-y-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm">
+          <p>Check the provider before deciding whether the post was sent. The record will not retry automatically. Do not include personal information in the evidence note.</p>
+          <label className="block font-semibold">Evidence checked<textarea value={evidence} onChange={(event) => setEvidence(event.target.value)} maxLength={500} className="mt-1 block w-full rounded-lg border border-line bg-white p-2 font-normal" /></label>
+          <div className="flex flex-wrap gap-2"><button type="button" disabled={saving} onClick={() => reconcile("sent")} className="rounded-lg border border-teal px-3 py-2 font-semibold">Mark as sent</button><button type="button" disabled={saving} onClick={() => reconcile("draft")} className="rounded-lg border border-teal px-3 py-2 font-semibold">Confirmed not sent: reschedule</button></div>
+        </div>}
+        {delivery?.status === "failed" && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800"><p className="font-semibold">{delivery.retryable ? `Retry pending after attempt ${delivery.attempt_count} of 3` : "Manual intervention required"}</p><p className="mt-1 text-xs">{delivery.provider_error ?? "The provider did not return an error message."}</p>{!delivery.retryable && !delivery.reconciliation_required && canPublish && <p className="mt-1 text-xs">Correct the content or configuration, then schedule the post again to start a fresh attempt cycle.</p>}</div>}
         <fieldset disabled={locked || saving || !canEdit} className="grid gap-4 disabled:opacity-75 md:grid-cols-2">
           <label className="flex flex-col gap-1 text-sm font-medium text-ink">Campaign<select value={campaignId} disabled={Boolean(delivery)} onChange={(event) => setCampaignId(event.target.value)} className="rounded-xl border border-line bg-white px-3 py-2 font-normal">{delivery && <option value={delivery.campaign_id}>{delivery.campaign_name}</option>}<option value="">Select campaign</option>{activeCampaigns.map((campaign) => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}</select></label>
           <label className="flex flex-col gap-1 text-sm font-medium text-ink">Internal title<input value={title} onChange={(event) => setTitle(event.target.value)} className="rounded-xl border border-line bg-white px-3 py-2 font-normal" /></label>
@@ -163,7 +183,7 @@ export default function ManualPostModal({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 Media{" "}
-                <span className="font-normal text-muted">{selectedChannel === "instagram_feed" ? "Up to 10 finished 4:5 JPEGs (1080 × 1350); the first is the carousel cover." : selectedChannel === "instagram_story" ? "One finished 9:16 JPEG (1080 × 1920). Include all text in the image." : selectedChannel === "instagram_reel" ? "One MP4 video. 3 seconds–15 minutes; 9:16 recommended." : selectedChannel === "whatsapp" ? "Optional: one JPEG poster. No aspect ratio requirement. Put links directly in your message." : "Required to schedule except WhatsApp"}</span>
+                <span className="font-normal text-muted">{selectedChannel === "instagram_feed" ? "Up to 10 finished 4:5 JPEGs (1080 × 1350); the first is the carousel cover." : selectedChannel === "instagram_story" ? "One finished 4:5 JPEG (1080 × 1350). Include all text in the image." : selectedChannel === "instagram_reel" ? "One MP4 video. 3 seconds–15 minutes; 9:16 recommended." : selectedChannel === "whatsapp" ? "Optional: one JPEG poster. No aspect ratio requirement. Put links directly in your message." : "Required to schedule except WhatsApp"}</span>
               </div>
               {canEdit && <button type="button" disabled={!selectedChannel} onClick={() => setMediaPickerOpen(true)} className="rounded-lg border border-teal px-3 py-2 text-xs font-semibold text-teal disabled:opacity-40">Choose from Storage</button>}
             </div>

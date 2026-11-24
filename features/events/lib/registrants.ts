@@ -25,3 +25,15 @@ export function registrationValue(value: unknown): string {
   if (typeof value === "object") return JSON.stringify(value, null, 2);
   return String(value);
 }
+
+export function parseRegistrationColumns(value: unknown): string[] {
+  if (!Array.isArray(value) || value.some((column) => typeof column !== "string")) {
+    throw new Error("Registration columns must be an array of strings.");
+  }
+  return value;
+}
+
+export function registrationCell(row: Registration, column: string): string {
+  const value = Object.hasOwn(row, column) ? row[column] : undefined;
+  return value !== null && typeof value === "object" ? "View details" : registrationValue(value);
+}

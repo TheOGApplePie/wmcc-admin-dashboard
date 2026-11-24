@@ -2,7 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SocialCalendarPost } from "@/app/schemas/socialCampaigns";
 
-export const CALENDAR_POST_FIELDS = "id,campaign_id,version,needs_review,review_reason,title,caption,media_urls,media_alt_texts,hashtags,channel,schedule_platform,scheduled_date,time_slot,scheduled_at,status,publisher_user_id,attempt_count,retryable,next_attempt_at,provider_error,external_id,provider_processing_started_at,social_campaigns!inner(name,status)";
+export const CALENDAR_POST_FIELDS = "id,campaign_id,version,needs_review,review_reason,title,caption,media_urls,media_alt_texts,hashtags,channel,schedule_platform,scheduled_date,time_slot,scheduled_at,status,publisher_user_id,attempt_count,retryable,reconciliation_required,next_attempt_at,provider_error,external_id,provider_processing_started_at,social_campaigns!inner(name,status)";
 type PostRow = Omit<SocialCalendarPost, "campaign_name" | "campaign_status" | "post_title" | "media_items"> & {
   title: string; media_urls: string[]; media_alt_texts: string[];
   social_campaigns: { name: string; status: SocialCalendarPost["campaign_status"] };

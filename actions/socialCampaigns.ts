@@ -110,7 +110,7 @@ async function assertSocialMediaSelection(
       );
     }
     if (requiresImage)
-      await assertInstagramImageUrl(item.url, channel === "instagram_feed");
+      await assertInstagramImageUrl(item.url);
     if (
       channel === "whatsapp" &&
       (bucket !== "event-posters" ||
@@ -385,11 +385,11 @@ export const updateSocialPost = actionClient
 
       const { data: existing, error: existingError } = await supabase
         .from("social_posts")
-        .select("status, campaign_id, scheduled_date, time_slot,retryable,next_attempt_at,provider_processing_started_at,external_id")
+        .select("status, campaign_id, scheduled_date, time_slot,retryable,reconciliation_required,next_attempt_at,provider_processing_started_at,external_id")
         .eq("id", parsedInput.id)
         .single();
       if (existingError) throw new Error(existingError.message);
-      if (existing.provider_processing_started_at || (existing.status === "failed" && (existing.retryable || existing.next_attempt_at || existing.external_id)) ||
+      if (existing.reconciliation_required || existing.provider_processing_started_at || (existing.status === "failed" && (existing.retryable || existing.next_attempt_at || existing.external_id)) ||
         [
           "cancelled",
           "due",
@@ -991,5 +991,24 @@ export const archiveSocialCampaign = actionClient
         error instanceof Error ? error.message : String(error),
         "Failed to archive campaign.",
       );
+    }
+  });
+
+export const reconcileSocialPost = actionClient
+  .inputSchema(z.object({ id: z.uuid(), version: z.number().int().positive(), outcome: z.enum(["sent", "draft"]), evidence: z.string().trim().min(5).max(500) }))
+  .action(async ({ parsedInput }) => {
+    try {
+      const { supabase } = await requirePermission("social", "publish");
+      const { error } = await supabase.rpc("reconcile_social_post", { p_id: parsedInput.id, p_version: parsedInput.version, p_outcome: parsedInput.outcome, p_evidence: parsedInput.evidence });
+      if (error?.code === "40001") return clientFail("This post changed. Reload and try again.");
+      if (error) throw new Error(error.message);
+      revalidatePath(REVALIDATE);
+      try {
+        return ok(await readCalendarPost(supabase, parsedInput.id), "Delivery reconciled.");
+      } catch {
+        return ok(null, "Delivery reconciled. Reload the calendar to see the result.");
+      }
+    } catch (error) {
+      return fail(error instanceof Error ? error.message : String(error), "Unable to reconcile delivery.");
     }
   });

@@ -95,6 +95,16 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     ],
   },
   {
+    key: "email",
+    label: "Email campaigns",
+    icon: ICONS.send,
+    actions: [
+      { key: "view", label: "View" },
+      { key: "edit", label: "Create / Update" },
+      { key: "approve", label: "Approve", sensitive: true },
+    ],
+  },
+  {
     key: "feedback",
     label: "Community Feedback",
     icon: ICONS.feedback,
@@ -130,6 +140,7 @@ const PRESETS: Record<
     announcements: ["view", "edit", "publish", "delete"],
     events: ["view", "edit", "publish", "delete"],
     social: ["view", "edit", "publish", "delete"],
+    email: ["view", "edit", "approve"],
     feedback: ["view", "respond"],
     users: ["view"],
     integrations: [],
@@ -138,6 +149,7 @@ const PRESETS: Record<
     announcements: ["view", "edit"],
     events: ["view", "edit"],
     social: ["view", "edit"],
+    email: ["view", "edit"],
     feedback: ["view"],
     users: [],
     integrations: [],

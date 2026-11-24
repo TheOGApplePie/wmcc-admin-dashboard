@@ -171,7 +171,7 @@ Available formats in the editor do not establish production readiness. See
 
 | Format | Media | Published text |
 | --- | --- | --- |
-| Instagram Story | One finished 9:16 JPEG, e.g. 1080 × 1920 | Text must already be in the image; no caption, hashtag, or alt-text fields |
+| Instagram Story | One finished 4:5 JPEG, e.g. 1080 × 1350 | Text must already be in the image; no caption, hashtag, or alt-text fields |
 | Instagram Feed | One to ten 4:5 JPEGs, e.g. 1080 × 1350 | Caption, optional hashtags, required alt text per image |
 | Instagram Reel | One MP4 video; 9:16 recommended | Caption and optional hashtags |
 | WhatsApp | Optional single JPEG poster from `event-posters/public/`; no ratio requirement | Required message; put links directly in the message |
@@ -301,8 +301,8 @@ Uploads go to the current bucket and folder using a signed upload URL and unique
   from uploads and picker selection.
 - Instagram feed/carousel images: exact 4:5 displayed ratio, e.g. 1080 × 1350,
   checked before scheduling and publishing. Every carousel image must comply.
-- Instagram Stories: one finished JPEG with an exact 9:16 displayed ratio,
-  e.g. 1080 × 1920; checked at selection, upload, scheduling, and publishing.
+- Instagram Stories: one finished JPEG with an exact 4:5 displayed ratio,
+  e.g. 1080 × 1350; checked at selection, upload, scheduling, and publishing.
 - WhatsApp: one optional JPG/JPEG poster from `event-posters/public/`, with no
   aspect-ratio restriction; the picker stays within that folder and its subfolders.
 - Video uploads: up to 50 MB; Instagram Reels and TikTok accept MP4 only in this app. Meta validates video codecs, frame rate, bitrate, and

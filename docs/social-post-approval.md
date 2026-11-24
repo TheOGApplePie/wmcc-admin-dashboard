@@ -39,3 +39,15 @@ and invalid selections fail the entire batch.
 
 Run `node scripts/test-social-approval.cjs` and
 `node scripts/test-instagram-requirements.cjs` for schema regression checks.
+
+## Resuming paused campaigns
+
+Migration `047_social_resume_hold.sql` holds scheduled and retryable-failed posts whose scheduled time has passed before a paused campaign becomes active. Overdue scheduled posts return to draft and need a new time and approval; failed posts remain failed with retries stopped and a review reason. Future posts remain scheduled. In-flight/provider-processing work is left alone so provider reconciliation can continue. The database trigger applies to every paused-to-active update, including direct authenticated updates, and runs in the same transaction as resumption. A disposable PostgreSQL fixture validates the trigger against a simplified schema; testing against the full migration chain and provider concurrency remains required before deployment.
+
+## Interrupted delivery reconciliation
+
+Apply migration `050_social_reconciliation.sql` after 047. An interrupted `processing` attempt and an overdue failed attempt held when resuming a campaign require reconciliation; automatic retry is disabled. A social publisher checks the provider and records evidence in the post editor, then either marks the post as sent or confirms it was not sent and returns it to draft for a new schedule and approval. Sent records retain provider IDs; returning to draft records the former provider ID and evidence in the audit log. Neither action contacts a provider. A post cannot be deleted, edited or rescheduled while its outcome requires reconciliation. Reconciliation is version-checked and requires `social.publish`. In-flight provider-processing polls are otherwise unchanged.
+
+The manual sent timestamp records when staff confirmed the outcome; it is not necessarily the provider's original delivery time. Because external systems vary, staff must verify the provider before choosing an outcome. Campaign updates that would cancel or demote an unreconciled post require resolving it first. Tests against the complete migration chain and real provider staging remain required.
+
+Migration `052_social_uncertain_results.sql` also holds ambiguous provider responses encountered while the worker is running, including WhatsApp request timeouts and unconfirmed acknowledgements, TikTok ambiguous retryable responses without a provider ID, and Instagram reporting a container already published. Existing provider-processing polls with a known ID continue through the existing polling path. This deliberately errs on the side of manual reconciliation; a held item is not a confirmed failed delivery.

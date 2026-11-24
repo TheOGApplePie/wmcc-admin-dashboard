@@ -53,15 +53,16 @@ function AnnouncementsHeaderActions() {
 export function AnnouncementPage({
   currentAnnouncements, initialTab = "live",
   expiredAnnouncements,
-  scheduledAnnouncements,
+  scheduledAnnouncements, reviewAnnouncements,
 }: Readonly<{
   currentAnnouncements: Announcement[];
-  initialTab?: "live" | "scheduled" | "expired";
+  initialTab?: "live" | "scheduled" | "expired" | "review";
   expiredAnnouncements: Announcement[];
   scheduledAnnouncements: Announcement[];
+  reviewAnnouncements: Announcement[];
 }>) {
   // Include groups so crossing a publication/expiry boundary resets the preview.
-  const announcementStateKey = JSON.stringify({ currentAnnouncements, expiredAnnouncements, scheduledAnnouncements });
+  const announcementStateKey = JSON.stringify({ currentAnnouncements, expiredAnnouncements, scheduledAnnouncements, reviewAnnouncements });
   return (
     <AnnouncementModalProvider>
       <PageShell
@@ -75,6 +76,7 @@ export function AnnouncementPage({
           currentAnnouncements={currentAnnouncements}
           expiredAnnouncements={expiredAnnouncements}
           scheduledAnnouncements={scheduledAnnouncements}
+          reviewAnnouncements={reviewAnnouncements}
         />
         <AnnouncementModals confirmDeleteAnnouncement={confirmDeleteAnnouncement} />
       </PageShell>

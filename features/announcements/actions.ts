@@ -44,7 +44,7 @@ export const createAnnouncement = actionClient
   });
 
 export const editAnnouncement = actionClient
-  .inputSchema(AnnouncementZod.safeExtend({ id: z.number().int().positive() }))
+  .inputSchema(AnnouncementZod.safeExtend({ id: z.number().int().positive(), revision: z.number().int().positive() }))
   .action(async ({ parsedInput }) => {
     try {
       const { supabase } = await requirePermission("announcements", "edit");
@@ -66,7 +66,8 @@ export const editAnnouncement = actionClient
           call_to_action_caption: parsedInput.call_to_action_caption,
           expires_at: new Date(parsedInput.expires_at),
         })
-        .eq("id", parsedInput.id).select("id").single();
+        .eq("id", parsedInput.id).eq("revision", parsedInput.revision).select("id").single();
+      if (updateResult.error?.code === "PGRST116") throw new Error("This announcement changed. Reload before saving.");
       throwOnSupabaseError(updateResult);
       revalidatePath("/dashboard/announcements");
       return { success: true };
@@ -94,28 +95,30 @@ export const deleteAnnouncement = actionClient
 export const fetchAnnouncements = actionClient.inputSchema(z.object({
   scheduledPage: z.number().int().min(1).max(100000).default(1),
   expiredPage: z.number().int().min(1).max(100000).default(1),
+  reviewPage: z.number().int().min(1).max(100000).default(1),
 })).action(async ({ parsedInput }) => {
   const { supabase } = await requirePermission("announcements", "view");
   const now = new Date().toISOString();
-  const fields = "id,publish_at,title,description,poster_url,poster_alt,call_to_action_link,call_to_action_caption,expires_at,created_at,display_order";
+  const fields = "id,review_state,revision,publish_at,title,description,poster_url,poster_alt,call_to_action_link,call_to_action_caption,expires_at,created_at,display_order";
   const base = () => supabase.from("announcements").select(fields, { count: "exact" })
     .order("display_order", { ascending: true, nullsFirst: false }).order("id");
-  const [scheduled, expired] = await Promise.all([
-    base().gt("publish_at", now).range((parsedInput.scheduledPage - 1) * 50, parsedInput.scheduledPage * 50 - 1),
-    base().or(`publish_at.is.null,publish_at.lte.${now}`).lte("expires_at", now)
+  const [scheduled, expired, review] = await Promise.all([
+    base().eq("review_state", "approved").gt("publish_at", now).range((parsedInput.scheduledPage - 1) * 50, parsedInput.scheduledPage * 50 - 1),
+    base().eq("review_state", "approved").or(`publish_at.is.null,publish_at.lte.${now}`).lte("expires_at", now)
       .range((parsedInput.expiredPage - 1) * 50, parsedInput.expiredPage * 50 - 1),
+    base().neq("review_state", "approved").range((parsedInput.reviewPage - 1) * 50, parsedInput.reviewPage * 50 - 1),
   ]);
-  if (scheduled.error || expired.error) throw new Error(scheduled.error?.message ?? expired.error?.message);
+  if (scheduled.error || expired.error || review.error) throw new Error(scheduled.error?.message ?? expired.error?.message ?? review.error?.message);
   // The live rotation is a single reorderable form. Load only active rows, in database pages.
   const live: Announcement[] = [];
   for (let offset = 0; ; offset += 500) {
-    const { data, error } = await base().or(`publish_at.is.null,publish_at.lte.${now}`).gt("expires_at", now).range(offset, offset + 499);
+    const { data, error } = await base().eq("review_state", "approved").or(`publish_at.is.null,publish_at.lte.${now}`).gt("expires_at", now).range(offset, offset + 499);
     if (error) throw new Error(error.message);
     live.push(...(data ?? []) as unknown as Announcement[]);
     if (!data || data.length < 500) break;
   }
   return { live, scheduled: scheduled.data as unknown as Announcement[], expired: expired.data as unknown as Announcement[],
-    scheduledTotal: scheduled.count ?? 0, expiredTotal: expired.count ?? 0 };
+    scheduledTotal: scheduled.count ?? 0, expiredTotal: expired.count ?? 0, review: review.data as unknown as Announcement[], reviewTotal: review.count ?? 0 };
 });
 
 export const reorderAnnouncements = actionClient
@@ -134,19 +137,36 @@ export const reorderAnnouncements = actionClient
   });
 
 export const restoreAnnouncement = actionClient
-  .inputSchema(z.object({ id: z.coerce.number(), expires_at: z.coerce.date() }))
+  .inputSchema(z.object({ id: z.coerce.number(), expires_at: z.coerce.date(), revision: z.number().int().positive() }))
   .action(async ({ parsedInput }) => {
     try {
       const { supabase } = await requirePermission("announcements", "edit");
       const restoreResult = await supabase
         .from("announcements")
         .update({ expires_at: parsedInput.expires_at, publish_at: null })
-        .eq("id", parsedInput.id).select("id").single();
+        .eq("revision", parsedInput.revision).eq("id", parsedInput.id).select("id").single();
       throwOnSupabaseError(restoreResult);
       revalidatePath("/dashboard/announcements");
       return { success: true };
     } catch (error) {
       console.error(error);
       return { error: error instanceof Error ? error.message : "Unable to update announcements. Please try again." };
+    }
+  });
+
+export const transitionAnnouncementReview = actionClient
+  .inputSchema(z.object({ id: z.number().int().positive(), revision: z.number().int().positive(),
+    action: z.enum(["submit", "approve", "reject", "withdraw", "reopen"]) }))
+  .action(async ({ parsedInput }) => {
+    try {
+      const { action, id, revision } = parsedInput;
+      const { supabase } = await requirePermission("announcements", ["submit", "reopen"].includes(action) ? "edit" : "publish");
+      const result = await supabase.rpc("transition_announcement_review", { p_id: id, p_revision: revision, p_action: action });
+      if (result.error?.code === "40001") throw new Error("This announcement changed. Reload and try again.");
+      throwOnSupabaseError(result);
+      revalidatePath("/dashboard/announcements");
+      return { success: true };
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "Unable to update the announcement." };
     }
   });

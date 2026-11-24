@@ -26,7 +26,7 @@ async function notifyTerminalFailure(delivery: FailedDelivery, error: string) {
     {
       p_type: "social_delivery_failed",
       p_title: "Social post needs attention",
-      p_body: `${delivery.platform} delivery failed after ${delivery.attempt_number} attempts: ${error}`,
+      p_body: `${delivery.platform} delivery needs attention (attempt ${delivery.attempt_number}): ${error}`,
       p_entity_type: "social_post",
       p_entity_id: delivery.delivery_id,
     },
@@ -69,7 +69,7 @@ export async function runDeliveryCron(req: NextRequest): Promise<NextResponse> {
             platform: delivery.platform,
             attempt_number: delivery.attempt_number,
           },
-          "The publishing worker stopped before completing the final attempt.",
+          "The worker stopped before the provider outcome was recorded. Confirm the outcome before retrying.",
         );
       }
     }
@@ -89,6 +89,19 @@ export async function runDeliveryCron(req: NextRequest): Promise<NextResponse> {
         attempt: delivery.attempt_number,
       };
       const result = await publishDelivery(delivery);
+      if (result.uncertain) {
+        const { error: holdError } = await supabase.rpc("mark_social_delivery_uncertain", {
+          p_id: delivery.delivery_id, p_provider_id: result.providerId ?? null, p_error: result.error ?? null,
+        });
+        if (holdError) {
+          log.error("reconciliation_hold_failed", { ...context, error: holdError.message });
+          results.push({ id: delivery.delivery_id, ok: false, error: holdError.message });
+        } else {
+          await notifyTerminalFailure(delivery, "The provider outcome is unknown. Confirm it before retrying.");
+          results.push({ id: delivery.delivery_id, ok: false, error: "Provider outcome requires reconciliation." });
+        }
+        continue;
+      }
       if (result.pending) {
         const { error: pendingError } = await supabase.rpc(
           "mark_social_delivery_provider_processing",

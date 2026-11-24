@@ -190,6 +190,7 @@ export interface SocialCalendarPost {
   publisher_user_id?: string | null;
   attempt_count: number;
   retryable: boolean;
+  reconciliation_required?: boolean;
   next_attempt_at: string | null;
   provider_error: string | null;
   external_id?: string | null;

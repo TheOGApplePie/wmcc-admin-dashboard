@@ -31,6 +31,12 @@ const NAV: NavItem[] = [
     icon: "M22 2 11 13 M22 2l-7 20-4-9-9-4Z",
   },
   {
+    href: "/dashboard/email",
+    label: "Email campaigns",
+    permission: "email.view",
+    icon: "M3 5h18v14H3z M3 6l9 7 9-7",
+  },
+  {
     href: "/dashboard/community-feedback",
     label: "Community Feedback",
     permission: "feedback.view",
@@ -76,12 +82,14 @@ export default function SideNav() {
   const canViewAnnouncements = useCan("announcements.view");
   const canViewEvents = useCan("events.view");
   const canViewSocial = useCan("social.view");
+  const canViewEmail = useCan("email.view");
   const canViewFeedback = useCan("feedback.view");
   const canViewUsers = useCan("users.view");
   const allowed: Record<string, boolean> = {
     "announcements.view": canViewAnnouncements,
     "events.view": canViewEvents,
     "social.view": canViewSocial,
+    "email.view": canViewEmail,
     "feedback.view": canViewFeedback,
     "users.view": canViewUsers,
   };
