@@ -6,7 +6,6 @@ export class InstagramImageValidationError extends Error {}
 
 export async function validateInstagramImageBuffer(
   bytes: Buffer,
-  requirePortrait: boolean,
 ) {
   if (!bytes.length || bytes.length > 8 * 1024 * 1024)
     throw new InstagramImageValidationError(
@@ -34,7 +33,7 @@ export async function validateInstagramImageBuffer(
       "Unable to determine Instagram image dimensions.",
     );
   try {
-    assertImageRatio(width, height, requirePortrait ? "4:5" : "9:16");
+    assertImageRatio(width, height, "4:5");
   } catch (error) {
     throw new InstagramImageValidationError((error as Error).message);
   }
@@ -42,7 +41,6 @@ export async function validateInstagramImageBuffer(
 
 export async function assertInstagramImageUrl(
   value: string,
-  requirePortrait: boolean,
 ) {
   const url = new URL(value);
   const origin = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!).origin;
@@ -68,6 +66,5 @@ export async function assertInstagramImageUrl(
     );
   await validateInstagramImageBuffer(
     Buffer.from(await data.arrayBuffer()),
-    requirePortrait,
   );
 }

@@ -26,6 +26,13 @@ export const SocialMediaItemZod = z.object({
   alt_text: z.string().trim().max(1_000),
 });
 
+export const PlatformDefaultsZod = z.object({
+  instagram: z.object({ message: z.string().max(2200), poster: SocialMediaItemZod.nullable() }).strict().optional(),
+  whatsapp: z.object({ message: z.string().max(2200), poster: SocialMediaItemZod.nullable() }).strict().optional(),
+  tiktok: z.object({ message: z.string().max(2200), poster: SocialMediaItemZod.nullable() }).strict().optional(),
+}).strict();
+export type PlatformDefaults = z.infer<typeof PlatformDefaultsZod>;
+
 export const CreateCampaignZod = z
   .object({
     name: z.string().trim().min(1, "Campaign name is required.").max(120),
@@ -34,6 +41,7 @@ export const CreateCampaignZod = z
     starts_on: z.iso.date().nullable().optional(),
     ends_on: z.iso.date().nullable().optional(),
     default_channels: z.array(SocialPostChannelZod).default([]),
+    platform_defaults: PlatformDefaultsZod.optional(),
     default_assigned_to: z.uuid().nullable().optional(),
     launch_occurrence_at: z.iso.datetime().nullable().optional(),
   })
@@ -48,6 +56,7 @@ export const CreateCampaignZod = z
   });
 
 export const UpdateCampaignZod = CreateCampaignZod.safeExtend({
+  version: z.number().int().positive(),
   id: z.uuid(),
   status: CampaignStatusZod,
 });
@@ -181,8 +190,11 @@ export interface SocialCalendarPost {
   publisher_user_id?: string | null;
   attempt_count: number;
   retryable: boolean;
+  reconciliation_required?: boolean;
   next_attempt_at: string | null;
   provider_error: string | null;
+  external_id?: string | null;
+  provider_processing_started_at?: string | null;
 }
 
 export interface SocialCampaign {
@@ -197,6 +209,7 @@ export interface SocialCampaign {
   starts_on: string | null;
   ends_on: string | null;
   default_channels: SocialPostChannel[];
+  platform_defaults: PlatformDefaults;
   default_assigned_to: string | null;
   launch_occurrence_at: string | null;
   launch_decision_made: boolean;
@@ -230,3 +243,6 @@ export interface AdminUserOption {
   id: string;
   email: string;
 }
+
+/** Minimal campaign list DTO; detailed snapshots remain server-side until requested. */
+export type SocialCampaignSummary = Pick<SocialCampaign, "id" | "name" | "description" | "status" | "created_at">;

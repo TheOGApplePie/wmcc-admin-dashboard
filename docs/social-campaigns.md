@@ -71,18 +71,18 @@ additional preview fingerprint protocol.
 
 ## Instagram post requirements
 
-- Stories: one finished 9:16 JPEG (for example 1080 × 1920). The app requires this ratio at selection, upload, save, and publication. All text must already be in the image. Caption, hashtags, CTA fields, and alt text are not exposed for Stories.
+- Stories: one finished 4:5 JPEG (for example 1080 × 1350). The app requires this ratio at selection, upload, save, and publication. Provider acceptance and cropping of 4:5 Stories still require testing with the development account. All text must already be in the image. Caption, hashtags, CTA fields, and alt text are not exposed for Stories.
 - Feed: one to ten 4:5 JPEG images (for example 1080 × 1350), caption, optional comma-separated hashtags, and alt text for each image. 4:5 and required alt text are app policies.
 - Reels: one MP4 video, caption, and optional comma-separated hashtags. 9:16 is recommended. The storage uploader accepts MP4 up to 50 MB. Server checks verify MIME type; Meta performs codec, bitrate, frame-rate, and duration validation. These properties are not preflighted locally.
 - Instagram images are checked server-side as JPEGs up to 8 MB; the shared uploader has a stricter 5 MB limit.
 - Feed/Reel hashtags are appended to the caption when the worker claims the post. Combined caption length is limited to 2,200 characters; application validation counts hashtags in both fields against 30.
 - Instagram has no CTA, collaborator, overlay text, or positioning controls in this workflow. Unused post content columns are removed by migration 038.
 
-Apply migration `038_instagram_post_requirements.sql` before deploying these changes. It removes Story caption/alt-text scheduling requirements and includes hashtags in claimed Feed/Reel captions. Existing Story images are checked against 9:16 at publication and may need replacement.
+Apply migration `038_instagram_post_requirements.sql` before deploying these changes. It removes Story caption/alt-text scheduling requirements and includes hashtags in claimed Feed/Reel captions. Existing Story images are now checked against 4:5 at publication and may need replacement.
 
 Meta sources checked November 7, 2026:
 - https://www.postman.com/meta/instagram/folder/830j7my/reels-publishing (official Meta collection: MOV/MP4, HEVC/H.264, AAC, 23–60 FPS, 3 seconds–15 minutes, 9:16 recommended).
-- https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user/media/ (direct access returned HTTP 429; do not treat our stricter 9:16/4:5 policies as a fresh verification of all Meta image limits).
+- https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user/media/ (direct access returned HTTP 429; do not treat our stricter image policies as a fresh verification of all Meta image limits).
 
 
 ## WhatsApp post requirements and shared editor

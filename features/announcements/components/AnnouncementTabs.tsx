@@ -5,15 +5,16 @@ import type { DragEndEvent } from "@dnd-kit/core";
 import LiveAnnouncementList from "./LiveAnnouncementList";
 import AnnouncementListRow from "./AnnouncementListRow";
 
-const TAB_LABELS = { live: "Live rotation", scheduled: "Scheduled", expired: "Expired" };
+const TAB_LABELS = { live: "Live rotation", scheduled: "Scheduled", expired: "Expired", review: "Drafts and review" };
 export type AnnouncementTab = keyof typeof TAB_LABELS;
 const LIST_HINTS = {
   scheduled: "Announcements go live automatically at their scheduled time. Edit to change the schedule.",
-  expired: "Announcements auto-archive when their end date passes. Restore one to push it back into the live rotation.",
+  review: "Drafts, pending reviews, and withdrawn announcements are not public.",
+  expired: "Announcements auto-archive when their end date passes. Change the end date and submit for review to republish.",
 };
 
 function AnnouncementList({ tab, items, selected, onSelect }: Readonly<{
-  tab: "scheduled" | "expired";
+  tab: "scheduled" | "expired" | "review";
   items: Announcement[];
   selected: Announcement | null;
   onSelect: (announcement: Announcement) => void;

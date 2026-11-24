@@ -20,7 +20,7 @@ export default function CampaignPageActions({ initialCampaign, initialDeliveries
     <div className="mb-5 flex justify-end">
       {(canPublish || campaign.needs_review) && <button type="button" onClick={() => setScheduleOpen(true)} className="rounded-xl bg-teal px-4 py-2 text-sm font-semibold text-white">{campaign.needs_review ? "Review schedule" : campaign.generated_through ? "Review / extend schedule" : "Generate / review schedule"}</button>}
     </div>
-    <CampaignSettingsForm campaign={campaign} events={events} adminUsers={adminUsers} canEdit={canEdit} canPublish={canPublish} onSaved={(updated) => { setCampaign(updated); router.refresh(); }} />
+    <CampaignSettingsForm onPostsCopied={posts => { const changed = new Map(posts.map(post => [post.id,post])); setDeliveries(current => current.map(post => changed.get(post.id) ?? post)); }} campaign={campaign} events={events} adminUsers={adminUsers} canEdit={canEdit} canPublish={canPublish} onSaved={(updated) => { setCampaign(updated); router.refresh(); }} />
     {scheduleOpen && <CampaignScheduleModal campaign={campaign} deliveries={deliveries} canEdit={canEdit} canPublish={canPublish} canDelete={canDelete} onClose={() => { setScheduleOpen(false); router.refresh(); }} onDeliveriesChanged={setDeliveries} />}
   </>;
 }

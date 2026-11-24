@@ -1,3 +1,4 @@
+import { contentForChannel } from "../lib/platformDefaults";
 import { DATABASE_PAGE_SIZE } from "@/features/events/constants";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fromZonedTime, formatInTimeZone } from "date-fns-tz";
@@ -13,13 +14,16 @@ import {
   type OccupiedSlot,
 } from "@/features/socialCampaigns/scheduling";
 
-async function readExistingKeys(supabase: SupabaseClient, campaignId: string) {
+async function readExistingKeys(supabase: SupabaseClient, campaignId: string, dates: string[]) {
   const keys = new Set<string>();
+  if (!dates.length) return keys;
+  const sortedDates = [...dates].sort();
   for (let offset = 0; ; offset += DATABASE_PAGE_SIZE) {
     const { data, error } = await supabase
       .from("social_posts")
       .select("source_schedule_id,source_date,reminder_milestone,channel")
       .eq("campaign_id", campaignId)
+      .gte("source_date", sortedDates[0]).lte("source_date", sortedDates[sortedDates.length - 1])
       .order("id")
       .range(offset, offset + DATABASE_PAGE_SIZE - 1);
     if (error) throw new Error(error.message);
@@ -34,11 +38,12 @@ async function readOccupiedSlots(supabase: SupabaseClient, today: string, throug
     const { data, error } = await supabase.from("social_posts")
       .select("schedule_platform,scheduled_date,time_slot,status,retryable")
       .in("status", ["proposed", "scheduled", "due", "processing", "provider_processing", "failed"])
+      .or("status.neq.failed,retryable.eq.true")
       .gte("scheduled_date", today).lte("scheduled_date", through)
       .order("id").range(offset, offset + DATABASE_PAGE_SIZE - 1);
     if (error) throw new Error(error.message);
     for (const row of data ?? []) {
-      if (row.status !== "failed" || row.retryable) occupied.push({
+      occupied.push({
         schedulePlatform: row.schedule_platform, date: row.scheduled_date, slot: row.time_slot,
       } as OccupiedSlot);
     }
@@ -79,7 +84,7 @@ export async function runCampaignGeneration(
 ) {
   const { data: campaign, error: campaignError } = await supabase
     .from("social_campaigns")
-    .select("*")
+    .select("event_id,status,generation_enabled,needs_review,version,starts_on,ends_on,created_at,generated_through,generation_horizon_days,launch_schedule_id,launch_occurrence_at,launch_decision_made,platform_defaults")
     .eq("id", campaignId)
     .single();
   if (campaignError || !campaign)
@@ -144,7 +149,7 @@ export async function runCampaignGeneration(
       generatedThrough: campaign.generated_through as string | null,
       suppressed: 0,
     };
-  const existingKeys = await readExistingKeys(supabase, campaignId);
+  const existingKeys = await readExistingKeys(supabase, campaignId, occurrences.map(occurrence => occurrence.original_key));
   const launch = resolveLaunch(
     campaign,
     occurrences,
@@ -177,7 +182,7 @@ export async function runCampaignGeneration(
     );
   const occupied = await readOccupiedSlots(supabase, today, coverageEnd);
   const { planned, suppressed } = planProposalSlots(raw, occupied, [today, campaign.starts_on].filter(Boolean).sort().at(-1) as string);
-  const proposals = planned.map((proposal, sequence) => {
+  const proposals = planned.flatMap((proposal, sequence) => {
     const source = raw.find(
       (item) => item.generationKey === proposal.generationKey,
     )!;
@@ -186,16 +191,15 @@ export async function runCampaignGeneration(
         item.schedule_id === source.eventScheduleId &&
         item.start_at === source.eventOccurrenceAt,
     )!;
-    return {
+    return proposal.channels.map(channel => ({
       ...proposal,
+      channels: [channel],
       eventScheduleId: occurrence.schedule_id,
       sourceDate: occurrence.original_key,
       sequence,
       title: `${proposal.kind === "initial" ? "Initial post" : `${proposal.milestoneDays}-day reminder`}: ${event.title}`,
-      caption: occurrence.description,
-      mediaUrl: occurrence.poster_url,
-      mediaAlt: occurrence.poster_alt,
-    };
+      ...contentForChannel(campaign.platform_defaults ?? {}, channel, occurrence),
+    }));
   });
   if (options?.preview) return {
     inserted: 0,

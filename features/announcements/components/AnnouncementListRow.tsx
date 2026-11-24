@@ -41,7 +41,7 @@ export default function AnnouncementListRow({
           {announcement.title}
         </p>
         <p className="text-[11px] text-muted">
-          {isScheduled(announcement) && announcement.publish_at
+          {announcement.review_state !== "approved" ? { draft: "Draft", pending: "Pending review", withdrawn: "Withdrawn" }[announcement.review_state] : isScheduled(announcement) && announcement.publish_at
             ? `Goes live ${formatAnnouncementDate(announcement.publish_at)}`
             : `Expired ${formatAnnouncementDate(announcement.expires_at)}`}
         </p>

@@ -1,6 +1,6 @@
 import { PageShell } from "@/app/components/ui/PageShell";
 import { requireViewerPermission } from "@/features/access/server";
-import Link from "next/link";
+import { GuardedLink as Link } from "@/features/navigation/UnsavedChangesProvider";
 import { BaseEventForm } from "../../../../features/events/components/BaseEventForm";
 export default async function NewEvent() {
   await requireViewerPermission("events", "edit");

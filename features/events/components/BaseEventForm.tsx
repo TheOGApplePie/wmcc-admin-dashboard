@@ -3,16 +3,17 @@ import { EVENT_FIELD_LIMITS } from "@/features/events/constants";
 
 import { useRequestId } from "../hooks/useRequestId";
 
-import { useState, type SubmitEvent } from "react";
+import { useRef, useState, useTransition, type SubmitEvent } from "react";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { saveBaseEvent } from "@/actions/events";
 import { baseFields } from "../schemas";
 import { type BaseEvent } from "../domain";
-import { useUnsavedChanges } from "../hooks/useUnsavedChanges";
+import { eventContentKey } from "../lib/formSnapshot";
+import { useTrackedForm } from "../hooks/useTrackedForm";
+import { useCan } from "@/store/hooks";
 import {
   assertResponse,
-  buttonClass,
   errorMessage,
   inputClass,
   nullable,
@@ -29,21 +30,34 @@ export function BaseEventForm({
   event?: BaseEvent;
   onClose?: () => void;
 }>) {
+  const formRef = useRef<HTMLFormElement>(null);
+  const sourceContent = useRef(event ? eventContentKey(event) : null);
   const router = useRouter();
   const [ctaMode, setCtaMode] = useState<"form" | "link">(
     event?.call_to_action_link || event?.call_to_action_caption ? "link" : "form",
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [dirty, setDirty] = useState(false);
-  const discard = useUnsavedChanges(dirty);
+  const canEdit = useCan("events.edit");
+  const [resetVersion, setResetVersion] = useState(0);
+  const [refreshing, startRefresh] = useTransition();
+  function reset() {
+    formRef.current?.reset();
+    sourceContent.current = event ? eventContentKey(event) : null;
+    setCtaMode(event?.call_to_action_link || event?.call_to_action_caption ? "link" : "form");
+    setResetVersion((version) => version + 1);
+    setError("");
+  }
+  const tracked = useTrackedForm("details", formRef, busy || refreshing, reset);
   const requestId = useRequestId();
   async function save(e: SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (busy) return;
+    if (tracked.blocked || !canEdit) return;
     setError("");
     setBusy(true);
     try {
+      if (event && sourceContent.current !== eventContentKey(event))
+        throw new Error("Event details changed. Cancel to load the current values before saving.");
       const form = new FormData(e.currentTarget);
       const fields = baseFields.parse({
         title: value(form, "title"),
@@ -63,17 +77,17 @@ export function BaseEventForm({
         request_id: requestId(payload),
       });
       assertResponse(result);
-      setDirty(false);
+      if (event) sourceContent.current = eventContentKey({ ...event, ...fields });
+      tracked.commit();
       toast.success(
         event
           ? "Event details saved."
           : "Draft created. Add a schedule when ready.",
       );
-      setTimeout(() => {
-        onClose?.();
-        router.push(`/dashboard/events/${result?.data?.data?.id}`);
+      startRefresh(() => {
+        if (!event) router.push(`/dashboard/events/${result?.data?.data?.id}`);
         router.refresh();
-      }, 0);
+      });
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -82,16 +96,17 @@ export function BaseEventForm({
   }
   return (
     <form
-      aria-busy={busy}
+      ref={formRef}
+      aria-busy={busy || refreshing}
       onSubmit={save}
-      onChange={() => setDirty(true)}
-      className="space-y-4"
+      onChange={tracked.changed}
+      className="space-y-5"
     >
       <fieldset
-        disabled={busy}
-        className="space-y-4 disabled:opacity-60"
+        disabled={tracked.blocked || !canEdit}
+        className="space-y-5 disabled:opacity-60"
       >
-        <Field label="Title">
+        <Field label="Event name">
           <input
             className={inputClass}
             name="title"
@@ -133,12 +148,13 @@ export function BaseEventForm({
           </Field>
         </div>
         <PosterFields
+          key={resetVersion}
           url={event?.poster_url ?? null}
           alt={event?.poster_alt ?? ""}
-          onChange={() => setDirty(true)}
+          onChange={tracked.changed}
         />
         <Field label="Event action">
-          <select className={inputClass} value={ctaMode} onChange={(e) => setCtaMode(e.target.value as "form" | "link")}>
+          <select name="cta_mode" className={inputClass} value={ctaMode} onChange={(e) => setCtaMode(e.target.value as "form" | "link")}>
             <option value="form">Cognito form</option>
             <option value="link">CTA link and caption</option>
           </select>
@@ -174,28 +190,19 @@ export function BaseEventForm({
             defaultValue={event?.gallery_url ?? ""}
           />
         </Field>
-        <button className={buttonClass} type="submit">
-          {submitLabel(
-            busy,
-            Boolean(event),
-            "Create draft event",
-            "Save details",
-          )}
-        </button>
+        <div className="flex flex-wrap items-center justify-end gap-3 pt-2">
+          {(onClose || event) && <button
+            type="button" disabled={tracked.blocked || !canEdit}
+            className="rounded-full border border-line px-5 py-2.5 text-sm font-semibold text-muted transition-colors hover:bg-canvas disabled:opacity-50"
+            onClick={() => tracked.cancel(() => { reset(); onClose?.(); })}
+          >Cancel</button>}
+          <button className="rounded-full bg-teal px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-teal-dark disabled:opacity-50" type="submit" disabled={Boolean(event) && !tracked.dirty}>
+            {submitLabel(busy, Boolean(event), "Create draft event", "Save changes")}
+          </button>
+        </div>
       </fieldset>
-      {onClose && (
-        <button
-          type="button"
-          disabled={busy}
-          className="text-sm underline"
-          onClick={() => {
-            if (discard()) onClose();
-          }}
-        >
-          Cancel editing
-        </button>
-      )}
-      {busy && <p role="status">Saving event…</p>}
+      {(busy || refreshing) && <p role="status">Saving event…</p>}
+      {!canEdit && <p className="text-sm text-muted">You have read-only access to event details.</p>}
       {error && (
         <p role="alert" className="whitespace-pre-wrap text-sm text-coral">
           {error}

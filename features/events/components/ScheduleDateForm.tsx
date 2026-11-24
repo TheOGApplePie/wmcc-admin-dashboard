@@ -1,11 +1,11 @@
 "use client";
-import { useState, type SubmitEvent } from "react";
-import { changeScheduleException } from "@/actions/events";
-import { scheduleDateIndex, type BaseEvent, type Schedule } from "../domain";
+import { useRef, useState, type SubmitEvent } from "react";
+import { changeScheduleException, inspectScheduleDate } from "@/actions/events";
+import { type BaseEvent, type Schedule } from "../domain";
 import { useEventMutation } from "../hooks/useEventMutation";
 import { inputClass, buttonClass, utcInput } from "../lib/formUtilities";
 import { useRequestId } from "../hooks/useRequestId";
-import { useUnsavedChanges } from "../hooks/useUnsavedChanges";
+import { useTrackedForm } from "../hooks/useTrackedForm";
 import { Field } from "./Field";
 export function ScheduleDateForm({
   event,
@@ -20,41 +20,48 @@ export function ScheduleDateForm({
   busy: boolean;
   run: ReturnType<typeof useEventMutation>["run"];
   onClose: () => void;
-  onSplit: (date: string) => void;
+  onSplit: (date: string, remainingCount: number | null) => void;
 }>) {
+  const formRef = useRef<HTMLFormElement>(null);
   const requestId = useRequestId();
-  const [dirty, setDirty] = useState(false);
-  const discard = useUnsavedChanges(dirty);
+  const [inspecting, setInspecting] = useState(false);
+  const tracked = useTrackedForm("schedule", formRef, inspecting, onClose);
   const [action, setAction] = useState("cancel");
   const [error, setError] = useState("");
   async function submit(e: SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (tracked.blocked) return;
     const form = new FormData(e.currentTarget);
     const date = String(form.get("date"));
     setError("");
     try {
-      scheduleDateIndex(schedule, date);
-      if (action === "split") { onClose(); onSplit(date); return; }
+      if (action === "split") {
+        setInspecting(true);
+        const result = await inspectScheduleDate({ event_id: event.id, id: schedule.id, version: schedule.version, date });
+        if (!result?.data?.data || result.data.error) throw new Error(result?.data?.error || result?.serverError || "Could not validate the date.");
+        tracked.commit(); onSplit(date, result.data.data.remainingCount); return;
+      }
       const payload = {
         event_id: event.id, id: schedule.id, version: schedule.version, original_date: date,
         action: action as "edit" | "cancel",
         start_at: action === "edit" ? utcInput(String(form.get("start"))) : undefined,
         end_at: action === "edit" ? utcInput(String(form.get("end"))) : undefined,
       };
-      await run(() => changeScheduleException({ ...payload, request_id: requestId(payload) }), () => { setDirty(false); onClose(); });
+      await run(() => changeScheduleException({ ...payload, request_id: requestId(payload) }), () => { tracked.commit(); onClose(); });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Check the dates.");
-    }
+    } finally { setInspecting(false); }
   }
   return (
-    <form onSubmit={submit} onChange={() => setDirty(true)} className="space-y-3 border-t border-line pt-3">
-      <fieldset disabled={busy} className="space-y-3">
+    <form ref={formRef} onSubmit={submit} onChange={tracked.changed} className="space-y-3 border-t border-line pt-3">
+      <fieldset disabled={busy || inspecting} className="space-y-3">
         <Field label="Original date (Toronto)">
           <input name="date" type="date" required className={inputClass} />
         </Field>
         <Field label="Change">
           <select
             className={inputClass}
+            name="action"
             value={action}
             onChange={(e) => setAction(e.target.value)}
           >
@@ -90,7 +97,7 @@ export function ScheduleDateForm({
         <button className={buttonClass}>
           {action === "split" ? "Edit following schedule" : "Save change"}
         </button>
-        <button type="button" className="ml-3 underline" onClick={() => { if (discard()) onClose(); }}>
+        <button type="button" className="ml-3 underline" onClick={() => { tracked.cancel(onClose); }}>
           Cancel
         </button>
       </fieldset>

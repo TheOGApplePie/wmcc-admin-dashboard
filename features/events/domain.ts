@@ -1,3 +1,4 @@
+import "server-only";
 import {
   MAX_SCHEDULE_OCCURRENCES,
   MAX_SCHEDULE_SPAN_DAYS,
@@ -224,7 +225,7 @@ export function scheduleDateIndex(schedule: Schedule, date: string): number {
 }
 
 /** Find one active date for campaign launch selection without expanding an open-ended rule. */
-export function nextScheduleDate(schedule: Schedule, after?: string): ScheduleDate | null {
+export function nextScheduleDate(schedule: Pick<Schedule, "start_at" | "end_at" | "time_zone" | "recurrence_rule">, after?: string): ScheduleDate | null {
   const start = Temporal.Instant.from(schedule.start_at).toZonedDateTimeISO(schedule.time_zone).toPlainDateTime();
   const end = Temporal.Instant.from(schedule.end_at).toZonedDateTimeISO(schedule.time_zone).toPlainDateTime();
   if (!schedule.recurrence_rule) {

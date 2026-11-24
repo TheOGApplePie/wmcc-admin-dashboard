@@ -19,11 +19,12 @@ export interface ScheduleDateRow
   event_id: number;
   id: string;
   schedule_id: string;
+  is_recurring: boolean;
 }
 export interface CalendarSchedule extends Schedule {
   events: BaseEvent;
 }
-export function normalizeSchedule<T extends Schedule>(schedule: T): T {
+export function normalizeSchedule<T extends Pick<Schedule, "recurrence_rule" | "time_zone">>(schedule: T): T {
   const rule = schedule.recurrence_rule;
   if (!rule) return schedule;
   return {
@@ -41,6 +42,7 @@ export function normalizeSchedule<T extends Schedule>(schedule: T): T {
 export async function readCalendarSchedules(
   supabase: SupabaseClient,
   eventId?: number,
+  range?: { from: string | null; through: string },
 ): Promise<CalendarSchedule[]> {
   const rows: CalendarSchedule[] = [];
   for (;;) {
@@ -51,6 +53,11 @@ export async function readCalendarSchedules(
       .neq("events.publication_status", "archived")
       .order("id")
       .range(rows.length, rows.length + DATABASE_PAGE_SIZE - 1);
+    if (range) {
+      query = query.lt("start_at", range.through);
+      // Recurring schedules can overlap even when their anchor has ended.
+      if (range.from) query = query.or(`recurrence_rule_id.not.is.null,end_at.gt.${range.from}`);
+    }
     if (eventId !== undefined) query = query.eq("event_id", eventId);
     const { data, error } = await query.returns<CalendarSchedule[]>();
     if (error) throw new Error(error.message);
@@ -66,7 +73,7 @@ export async function readScheduleDates(
   eventId?: number,
   forCampaign = false,
 ): Promise<ScheduleDateRow[]> {
-  const schedules = await readCalendarSchedules(supabase, eventId);
+  const schedules = await readCalendarSchedules(supabase, eventId, forCampaign ? undefined : { from, through });
   return schedules
     .flatMap((schedule) =>
       (forCampaign ? campaignScheduleDates(schedule, through) : scheduleDates(schedule, { from, through }))
@@ -84,6 +91,7 @@ export async function readScheduleDates(
           id: `${schedule.id}:${date.original_key}`,
           event_id: schedule.event_id,
           schedule_id: schedule.id,
+          is_recurring: Boolean(schedule.recurrence_rule),
         })),
     )
     .sort(
@@ -107,7 +115,7 @@ export async function readScheduleExceptions(
   for (;;) {
     const { data, error } = await supabase
       .from("event_schedule_exceptions")
-      .select("*")
+      .select("id,source_schedule_id,source_rule_id,excluded_date,replacement_schedule_id")
       .eq("event_id", eventId)
       .order("excluded_date")
       .order("id")
@@ -147,4 +155,11 @@ export async function readEventDetail(supabase: SupabaseClient, id: number) {
       status: string;
     } | null,
   };
+}
+
+export async function readEventSchedule(supabase: SupabaseClient, eventId: number, id: string): Promise<Schedule | null> {
+  const { data, error } = await supabase.from("event_schedules").select(SCHEDULE_FIELDS)
+    .eq("event_id", eventId).eq("id", id).maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ? normalizeSchedule(data as unknown as Schedule) : null;
 }

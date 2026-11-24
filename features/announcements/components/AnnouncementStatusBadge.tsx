@@ -2,6 +2,7 @@ import type { Announcement } from "@/app/schemas/announcement";
 import { isExpired, isScheduled } from "../announcementUtils";
 
 function statusAppearance(announcement: Announcement) {
+  if (announcement.review_state !== "approved") return { label: { draft: "Draft", pending: "Pending review", withdrawn: "Withdrawn" }[announcement.review_state], background: "#FEF3C7", color: "#92400E", dot: "#92400E" };
   if (isScheduled(announcement)) return { label: "Scheduled", background: "#FEF3C7", color: "#92400E", dot: "#92400E" };
   if (isExpired(announcement)) return { label: "Expired", background: "#FEE2E2", color: "#B91C1C", dot: "#B91C1C" };
   return { label: "Live", background: "#CCFBF1", color: "#065F46", dot: "#0F8073" };

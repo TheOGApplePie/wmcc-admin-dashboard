@@ -24,6 +24,7 @@ export type PublishResult = {
   success: boolean;
   pending?: boolean;
   retryable?: boolean;
+  uncertain?: boolean;
   providerId?: string;
   externalUrl?: string;
   error?: string;
@@ -96,7 +97,7 @@ async function finishInstagramContainer(
   if (container.status_code === "PUBLISHED") {
     return {
       success: false,
-      retryable: false, providerId: containerId,
+      retryable: false, uncertain: true, providerId: containerId,
       error: "Instagram reports this container already published. Check the account before scheduling another post.",
     };
   }
@@ -156,7 +157,7 @@ async function publishInstagram(delivery: ClaimedDelivery): Promise<PublishResul
     }
     if (delivery.channel === "instagram_feed" ||delivery.channel === "instagram_story") {
       for (const item of delivery.media_items) {
-        try { await assertInstagramImageUrl(item.url, delivery.channel === "instagram_feed"); }
+        try { await assertInstagramImageUrl(item.url); }
         catch (error) { return { success: false, retryable: !(error instanceof InstagramImageValidationError),
           error: error instanceof Error ? error.message : "Instagram image validation failed." }; }
       }
@@ -231,7 +232,7 @@ async function publishWhatsApp(delivery: ClaimedDelivery
     const payload = await jsonResponse(response);
     if (!response.ok)
       return {
-        success: false, retryable: response.status === 429 || response.status >= 500,
+        success: false, retryable: response.status === 429 || response.status >= 500, uncertain: response.status >= 500,
         error:
           payload.message ??
           `WhatsApp service returned HTTP ${response.status}.`,
@@ -245,12 +246,13 @@ async function publishWhatsApp(delivery: ClaimedDelivery
       return {
         success: false,
         retryable: false,
+        uncertain: true,
         error: "WhatsApp service did not confirm message submission.",
       };
     }
     return { success: true, providerId: payload.message.id };
   } catch (error) {
-    return { success: false, retryable: true, error: error instanceof Error ? error.message : String(error) };
+    return { success: false, retryable: true, uncertain: true, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -295,7 +297,7 @@ async function publishTikTok(delivery: ClaimedDelivery): Promise<PublishResult> 
     return { success: false, pending: true, retryable: true, providerId: publishId, error: "TikTok accepted the post and is processing it." };
   } catch (error) {
     const failure = providerFailure(error, delivery.external_id ?? undefined);
-    return delivery.external_id && failure.retryable ? { ...failure, pending: true } : failure;
+    return delivery.external_id && failure.retryable ? { ...failure, pending: true } : { ...failure, uncertain: failure.retryable };
   }
 }
 

@@ -47,14 +47,14 @@ export default async function Dashboard() {
         ? supabase
             .from("social_posts")
             .select(
-              "id, title, channel, time_slot, scheduled_at, status",
+              "id, title, channel, time_slot, scheduled_at, status", { count: "exact" },
             )
             .eq("assigned_to", user.id)
             .in("status", ["draft", "scheduled"])
             .gte("scheduled_at", new Date().toISOString())
             .order("scheduled_at")
             .limit(DASHBOARD_POST_LIMIT)
-        : Promise.resolve({ data: [] }),
+        : Promise.resolve({ data: [], count: 0 }),
       canViewFeedback
         ? supabase
             .from("community-feedback")
@@ -89,7 +89,7 @@ export default async function Dashboard() {
   const recentFeedback = feedbackRes.data ?? [];
   const eventCount = occurrences.length;
   const feedbackCount = feedbackCountRes.count ?? 0;
-  const postCount = myPosts.length;
+  const postCount = myPostsRes.count ?? 0;
 
   const dateLabel = new Date().toLocaleDateString("en-CA", {
     weekday: "long",

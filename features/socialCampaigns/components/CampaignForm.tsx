@@ -1,13 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import PlatformDefaultFields from "./PlatformDefaultFields";
+import { useCallback, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { createSocialCampaign } from "@/actions/socialCampaigns";
+import { CreateCampaignZod } from "@/app/schemas/socialCampaigns";
 import type {
   AdminUserOption,
   CampaignEventOption,
   SocialCampaign,
   SocialPostChannel,
+  PlatformDefaults,
 } from "@/app/schemas/socialCampaigns";
 import { CHANNELS } from "../lib/channels";
 
@@ -29,8 +32,15 @@ export function CampaignForm({
   const [endsOn, setEndsOn] = useState("");
   const [assignee, setAssignee] = useState("");
   const [channels, setChannels] = useState<SocialPostChannel[]>([]);
+  const [defaults, setDefaults] = useState<PlatformDefaults>();
+  const defaultsCustomized = useRef(false);
+  const changeDefaults = useCallback((value: PlatformDefaults, initialized?: boolean) => {
+    if (!initialized) defaultsCustomized.current = true;
+    setDefaults(value);
+  }, []);
+  const [defaultsReady, setDefaultsReady] = useState(false);
   const [saving, setSaving] = useState(false);
-  const availableEvents = events.filter((event) => !event.campaign_id);
+  const availableEvents = events;
   const selectedEvent = availableEvents.find(
     (event) => String(event.id) === eventId,
   );
@@ -44,21 +54,31 @@ export function CampaignForm({
 
   const submit = async () => {
     setSaving(true);
-    const result = await createSocialCampaign({
-      name,
-      description,
-      event_id: eventId ? Number(eventId) : null,
-      starts_on: startsOn || null,
-      ends_on: endsOn || null,
-      default_channels: channels,
-      default_assigned_to: assignee || null,
-      launch_occurrence_at: null,
-    });
-    setSaving(false);
-    if (result?.data?.error) return toast.error(result.data.error);
-    if (result?.data?.data) {
-      toast.success("Campaign created.");
-      onCreated(result.data.data);
+    try {
+      const input = {
+        name,
+        description,
+        event_id: eventId ? Number(eventId) : null,
+        starts_on: startsOn || null,
+        ends_on: endsOn || null,
+        default_channels: channels,
+        platform_defaults: defaults,
+        default_assigned_to: assignee || null,
+        launch_occurrence_at: null,
+      };
+      const validation = CreateCampaignZod.safeParse(input);
+      if (!validation.success) return toast.error(validation.error.issues[0].message);
+      const result = await createSocialCampaign(input);
+      setSaving(false);
+      if (result?.data?.error) return toast.error(result.data.error);
+      if (result?.data?.data) {
+        toast.success("Campaign created.");
+        onCreated(result.data.data);
+      } else toast.error(result?.serverError || "Could not create campaign.");
+    } catch {
+      toast.error("Could not create campaign. Your edits are retained.");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -104,7 +124,7 @@ export function CampaignForm({
           <span className="font-normal text-muted">(optional)</span>
           <select
             value={eventId}
-            onChange={(e) => setEventId(e.target.value)}
+            onChange={(e) => { setEventId(e.target.value); if (!defaultsCustomized.current) { setDefaults(undefined); setDefaultsReady(false); } }}
             className="rounded-xl border border-line bg-white px-3 py-2 font-normal"
           >
             <option value="">Standalone campaign</option>
@@ -174,11 +194,12 @@ export function CampaignForm({
             ))}
           </div>
         </fieldset>
+        <PlatformDefaultFields value={defaults} eventId={eventId ? Number(eventId) : null} channels={channels} onChange={changeDefaults} onReady={setDefaultsReady} />
       </div>
       <div className="mt-5 flex justify-end">
         <button
           type="button"
-          disabled={saving || !name.trim()}
+          disabled={saving || !defaultsReady || !name.trim()}
           onClick={submit}
           className="rounded-xl bg-teal px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
         >

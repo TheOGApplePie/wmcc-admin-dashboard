@@ -17,14 +17,16 @@ import { useAnnouncementModal } from "../modalContext";
 
 interface AnnouncementsClientProps {
   currentAnnouncements: Announcement[];
+  initialTab: AnnouncementTab;
   expiredAnnouncements: Announcement[];
   scheduledAnnouncements: Announcement[];
+  reviewAnnouncements: Announcement[];
 }
 
 export default function AnnouncementsClient({
-  currentAnnouncements,
+  currentAnnouncements, initialTab,
   expiredAnnouncements,
-  scheduledAnnouncements,
+  scheduledAnnouncements, reviewAnnouncements,
 }: Readonly<AnnouncementsClientProps>) {
   const [reordering, setReordering] = useState(false);
   const reorderingRef = useRef(false);
@@ -40,10 +42,10 @@ export default function AnnouncementsClient({
   }, [router, modalOpen]);
   const [liveItems, setLiveItems] = useState(currentAnnouncements);
   const [selected, setSelected] = useState<Announcement | null>(
-    currentAnnouncements[0] ?? null,
+    (initialTab === "review" ? reviewAnnouncements : initialTab === "expired" ? expiredAnnouncements : initialTab === "scheduled" ? scheduledAnnouncements : currentAnnouncements)[0] ?? null,
   );
   const [isMobile, setIsMobile] = useState(false);
-  const [tab, setTab] = useState<AnnouncementTab>("live");
+  const [tab, setTab] = useState<AnnouncementTab>(initialTab);
 
   const handleDragEnd = useCallback(
     async (event: DragEndEvent) => {
@@ -85,6 +87,7 @@ export default function AnnouncementsClient({
     live: liveItems,
     scheduled: scheduledAnnouncements,
     expired: expiredAnnouncements,
+    review: reviewAnnouncements,
   };
   function handleTabChange(newTab: AnnouncementTab) {
     setTab(newTab);

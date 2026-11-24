@@ -13,17 +13,13 @@ export default function NotificationInit() {
     didRun.current = true;
 
     fetchRecentUnread({}).then((res) => {
-      const notifications = res?.data?.notifications ?? [];
-      if (notifications.length === 0) return;
-
-      const overdue = notifications.filter((n) => n.type === "post_overdue");
-      const assigned = notifications.filter((n) => n.type === "post_assigned");
-
-      if (overdue.length > 0) {
+      const overdue = res?.data?.overdueCount ?? 0;
+      const assigned = res?.data?.assignments ?? [];
+      if (overdue > 0) {
         toast(
-          overdue.length === 1
+          overdue === 1
             ? "You have 1 overdue post that needs to be marked as sent."
-            : `You have ${overdue.length} overdue posts that need to be marked as sent.`,
+            : `You have ${overdue} overdue posts that need to be marked as sent.`,
           { icon: "⚠️", duration: 6000 },
         );
       }

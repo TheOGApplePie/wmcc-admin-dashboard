@@ -6,7 +6,8 @@ import { requireViewerPermission } from "@/features/access/server";
 export default async function CommunityFeedback() {
   await requireViewerPermission("feedback", "view");
   const raw = await fetchFeedback({ currentPage: 1, pageSize: 10, search: "" });
-  const feedback = raw.data?.feedback ?? [];
+  if (!raw.data || raw.serverError) throw new Error(raw.serverError || "Could not load feedback.");
+  const feedback = raw.data.feedback ?? [];
 
   return (
     <PageShell title="Community Feedback" subtitle="Messages submitted by community members" noPad>

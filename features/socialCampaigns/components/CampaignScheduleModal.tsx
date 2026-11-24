@@ -12,7 +12,7 @@ import type {
   SocialCampaign,
 } from "@/app/schemas/socialCampaigns";
 import SocialPostsCalendar from "./SocialPostsCalendar";
-import { schedulePlatformFor, scheduledAtFor } from "@/features/socialCampaigns/scheduling";
+import { schedulePlatformFor, scheduledAtFor } from "@/features/socialCampaigns/scheduling/slots";
 
 export default function CampaignScheduleModal({
   campaign,
@@ -96,7 +96,7 @@ export default function CampaignScheduleModal({
         return;
       }
       setPreview(null);
-      const refreshed = await getSocialCalendarPosts();
+      const refreshed = await getSocialCalendarPosts({ campaignId: campaign.id });
       if (!refreshed?.data || refreshed.data.error)
         throw new Error(
           refreshed?.data?.error ||

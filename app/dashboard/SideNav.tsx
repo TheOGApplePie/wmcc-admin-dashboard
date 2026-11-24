@@ -1,5 +1,5 @@
 "use client";
-import Link from "next/link";
+import { GuardedLink as Link } from "@/features/navigation/UnsavedChangesProvider";
 import { usePathname } from "next/navigation";
 import { useCan } from "@/store/hooks";
 
@@ -29,6 +29,12 @@ const NAV: NavItem[] = [
     label: "Social Posts",
     permission: "social.view",
     icon: "M22 2 11 13 M22 2l-7 20-4-9-9-4Z",
+  },
+  {
+    href: "/dashboard/email",
+    label: "Email campaigns",
+    permission: "email.view",
+    icon: "M3 5h18v14H3z M3 6l9 7 9-7",
   },
   {
     href: "/dashboard/community-feedback",
@@ -76,12 +82,14 @@ export default function SideNav() {
   const canViewAnnouncements = useCan("announcements.view");
   const canViewEvents = useCan("events.view");
   const canViewSocial = useCan("social.view");
+  const canViewEmail = useCan("email.view");
   const canViewFeedback = useCan("feedback.view");
   const canViewUsers = useCan("users.view");
   const allowed: Record<string, boolean> = {
     "announcements.view": canViewAnnouncements,
     "events.view": canViewEvents,
     "social.view": canViewSocial,
+    "email.view": canViewEmail,
     "feedback.view": canViewFeedback,
     "users.view": canViewUsers,
   };

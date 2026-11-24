@@ -36,6 +36,7 @@ export default function CampaignLifecycleControls({
   const changeStatus = async (
     action: "activate" | "pause" | "resume" | "complete",
   ) => {
+    if (action === "resume" && !confirm("Resume this campaign? Posts that became overdue while it was paused will be held for review; they will not publish automatically.")) return;
     setWorking(true);
     try {
       const result = await transitionSocialCampaign({ id, action });
@@ -50,7 +51,9 @@ export default function CampaignLifecycleControls({
       toast.success(
         action === "complete"
           ? "Campaign marked as completed."
-          : "Campaign updated.",
+          : action === "resume"
+            ? "Campaign resumed. Overdue posts are held for review."
+            : "Campaign updated.",
       );
       router.refresh();
     } catch {
@@ -63,7 +66,7 @@ export default function CampaignLifecycleControls({
   const remove = async () => {
     if (
       !confirm(
-        "Remove this campaign? An empty draft is permanently deleted; otherwise it is archived and its history is preserved.",
+        "Remove this campaign? An empty draft is permanently deleted; otherwise it is archived, pending posts are cancelled, and its history is preserved.",
       )
     )
       return;

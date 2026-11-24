@@ -1,3 +1,4 @@
+import "server-only";
 import { addCalendarDays } from "./dates";
 import { availableSlots, schedulePlatformFor } from "./slots";
 import type { OccupiedSlot, ScheduleProposal, SocialChannel, SocialTimeSlot } from "./types";

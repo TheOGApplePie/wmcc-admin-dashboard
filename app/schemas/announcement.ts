@@ -2,6 +2,8 @@ import { z } from "zod";
 import { FIVE_MB } from "../constants/general";
 export interface Announcement {
   id: number;
+  review_state: "draft" | "pending" | "approved" | "withdrawn";
+  revision: number;
   publish_at: Date | string | null;
   title: string;
   description: string;
@@ -20,6 +22,7 @@ export interface Announcement {
 export const AnnouncementZod = z
   .object({
     id: z.coerce.number().optional(),
+    revision: z.number().int().positive().optional(),
     publish_at: z.coerce.date().nullable(),
     title: z.string().trim().max(50).min(3),
     description: z.string().trim().max(200).min(20),

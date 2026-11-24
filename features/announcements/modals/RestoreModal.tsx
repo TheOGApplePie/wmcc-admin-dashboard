@@ -29,10 +29,10 @@ export function RestoreModal({ announcement, closeModal }: Readonly<RestoreModal
         setError("Please choose a future Toronto date and time.");
         return;
       }
-      const result = await restoreAnnouncement({ id: announcement.id, expires_at: chosen });
+      const result = await restoreAnnouncement({ id: announcement.id, expires_at: chosen, revision: announcement.revision });
       if (!result?.data?.success && !result?.data?.error) throw new Error("Unable to restore the announcement. Check the end date and try again.");
       if (result.data?.error) throw new Error(result.data.error);
-      toast.success("Announcement restored to live rotation!");
+      toast.success("Announcement saved as a draft. Submit it for review.");
       closeModal();
     } catch (error) {
       setError(error instanceof Error ? error.message : "Unable to restore the announcement.");
@@ -47,7 +47,7 @@ export function RestoreModal({ announcement, closeModal }: Readonly<RestoreModal
       <div className="px-6 py-4 border-b border-line">
         <h2 className="text-[15px] font-bold">Restore announcement</h2>
         <p className="text-[12px] text-muted mt-0.5">
-          Set a new end date to push &ldquo;{announcement.title}&rdquo; back into the live rotation.
+          Set a new end date for &ldquo;{announcement.title}&rdquo;. It will become a draft and require review before publication.
         </p>
       </div>
 
@@ -94,7 +94,7 @@ export function RestoreModal({ announcement, closeModal }: Readonly<RestoreModal
               <path d="M3.51 15a9 9 0 1 0 .49-3.99" />
             </svg>
           )}
-          Restore to live
+          Save as draft
         </button>
       </div>
     </div>

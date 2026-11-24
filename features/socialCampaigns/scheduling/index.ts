@@ -1,3 +1,4 @@
+import "server-only";
 export * from "./types";
 export * from "./dates";
 export * from "./event";

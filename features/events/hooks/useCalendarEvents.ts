@@ -1,4 +1,3 @@
-import { calendarInputs } from "../lib/calendarInputs";
 import { fetchAllEvents } from "@/actions/events";
 import { type EventInput } from "@fullcalendar/react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -52,7 +51,7 @@ export function useCalendarEvents() {
           setEvents([]);
           setError(result.data?.error || "Events could not be loaded.");
         } else {
-          setEvents(calendarInputs(result.data));
+          setEvents(result.data);
         }
         setIsLoading(false);
       })

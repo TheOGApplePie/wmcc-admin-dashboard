@@ -22,7 +22,7 @@ export function eventFromCalendarApi(calendarEvent: EventApi): Event {
     action: extendedProps.action,
     gallery_url: extendedProps.gallery_url,
     navigation_slug: extendedProps.navigation_slug,
-    is_recurring: Boolean(recurrenceRule),
+    is_recurring: Boolean(extendedProps.is_recurring),
     recurrence_rule: recurrenceRule ?? undefined,
     recurrence_rule_id: recurrenceRule?.id,
     start_date: start,

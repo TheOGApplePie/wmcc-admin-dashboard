@@ -5,6 +5,11 @@ import type { Announcement } from "@/app/schemas/announcement";
 import { isScheduled, isExpired, formatAnnouncementDate } from "../announcementUtils";
 import { useAnnouncementModal } from "../modalContext";
 import { useCan } from "@/store/hooks";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import toast from "react-hot-toast";
+import Link from "next/link";
+import { transitionAnnouncementReview } from "../actions";
 
 export default function InspectorPanel({
   selected,
@@ -17,6 +22,9 @@ export default function InspectorPanel({
 }>) {
   const { openEdit, openRestore, openDelete } = useAnnouncementModal();
   const canDelete = useCan("announcements.delete");
+  const canPublish = useCan("announcements.publish");
+  const [working, setWorking] = useState(false);
+  const router = useRouter();
   const scheduled = selected ? isScheduled(selected) : false;
   const expired = selected ? !scheduled && isExpired(selected) : false;
 
@@ -44,6 +52,19 @@ export default function InspectorPanel({
     );
   }
 
+  async function transition(action: "submit" | "approve" | "reject" | "withdraw" | "reopen") {
+    if (!selected || working) return;
+    if (["approve", "withdraw"].includes(action) && !confirm(action === "approve" ? "Approve this exact announcement for publication?" : "Withdraw this announcement from the public site?")) return;
+    setWorking(true);
+    try {
+      const result = await transitionAnnouncementReview({ id: selected.id, revision: selected.revision, action });
+      if (!result?.data?.success) throw new Error(result?.data?.error || result?.serverError || "Unable to update announcement.");
+      toast.success("Announcement updated.");
+      router.refresh();
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Unable to update announcement."); }
+    finally { setWorking(false); }
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
@@ -53,7 +74,7 @@ export default function InspectorPanel({
         <AnnouncementStatusBadge announcement={selected} />
       </div>
 
-      {!expired && !scheduled && (
+      {selected.review_state === "approved" && !expired && !scheduled && (
         <p className="text-[11px] text-muted">
           Position {liveIds.indexOf(selected.id) + 1} of {liveIds.length} in
           rotation
@@ -93,6 +114,17 @@ export default function InspectorPanel({
         <p className="text-[12px] text-ink">{formatAnnouncementDate(selected.expires_at)}</p>
       </div>
 
+      <Link href={`/dashboard/announcements/${selected.id}/history`} className="text-sm font-semibold text-teal">View change history</Link>
+      <div className="flex flex-col gap-2">
+        {canEdit && selected.review_state === "draft" && <button type="button" disabled={working} onClick={() => transition("submit")} className="rounded-xl bg-teal px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">Submit for review</button>}
+        {canPublish && selected.review_state === "pending" && <>
+          <button type="button" disabled={working} onClick={() => transition("approve")} className="rounded-xl bg-teal px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">Approve publication</button>
+          <button type="button" disabled={working} onClick={() => transition("reject")} className="rounded-xl border border-line px-3 py-2 text-sm">Request changes</button>
+        </>}
+        {canPublish && selected.review_state === "approved" && <button type="button" disabled={working} onClick={() => transition("withdraw")} className="rounded-xl border border-line px-3 py-2 text-sm">Withdraw</button>}
+        {canEdit && selected.review_state === "withdrawn" && <button type="button" disabled={working} onClick={() => transition("reopen")} className="rounded-xl border border-line px-3 py-2 text-sm">Return to draft</button>}
+      </div>
+
       {(canEdit || canDelete) && (
         <div className="flex flex-col gap-2 pt-3 border-t border-line">
           {canEdit &&
@@ -116,7 +148,7 @@ export default function InspectorPanel({
                   <polyline points="1 4 1 10 7 10" />
                   <path d="M3.51 15a9 9 0 1 0 .49-3.99" />
                 </svg>
-                Restore to live
+                Change expiry
               </button>
             ) : (
               <button

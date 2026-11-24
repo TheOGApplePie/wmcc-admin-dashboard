@@ -1,14 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import PlatformDefaultFields from "./PlatformDefaultFields";
+import CopyPostDetailsModal from "./CopyPostDetailsModal";
+import { useRouter } from "next/navigation";
+import { useCallback, useState } from "react";
 import toast from "react-hot-toast";
 import { updateSocialCampaign } from "@/actions/socialCampaigns";
+import { UpdateCampaignZod } from "@/app/schemas/socialCampaigns";
 import type {
   AdminUserOption,
   CampaignEventOption,
   CampaignStatus,
   SocialCampaign,
   SocialPostChannel,
+  PlatformDefaults,
+  SocialCalendarPost,
 } from "@/app/schemas/socialCampaigns";
 
 const CHANNELS: Array<{ value: SocialPostChannel; label: string }> = [
@@ -26,6 +32,7 @@ export default function CampaignSettingsForm({
   canEdit,
   canPublish,
   onSaved,
+  onPostsCopied,
 }: Readonly<{
   campaign: SocialCampaign;
   events: CampaignEventOption[];
@@ -33,12 +40,15 @@ export default function CampaignSettingsForm({
   canEdit: boolean;
   canPublish: boolean;
   onSaved: (campaign: SocialCampaign) => void;
+  onPostsCopied: (posts: SocialCalendarPost[]) => void;
 }>) {
   const [form, setForm] = useState(campaign);
+  const router = useRouter();
+  const [copyPlatform, setCopyPlatform] = useState<keyof PlatformDefaults | null>(null);
+  const [defaultsReady, setDefaultsReady] = useState(Object.keys(campaign.platform_defaults ?? {}).length > 0);
+  const changeDefaults = useCallback((value: PlatformDefaults) => setForm(current => ({...current,platform_defaults:value})), []);
   const [saving, setSaving] = useState(false);
-  const availableEvents = events.filter(
-    (event) => !event.campaign_id || event.campaign_id === campaign.id,
-  );
+  const availableEvents = events;
   const toggleChannel = (channel: SocialPostChannel) =>
     setForm((current) => ({
       ...current,
@@ -48,22 +58,35 @@ export default function CampaignSettingsForm({
     }));
   const save = async () => {
     setSaving(true);
-    const result = await updateSocialCampaign({
-      id: form.id,
-      name: form.name,
-      description: form.description,
-      event_id: form.event_id,
-      starts_on: form.starts_on,
-      ends_on: form.ends_on,
-      default_channels: form.default_channels,
-      default_assigned_to: form.default_assigned_to,
-      launch_occurrence_at: form.launch_occurrence_at,
-      status: form.status,
-    });
-    setSaving(false);
-    if (result?.data?.error) return toast.error(result.data.error);
-    if (result?.data?.data) onSaved(result.data.data);
-    toast.success("Campaign settings updated.");
+    try {
+      const input = {
+        id: form.id,
+        version: form.version,
+        platform_defaults: form.platform_defaults,
+        name: form.name,
+        description: form.description,
+        event_id: form.event_id,
+        starts_on: form.starts_on,
+        ends_on: form.ends_on,
+        default_channels: form.default_channels,
+        default_assigned_to: form.default_assigned_to,
+        launch_occurrence_at: form.launch_occurrence_at,
+        status: form.status,
+      };
+      const validation = UpdateCampaignZod.safeParse(input);
+      if (!validation.success) return toast.error(validation.error.issues[0].message);
+      const result = await updateSocialCampaign(input);
+      setSaving(false);
+      if (result?.data?.error) return toast.error(result.data.error);
+      if (!result?.data?.data) return toast.error(result?.serverError || "Could not save settings. Reload if another administrator changed this campaign.");
+      setForm(result.data.data);
+      onSaved(result.data.data);
+      toast.success("Campaign settings updated.");
+    } catch {
+      toast.error("Could not save settings. Your edits are retained.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -215,6 +238,7 @@ export default function CampaignSettingsForm({
             ))}
           </div>
         </fieldset>
+        {canEdit && <PlatformDefaultFields value={form.platform_defaults} eventId={form.event_id} channels={form.default_channels} onChange={changeDefaults} onReady={setDefaultsReady} onCopy={setCopyPlatform} />}
       </fieldset>
       <div className="mt-6 flex items-center justify-between gap-2">
         {!canEdit && (
@@ -226,7 +250,7 @@ export default function CampaignSettingsForm({
           {canEdit && (
             <button
               type="button"
-              disabled={saving || !form.name.trim()}
+              disabled={saving || !defaultsReady || !form.name.trim()}
               onClick={save}
               className="rounded-xl bg-teal px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
@@ -235,6 +259,11 @@ export default function CampaignSettingsForm({
           )}
         </div>
       </div>
+      {copyPlatform && form.platform_defaults?.[copyPlatform] && <CopyPostDetailsModal
+        source={{campaign_id:form.id,post_title:`${copyPlatform} defaults`,channel:copyPlatform === "instagram" ? "instagram_feed" : copyPlatform === "whatsapp" ? "whatsapp" : "tiktok_reel"}}
+        platform={copyPlatform} canPublish={canPublish}
+        details={{caption:form.platform_defaults[copyPlatform]!.message,media_items:form.platform_defaults[copyPlatform]!.poster ? [form.platform_defaults[copyPlatform]!.poster!] : [],hashtags:[]}}
+        onClose={() => setCopyPlatform(null)} onCopied={posts => {onPostsCopied(posts); setCopyPlatform(null); router.refresh(); toast.success("Content copied. Posts require approval.");}} />}
     </section>
   );
 }
